@@ -46,3 +46,34 @@
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
+
+/* Cesium Viewer 스타일 */
+.cesium-container {
+  position: relative;
+}
+
+.cesium-container .cesium-viewer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.cesium-container .cesium-viewer-bottom {
+  display: none;
+}
+
+.cesium-container .cesium-viewer .cesium-widget-credits {
+  display: none !important;
+}
+
+/* Cesium 툴바 스타일 조정 */
+.cesium-container .cesium-viewer .cesium-toolbar-button {
+  background-color: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(71, 85, 105, 0.8);
+}
+
+.cesium-container .cesium-viewer .cesium-toolbar-button:hover {
+  background-color: rgba(51, 65, 85, 0.9);
+}
