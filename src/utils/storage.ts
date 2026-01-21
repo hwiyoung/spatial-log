@@ -3,13 +3,15 @@
 import { extractExifFromFile } from './exifParser'
 
 const DB_NAME = 'spatial-log-db'
-const DB_VERSION = 1
+const DB_VERSION = 3
 
 // 스토어 이름
 const STORES = {
   FILES: 'files',
   FOLDERS: 'folders',
   METADATA: 'metadata',
+  PROJECTS: 'projects',
+  ANNOTATIONS: 'annotations',
 } as const
 
 // 파일 메타데이터 타입
@@ -47,6 +49,40 @@ export interface FolderData {
   createdAt: Date
   updatedAt: Date
   color?: string
+}
+
+// 프로젝트 타입
+export interface ProjectData {
+  id: string
+  name: string
+  description: string | null
+  thumbnailUrl: string | null
+  status: 'active' | 'review' | 'completed' | 'archived'
+  tags: string[]
+  createdAt: Date
+  updatedAt: Date
+}
+
+// 어노테이션 타입
+export interface AnnotationData {
+  id: string
+  projectId: string | null
+  title: string
+  description: string | null
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  status: 'open' | 'in_progress' | 'resolved' | 'closed'
+  position: {
+    x: number
+    y: number
+    z: number
+  } | null
+  gps: {
+    latitude: number
+    longitude: number
+  } | null
+  fileId: string | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 // 저장된 파일 (메타데이터 + Blob)
@@ -97,6 +133,22 @@ function initDB(): Promise<IDBDatabase> {
         metaStore.createIndex('format', 'format', { unique: false })
         metaStore.createIndex('name', 'name', { unique: false })
       }
+
+      // 프로젝트 스토어
+      if (!db.objectStoreNames.contains(STORES.PROJECTS)) {
+        const projectStore = db.createObjectStore(STORES.PROJECTS, { keyPath: 'id' })
+        projectStore.createIndex('status', 'status', { unique: false })
+        projectStore.createIndex('name', 'name', { unique: false })
+      }
+
+      // 어노테이션 스토어
+      if (!db.objectStoreNames.contains(STORES.ANNOTATIONS)) {
+        const annotationStore = db.createObjectStore(STORES.ANNOTATIONS, { keyPath: 'id' })
+        annotationStore.createIndex('projectId', 'projectId', { unique: false })
+        annotationStore.createIndex('status', 'status', { unique: false })
+        annotationStore.createIndex('priority', 'priority', { unique: false })
+        annotationStore.createIndex('fileId', 'fileId', { unique: false })
+      }
     }
   })
 }
@@ -135,9 +187,17 @@ export function detectFileFormat(
   }
 }
 
-// UUID 생성
+// UUID 생성 (브라우저 호환성 폴백 포함)
 export function generateId(): string {
-  return crypto.randomUUID()
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // 폴백: RFC4122 v4 UUID 생성
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 }
 
 // === 파일 관련 함수 ===
@@ -517,7 +577,7 @@ export async function clearAllData(): Promise<void> {
 
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(
-      [STORES.FILES, STORES.FOLDERS, STORES.METADATA],
+      [STORES.FILES, STORES.FOLDERS, STORES.METADATA, STORES.PROJECTS, STORES.ANNOTATIONS],
       'readwrite'
     )
 
@@ -526,7 +586,262 @@ export async function clearAllData(): Promise<void> {
     transaction.objectStore(STORES.FILES).clear()
     transaction.objectStore(STORES.FOLDERS).clear()
     transaction.objectStore(STORES.METADATA).clear()
+    transaction.objectStore(STORES.PROJECTS).clear()
+    transaction.objectStore(STORES.ANNOTATIONS).clear()
 
     transaction.oncomplete = () => resolve()
+  })
+}
+
+// === 프로젝트 관련 함수 ===
+
+// 프로젝트 생성
+export async function createProject(
+  name: string,
+  description: string | null = null,
+  tags: string[] = []
+): Promise<ProjectData> {
+  const db = await initDB()
+  const now = new Date()
+
+  const project: ProjectData = {
+    id: generateId(),
+    name,
+    description,
+    thumbnailUrl: null,
+    status: 'active',
+    tags,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.PROJECTS], 'readwrite')
+    const store = transaction.objectStore(STORES.PROJECTS)
+    const request = store.put(project)
+
+    request.onerror = () => reject(new Error('프로젝트 생성 실패'))
+    request.onsuccess = () => resolve(project)
+  })
+}
+
+// 프로젝트 조회
+export async function getProject(id: string): Promise<ProjectData | null> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.PROJECTS], 'readonly')
+    const store = transaction.objectStore(STORES.PROJECTS)
+    const request = store.get(id)
+
+    request.onerror = () => reject(new Error('프로젝트 조회 실패'))
+    request.onsuccess = () => resolve(request.result || null)
+  })
+}
+
+// 모든 프로젝트 조회
+export async function getAllProjects(): Promise<ProjectData[]> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.PROJECTS], 'readonly')
+    const store = transaction.objectStore(STORES.PROJECTS)
+    const request = store.getAll()
+
+    request.onerror = () => reject(new Error('프로젝트 목록 조회 실패'))
+    request.onsuccess = () => {
+      // 최신순 정렬
+      const projects = request.result as ProjectData[]
+      projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      resolve(projects)
+    }
+  })
+}
+
+// 프로젝트 업데이트
+export async function updateProject(
+  id: string,
+  updates: Partial<Omit<ProjectData, 'id' | 'createdAt'>>
+): Promise<ProjectData | null> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.PROJECTS], 'readwrite')
+    const store = transaction.objectStore(STORES.PROJECTS)
+
+    const getRequest = store.get(id)
+
+    getRequest.onerror = () => reject(new Error('프로젝트 조회 실패'))
+    getRequest.onsuccess = () => {
+      const existing = getRequest.result as ProjectData | undefined
+      if (!existing) {
+        resolve(null)
+        return
+      }
+
+      const updated: ProjectData = {
+        ...existing,
+        ...updates,
+        updatedAt: new Date(),
+      }
+
+      const putRequest = store.put(updated)
+      putRequest.onerror = () => reject(new Error('프로젝트 업데이트 실패'))
+      putRequest.onsuccess = () => resolve(updated)
+    }
+  })
+}
+
+// 프로젝트 삭제
+export async function deleteProject(id: string): Promise<void> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.PROJECTS], 'readwrite')
+    const store = transaction.objectStore(STORES.PROJECTS)
+    const request = store.delete(id)
+
+    request.onerror = () => reject(new Error('프로젝트 삭제 실패'))
+    request.onsuccess = () => resolve()
+  })
+}
+
+// === 어노테이션 관련 함수 ===
+
+// 어노테이션 생성
+export async function createAnnotation(
+  data: Omit<AnnotationData, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<AnnotationData> {
+  const db = await initDB()
+  const now = new Date()
+
+  const annotation: AnnotationData = {
+    id: generateId(),
+    ...data,
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readwrite')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const request = store.put(annotation)
+
+    request.onerror = () => reject(new Error('어노테이션 생성 실패'))
+    request.onsuccess = () => resolve(annotation)
+  })
+}
+
+// 어노테이션 조회
+export async function getAnnotation(id: string): Promise<AnnotationData | null> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readonly')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const request = store.get(id)
+
+    request.onerror = () => reject(new Error('어노테이션 조회 실패'))
+    request.onsuccess = () => resolve(request.result || null)
+  })
+}
+
+// 모든 어노테이션 조회
+export async function getAllAnnotations(): Promise<AnnotationData[]> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readonly')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const request = store.getAll()
+
+    request.onerror = () => reject(new Error('어노테이션 목록 조회 실패'))
+    request.onsuccess = () => {
+      const annotations = request.result as AnnotationData[]
+      annotations.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      resolve(annotations)
+    }
+  })
+}
+
+// 프로젝트별 어노테이션 조회
+export async function getAnnotationsByProject(projectId: string | null): Promise<AnnotationData[]> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readonly')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const index = store.index('projectId')
+    const request = index.getAll(projectId)
+
+    request.onerror = () => reject(new Error('프로젝트별 어노테이션 조회 실패'))
+    request.onsuccess = () => {
+      const annotations = request.result as AnnotationData[]
+      annotations.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      resolve(annotations)
+    }
+  })
+}
+
+// 파일별 어노테이션 조회
+export async function getAnnotationsByFile(fileId: string): Promise<AnnotationData[]> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readonly')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const index = store.index('fileId')
+    const request = index.getAll(fileId)
+
+    request.onerror = () => reject(new Error('파일별 어노테이션 조회 실패'))
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+// 어노테이션 업데이트
+export async function updateAnnotation(
+  id: string,
+  updates: Partial<Omit<AnnotationData, 'id' | 'createdAt'>>
+): Promise<AnnotationData | null> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readwrite')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+
+    const getRequest = store.get(id)
+
+    getRequest.onerror = () => reject(new Error('어노테이션 조회 실패'))
+    getRequest.onsuccess = () => {
+      const existing = getRequest.result as AnnotationData | undefined
+      if (!existing) {
+        resolve(null)
+        return
+      }
+
+      const updated: AnnotationData = {
+        ...existing,
+        ...updates,
+        updatedAt: new Date(),
+      }
+
+      const putRequest = store.put(updated)
+      putRequest.onerror = () => reject(new Error('어노테이션 업데이트 실패'))
+      putRequest.onsuccess = () => resolve(updated)
+    }
+  })
+}
+
+// 어노테이션 삭제
+export async function deleteAnnotation(id: string): Promise<void> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.ANNOTATIONS], 'readwrite')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const request = store.delete(id)
+
+    request.onerror = () => reject(new Error('어노테이션 삭제 실패'))
+    request.onsuccess = () => resolve()
   })
 }

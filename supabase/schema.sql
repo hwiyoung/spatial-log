@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS public.projects (
   name VARCHAR(255) NOT NULL,
   description TEXT,
   thumbnail_url TEXT,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  status VARCHAR(20) DEFAULT 'active',
+  tags TEXT[] DEFAULT '{}',
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -60,7 +62,7 @@ CREATE TABLE IF NOT EXISTS public.folders (
   name VARCHAR(255) NOT NULL,
   parent_id UUID REFERENCES public.folders(id) ON DELETE CASCADE,
   color VARCHAR(7),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -73,7 +75,7 @@ CREATE TABLE IF NOT EXISTS public.files (
   size BIGINT NOT NULL,
   format file_format NOT NULL DEFAULT 'other',
   folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
-  storage_path TEXT NOT NULL,
+  storage_path TEXT,
   thumbnail_path TEXT,
   gps_latitude DOUBLE PRECISION,
   gps_longitude DOUBLE PRECISION,
@@ -82,8 +84,8 @@ CREATE TABLE IF NOT EXISTS public.files (
   exif_make VARCHAR(100),
   exif_model VARCHAR(100),
   exif_datetime TIMESTAMPTZ,
-  tags TEXT[],
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  tags TEXT[] DEFAULT '{}',
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -103,7 +105,7 @@ CREATE TABLE IF NOT EXISTS public.annotations (
   gps_longitude DOUBLE PRECISION,
   location GEOGRAPHY(POINT, 4326),
   file_id UUID REFERENCES public.files(id) ON DELETE SET NULL,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -178,11 +180,12 @@ CREATE TRIGGER trigger_annotations_updated_at
   BEFORE UPDATE ON public.annotations
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Row Level Security (RLS)
-ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.files ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.annotations ENABLE ROW LEVEL SECURITY;
+-- Row Level Security (RLS) - 개발 환경에서는 비활성화
+-- 프로덕션에서는 ENABLE로 변경 필요
+ALTER TABLE public.projects DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.folders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.files DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.annotations DISABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they exist
 DROP POLICY IF EXISTS "Users can view own projects" ON public.projects;
@@ -251,5 +254,6 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 
--- Storage bucket will be created via Storage API after service starts
--- The bucket 'spatial-files' can be created through Supabase Studio or API
+-- Storage bucket은 Storage API를 통해 생성됩니다.
+-- Supabase Studio (http://192.168.10.203:3101)에서 Storage > Create new bucket으로 생성하거나
+-- 앱 시작 시 자동으로 생성됩니다.

@@ -14,15 +14,18 @@ import {
   X,
   Image,
   FileText,
-  ChevronRight,
   HardDrive,
   Loader2,
   MapPin,
   Scan,
+  Download,
+  Eye,
 } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
 import { Modal, Input, FileUpload } from '@/components/common'
+import ThreeCanvas from '@/components/viewer/ThreeCanvas'
 import { formatFileSize } from '@/utils/storage'
+import { getFileUrl } from '@/services/api'
 import type { FileMetadata, FolderData } from '@/services/api'
 
 // 포맷별 아이콘 매핑
@@ -87,6 +90,8 @@ export default function Assets() {
     selectFile,
     clearSelection,
     setViewMode,
+    getFileDownloadUrl,
+    getFileBlob,
   } = useAssetStore()
 
   // 모달 상태
@@ -96,6 +101,11 @@ export default function Assets() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
   const [editingFolderName, setEditingFolderName] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'file' | 'folder'; id: string } | null>(null)
+
+  // 3D 미리보기 상태
+  const [previewFile, setPreviewFile] = useState<FileMetadata | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
 
   // 초기화
   useEffect(() => {
@@ -151,12 +161,100 @@ export default function Assets() {
     setContextMenu({ x: e.clientX, y: e.clientY, type, id })
   }, [])
 
+  // 파일 다운로드 - Blob을 사용하여 API key 문제 회피
+  const handleDownload = useCallback(async (file: FileMetadata) => {
+    try {
+      // 항상 Blob으로 직접 다운로드 (API key 문제 회피)
+      const blob = await getFileBlob(file.id)
+      if (!blob) {
+        alert('파일을 다운로드할 수 없습니다.')
+        return
+      }
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = file.name
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      console.error('다운로드 실패:', err)
+      alert('파일 다운로드 중 오류가 발생했습니다.')
+    }
+  }, [getFileBlob])
+
+  // 3D 파일 미리보기
+  const handlePreview = useCallback(async (file: FileMetadata) => {
+    // 3D 파일 포맷인지 확인
+    const is3DFormat = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)
+    if (!is3DFormat) {
+      alert('3D 미리보기는 GLTF, GLB, OBJ, FBX, PLY, LAS 파일만 지원합니다.')
+      return
+    }
+
+    // 이전 미리보기가 있다면 먼저 닫기
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(null)
+      setPreviewFile(null)
+      // WebGL 컨텍스트 정리를 위한 대기
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+
+    setPreviewFile(file)
+    setIsLoadingPreview(true)
+
+    try {
+      // Blob으로 직접 다운로드하여 URL 생성 (signed URL 401 에러 회피)
+      const blob = await getFileBlob(file.id)
+      if (blob) {
+        // blob URL에 파일 확장자 힌트 추가
+        const blobUrl = URL.createObjectURL(blob) + `#file.${file.format}`
+        setPreviewUrl(blobUrl)
+      } else {
+        alert('파일을 로드할 수 없습니다.')
+        setPreviewFile(null)
+      }
+    } catch (err) {
+      console.error('미리보기 로드 실패:', err)
+      alert('파일을 로드할 수 없습니다.')
+      setPreviewFile(null)
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }, [getFileBlob, previewUrl])
+
+  // 미리보기 닫기
+  const closePreview = useCallback(() => {
+    if (previewUrl) {
+      // hash fragment 제거 후 blob URL revoke
+      const blobUrlOnly = previewUrl.split('#')[0] || previewUrl
+      if (blobUrlOnly.startsWith('blob:')) {
+        URL.revokeObjectURL(blobUrlOnly)
+      }
+    }
+    setPreviewFile(null)
+    setPreviewUrl(null)
+  }, [previewUrl])
+
   // 컨텍스트 메뉴 닫기
   useEffect(() => {
     const handleClick = () => setContextMenu(null)
     document.addEventListener('click', handleClick)
     return () => document.removeEventListener('click', handleClick)
   }, [])
+
+  // ESC 키로 미리보기 닫기
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && previewFile) {
+        closePreview()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [previewFile, closePreview])
 
   // 현재 폴더의 파일만 필터링
   const currentFiles = selectedFolderId === null
@@ -184,6 +282,18 @@ export default function Assets() {
           {selectedFileIds.length > 0 && (
             <div className="flex items-center space-x-2 mr-4">
               <span className="text-sm text-slate-400">{selectedFileIds.length}개 선택됨</span>
+              {selectedFileIds.length === 1 && (
+                <button
+                  onClick={() => {
+                    const file = files.find(f => f.id === selectedFileIds[0])
+                    if (file) handleDownload(file)
+                  }}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg border border-blue-600/30"
+                >
+                  <Download size={14} />
+                  <span className="text-sm">다운로드</span>
+                </button>
+              )}
               <button
                 onClick={handleDeleteSelected}
                 className="flex items-center space-x-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg border border-red-600/30"
@@ -332,6 +442,11 @@ export default function Assets() {
                 <div
                   key={file.id}
                   onClick={(e) => handleFileClick(e, file.id)}
+                  onDoubleClick={() => {
+                    if (['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
+                      handlePreview(file)
+                    }
+                  }}
                   onContextMenu={(e) => handleContextMenu(e, 'file', file.id)}
                   className={`group bg-slate-800 rounded-lg p-3 border cursor-pointer transition-all hover:shadow-lg ${
                     selectedFileIds.includes(file.id)
@@ -363,10 +478,37 @@ export default function Assets() {
 
                     {/* 호버 액션 */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                      <button className="bg-slate-900/80 p-1.5 rounded hover:bg-blue-600 text-white">
-                        <ChevronRight size={12} />
+                      {['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handlePreview(file)
+                          }}
+                          className="bg-slate-900/80 p-1.5 rounded hover:bg-green-600 text-white"
+                          title="3D 미리보기"
+                        >
+                          <Eye size={12} />
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDownload(file)
+                        }}
+                        className="bg-slate-900/80 p-1.5 rounded hover:bg-blue-600 text-white"
+                        title="다운로드"
+                      >
+                        <Download size={12} />
                       </button>
-                      <button className="bg-slate-900/80 p-1.5 rounded hover:bg-blue-600 text-white">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          handleContextMenu(e, 'file', file.id)
+                        }}
+                        className="bg-slate-900/80 p-1.5 rounded hover:bg-blue-600 text-white"
+                        title="더 보기"
+                      >
                         <MoreVertical size={12} />
                       </button>
                     </div>
@@ -406,6 +548,11 @@ export default function Assets() {
                 <div
                   key={file.id}
                   onClick={(e) => handleFileClick(e, file.id)}
+                  onDoubleClick={() => {
+                    if (['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
+                      handlePreview(file)
+                    }
+                  }}
                   onContextMenu={(e) => handleContextMenu(e, 'file', file.id)}
                   className={`grid grid-cols-12 gap-4 px-4 py-3 rounded-lg cursor-pointer transition-colors ${
                     selectedFileIds.includes(file.id)
@@ -426,8 +573,38 @@ export default function Assets() {
                   <span className="col-span-2 text-sm text-slate-400 uppercase flex items-center">{file.format}</span>
                   <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatFileSize(file.size)}</span>
                   <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatDate(file.createdAt)}</span>
-                  <div className="col-span-1 flex items-center justify-end">
-                    <button className="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded opacity-0 group-hover:opacity-100">
+                  <div className="col-span-1 flex items-center justify-end space-x-1">
+                    {['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handlePreview(file)
+                        }}
+                        className="p-1 text-slate-500 hover:text-green-400 hover:bg-slate-700 rounded"
+                        title="3D 미리보기"
+                      >
+                        <Eye size={14} />
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDownload(file)
+                      }}
+                      className="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded"
+                      title="다운로드"
+                    >
+                      <Download size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                        handleContextMenu(e, 'file', file.id)
+                      }}
+                      className="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded"
+                      title="더 보기"
+                    >
                       <MoreVertical size={14} />
                     </button>
                   </div>
@@ -535,6 +712,28 @@ export default function Assets() {
             <>
               <button
                 onClick={() => {
+                  const file = files.find(f => f.id === contextMenu.id)
+                  if (file) handlePreview(file)
+                  setContextMenu(null)
+                }}
+                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-white hover:bg-slate-700"
+              >
+                <Eye size={14} />
+                <span>3D 미리보기</span>
+              </button>
+              <button
+                onClick={() => {
+                  const file = files.find(f => f.id === contextMenu.id)
+                  if (file) handleDownload(file)
+                  setContextMenu(null)
+                }}
+                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-white hover:bg-slate-700"
+              >
+                <Download size={14} />
+                <span>다운로드</span>
+              </button>
+              <button
+                onClick={() => {
                   deleteFiles([contextMenu.id])
                   setContextMenu(null)
                 }}
@@ -545,6 +744,59 @@ export default function Assets() {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* 3D 미리보기 모달 */}
+      {previewFile && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="bg-slate-900 rounded-xl border border-slate-700 w-full max-w-5xl h-[80vh] shadow-2xl flex flex-col">
+            {/* 헤더 */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-700">
+              <div className="flex items-center gap-3">
+                <Box size={20} className="text-blue-400" />
+                <div>
+                  <h2 className="text-lg font-semibold text-white">{previewFile.name}</h2>
+                  <p className="text-xs text-slate-400">
+                    {previewFile.format.toUpperCase()} · {formatFileSize(previewFile.size)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDownload(previewFile)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg"
+                >
+                  <Download size={14} />
+                  다운로드
+                </button>
+                <button
+                  onClick={closePreview}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* 3D 뷰어 */}
+            <div className="flex-1 relative">
+              {isLoadingPreview ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-3 text-slate-400">
+                    <Loader2 size={40} className="animate-spin" />
+                    <span>모델 로딩 중...</span>
+                  </div>
+                </div>
+              ) : previewUrl ? (
+                <ThreeCanvas modelUrl={previewUrl} modelFormat={previewFile?.format} />
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-slate-500">
+                  <span>파일을 로드할 수 없습니다</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,7 +1,7 @@
 // API Service Layer - Supabase와 로컬 스토리지 추상화
 
 import { getSupabaseClient, isSupabaseConfigured, STORAGE_BUCKET } from '@/lib/supabase'
-import type { FileRow, FolderRow, InsertTables, UpdateTables } from '@/lib/database.types'
+import type { FileRow, FolderRow, ProjectRow, AnnotationRow, InsertTables, UpdateTables } from '@/lib/database.types'
 import * as localStorage from '@/utils/storage'
 import { extractExifFromFile } from '@/utils/exifParser'
 
@@ -10,6 +10,10 @@ type FileInsert = InsertTables<'files'>
 type FileUpdate = UpdateTables<'files'>
 type FolderInsert = InsertTables<'folders'>
 type FolderUpdate = UpdateTables<'folders'>
+type ProjectInsert = InsertTables<'projects'>
+type ProjectUpdate = UpdateTables<'projects'>
+type AnnotationInsert = InsertTables<'annotations'>
+type AnnotationUpdate = UpdateTables<'annotations'>
 
 // 통합 파일 메타데이터 타입
 export interface FileMetadata {
@@ -42,6 +46,40 @@ export interface FolderData {
   name: string
   parentId: string | null
   color?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+// 통합 프로젝트 타입
+export interface ProjectData {
+  id: string
+  name: string
+  description: string | null
+  thumbnailUrl: string | null
+  status: 'active' | 'review' | 'completed' | 'archived'
+  tags: string[]
+  createdAt: Date
+  updatedAt: Date
+}
+
+// 통합 어노테이션 타입
+export interface AnnotationData {
+  id: string
+  projectId: string | null
+  title: string
+  description: string | null
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  status: 'open' | 'in_progress' | 'resolved' | 'closed'
+  position: {
+    x: number
+    y: number
+    z: number
+  } | null
+  gps: {
+    latitude: number
+    longitude: number
+  } | null
+  fileId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -88,6 +126,41 @@ function mapFolderRowToData(row: FolderRow): FolderData {
   }
 }
 
+function mapProjectRowToData(row: ProjectRow): ProjectData {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    thumbnailUrl: row.thumbnail_url,
+    status: (row.status as ProjectData['status']) ?? 'active',
+    tags: row.tags ?? [],
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  }
+}
+
+function mapAnnotationRowToData(row: AnnotationRow): AnnotationData {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    description: row.description,
+    priority: row.priority,
+    status: row.status,
+    position:
+      row.position_x !== null && row.position_y !== null && row.position_z !== null
+        ? { x: row.position_x, y: row.position_y, z: row.position_z }
+        : null,
+    gps:
+      row.gps_latitude !== null && row.gps_longitude !== null
+        ? { latitude: row.gps_latitude, longitude: row.gps_longitude }
+        : null,
+    fileId: row.file_id,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  }
+}
+
 // === 파일 API ===
 
 export async function uploadFile(
@@ -107,25 +180,26 @@ export async function uploadFile(
 
   const supabase = getSupabaseClient()
 
-  // 현재 사용자 확인
+  // 개발 환경에서는 인증 없이 진행 (user_id는 nullable)
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    throw new Error('로그인이 필요합니다.')
-  }
+  const userId = user?.id ?? 'anonymous'
 
   // 파일 경로 생성 (user_id/folder_id/filename)
   const timestamp = Date.now()
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
   const storagePath = folderId
-    ? `${user.id}/${folderId}/${timestamp}_${sanitizedName}`
-    : `${user.id}/${timestamp}_${sanitizedName}`
+    ? `${userId}/${folderId}/${timestamp}_${sanitizedName}`
+    : `${userId}/${timestamp}_${sanitizedName}`
 
   // Storage에 파일 업로드
+  // e57 등 브라우저가 인식하지 못하는 파일 타입은 contentType을 명시적으로 설정
+  const contentType = file.type || getMimeTypeFromExtension(file.name)
   const { error: uploadError } = await supabase.storage
     .from(STORAGE_BUCKET)
     .upload(storagePath, file, {
       cacheControl: '3600',
       upsert: false,
+      contentType,
     })
 
   if (uploadError) {
@@ -144,7 +218,7 @@ export async function uploadFile(
     // 썸네일 생성 및 업로드
     try {
       const thumbnailBlob = await createThumbnailBlob(file)
-      const thumbPath = `${user.id}/thumbnails/${timestamp}_thumb.jpg`
+      const thumbPath = `${userId}/thumbnails/${timestamp}_thumb.jpg`
 
       const { error: thumbError } = await supabase.storage
         .from(STORAGE_BUCKET)
@@ -200,7 +274,7 @@ export async function uploadFile(
     exif_make: exifData?.make,
     exif_model: exifData?.model,
     exif_datetime: exifData?.dateTime?.toISOString(),
-    user_id: user.id,
+    user_id: user?.id ?? null,
   }
   const { data, error: insertError } = await supabase
     .from('files')
@@ -410,15 +484,13 @@ export async function createFolder(
   }
 
   const supabase = getSupabaseClient()
+  // 개발 환경에서는 인증 없이 진행 (user_id는 nullable)
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    throw new Error('로그인이 필요합니다.')
-  }
 
   const insertData: FolderInsert = {
     name,
     parent_id: parentId,
-    user_id: user.id,
+    user_id: user?.id ?? null,
   }
   const { data, error } = await supabase
     .from('folders')
@@ -520,6 +592,30 @@ export async function getStorageUsage(): Promise<{ used: number; files: number }
 
 // === 유틸리티 ===
 
+// 파일 확장자에서 MIME 타입 추출
+// 3D 파일은 Supabase Storage 호환성을 위해 application/octet-stream 사용
+function getMimeTypeFromExtension(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase()
+
+  // 3D 모델 포맷은 모두 application/octet-stream 사용 (Supabase Storage 호환성)
+  const binaryFormats = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57']
+  if (ext && binaryFormats.includes(ext)) {
+    return 'application/octet-stream'
+  }
+
+  const mimeTypes: Record<string, string> = {
+    // 이미지
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    tiff: 'image/tiff',
+    tif: 'image/tiff',
+  }
+  return mimeTypes[ext || ''] || 'application/octet-stream'
+}
+
 async function createThumbnailBlob(file: File, maxSize = 200): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -597,6 +693,267 @@ export async function signOut() {
   const supabase = getSupabaseClient()
   const { error } = await supabase.auth.signOut()
   if (error) throw error
+}
+
+// === 프로젝트 API ===
+
+export async function createProject(
+  name: string,
+  description: string | null = null,
+  tags: string[] = []
+): Promise<ProjectData> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.createProject(name, description, tags)
+  }
+
+  const supabase = getSupabaseClient()
+  // 개발 환경에서는 인증 없이 진행 (user_id는 nullable)
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const insertData: ProjectInsert = {
+    name,
+    description,
+    user_id: user?.id ?? null,
+    status: 'active',
+    tags,
+  }
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert(insertData as never)
+    .select()
+    .single()
+
+  if (error || !data) {
+    throw new Error(`프로젝트 생성 실패: ${error?.message}`)
+  }
+
+  return mapProjectRowToData(data as ProjectRow)
+}
+
+export async function getProjects(): Promise<ProjectData[]> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.getAllProjects()
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    throw new Error(`프로젝트 목록 조회 실패: ${error.message}`)
+  }
+
+  return ((data || []) as ProjectRow[]).map(mapProjectRowToData)
+}
+
+export async function getProject(id: string): Promise<ProjectData | null> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.getProject(id)
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  return mapProjectRowToData(data as ProjectRow)
+}
+
+export async function updateProject(
+  id: string,
+  updates: Partial<Pick<ProjectData, 'name' | 'description' | 'thumbnailUrl' | 'status' | 'tags'>>
+): Promise<ProjectData | null> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.updateProject(id, updates)
+  }
+
+  const supabase = getSupabaseClient()
+  const updateData: ProjectUpdate = {
+    name: updates.name,
+    description: updates.description,
+    thumbnail_url: updates.thumbnailUrl,
+  }
+
+  const { data, error } = await supabase
+    .from('projects')
+    .update(updateData as never)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  const project = mapProjectRowToData(data as ProjectRow)
+  // Supabase에 저장되지 않는 필드들은 updates에서 가져옴
+  return {
+    ...project,
+    status: updates.status ?? project.status,
+    tags: updates.tags ?? project.tags,
+  }
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    await localStorage.deleteProject(id)
+    return
+  }
+
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.from('projects').delete().eq('id', id)
+
+  if (error) {
+    throw new Error(`프로젝트 삭제 실패: ${error.message}`)
+  }
+}
+
+// === 어노테이션 API ===
+
+export async function createAnnotation(
+  data: Omit<AnnotationData, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<AnnotationData> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.createAnnotation(data)
+  }
+
+  const supabase = getSupabaseClient()
+  // 개발 환경에서는 인증 없이 진행 (user_id는 nullable)
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const insertData: AnnotationInsert = {
+    project_id: data.projectId,
+    title: data.title,
+    description: data.description,
+    priority: data.priority,
+    status: data.status,
+    position_x: data.position?.x,
+    position_y: data.position?.y,
+    position_z: data.position?.z,
+    gps_latitude: data.gps?.latitude,
+    gps_longitude: data.gps?.longitude,
+    file_id: data.fileId,
+    user_id: user?.id ?? null,
+  }
+
+  const { data: result, error } = await supabase
+    .from('annotations')
+    .insert(insertData as never)
+    .select()
+    .single()
+
+  if (error || !result) {
+    throw new Error(`어노테이션 생성 실패: ${error?.message}`)
+  }
+
+  return mapAnnotationRowToData(result as AnnotationRow)
+}
+
+export async function getAnnotations(projectId?: string | null): Promise<AnnotationData[]> {
+  if (!isSupabaseConfigured()) {
+    if (projectId !== undefined) {
+      return await localStorage.getAnnotationsByProject(projectId)
+    }
+    return await localStorage.getAllAnnotations()
+  }
+
+  const supabase = getSupabaseClient()
+  let query = supabase.from('annotations').select('*').order('updated_at', { ascending: false })
+
+  if (projectId !== undefined) {
+    if (projectId === null) {
+      query = query.is('project_id', null)
+    } else {
+      query = query.eq('project_id', projectId)
+    }
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw new Error(`어노테이션 목록 조회 실패: ${error.message}`)
+  }
+
+  return ((data || []) as AnnotationRow[]).map(mapAnnotationRowToData)
+}
+
+export async function getAnnotation(id: string): Promise<AnnotationData | null> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.getAnnotation(id)
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('annotations')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  return mapAnnotationRowToData(data as AnnotationRow)
+}
+
+export async function updateAnnotation(
+  id: string,
+  updates: Partial<Omit<AnnotationData, 'id' | 'createdAt' | 'updatedAt'>>
+): Promise<AnnotationData | null> {
+  if (!isSupabaseConfigured()) {
+    return await localStorage.updateAnnotation(id, updates)
+  }
+
+  const supabase = getSupabaseClient()
+  const updateData: AnnotationUpdate = {
+    title: updates.title,
+    description: updates.description,
+    priority: updates.priority,
+    status: updates.status,
+    position_x: updates.position?.x,
+    position_y: updates.position?.y,
+    position_z: updates.position?.z,
+    gps_latitude: updates.gps?.latitude,
+    gps_longitude: updates.gps?.longitude,
+    file_id: updates.fileId,
+    project_id: updates.projectId ?? undefined,
+  }
+
+  const { data, error } = await supabase
+    .from('annotations')
+    .update(updateData as never)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  return mapAnnotationRowToData(data as AnnotationRow)
+}
+
+export async function deleteAnnotation(id: string): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    await localStorage.deleteAnnotation(id)
+    return
+  }
+
+  const supabase = getSupabaseClient()
+  const { error } = await supabase.from('annotations').delete().eq('id', id)
+
+  if (error) {
+    throw new Error(`어노테이션 삭제 실패: ${error.message}`)
+  }
 }
 
 // 백엔드 연결 상태

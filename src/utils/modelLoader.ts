@@ -21,7 +21,20 @@ export interface LoadProgress {
 
 // 파일 확장자에서 포맷 추출
 export function getFormatFromUrl(url: string): SupportedFormat | null {
-  const extension = url.split('.').pop()?.toLowerCase()
+  // blob URL의 경우 hash fragment에서 파일명 추출 (blob:...#filename.obj 형태)
+  if (url.startsWith('blob:') && url.includes('#')) {
+    const hashPart = url.split('#')[1] || ''
+    const extension = hashPart.split('.').pop()?.toLowerCase()
+    if (extension && ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(extension)) {
+      return extension as SupportedFormat
+    }
+  }
+
+  // URL에서 query string 제거 (signed URL의 ?token=... 등 처리)
+  const urlWithoutQuery = url.split('?')[0] || url
+  // pathname만 추출 (URL 객체 사용하거나 마지막 / 이후 부분)
+  const pathname = urlWithoutQuery.split('/').pop() || urlWithoutQuery
+  const extension = pathname.split('.').pop()?.toLowerCase()
   switch (extension) {
     case 'gltf':
     case 'glb':
@@ -74,10 +87,12 @@ export async function loadGLTF(
         const center = box.getCenter(new THREE.Vector3())
         gltf.scene.position.sub(center)
 
+        // URL에서 query string 제거 후 확장자 확인
+        const urlWithoutQuery = url.split('?')[0] || url
         resolve({
           type: 'group',
           object: gltf.scene,
-          format: url.endsWith('.glb') ? 'glb' : 'gltf',
+          format: urlWithoutQuery.endsWith('.glb') ? 'glb' : 'gltf',
         })
       },
       createProgressCallback(onProgress),
@@ -97,7 +112,12 @@ export async function loadOBJ(
     loader.load(
       url,
       (object) => {
-        // 모델 중심 맞추기
+        // OBJ 파일은 종종 Z-up 좌표계를 사용하므로 Y-up으로 변환
+        // X축을 기준으로 -90도 회전
+        object.rotation.x = -Math.PI / 2
+
+        // 회전 후 bounding box 재계산하여 중심 맞추기
+        object.updateMatrixWorld(true)
         const box = new THREE.Box3().setFromObject(object)
         const center = box.getCenter(new THREE.Vector3())
         object.position.sub(center)
@@ -351,7 +371,8 @@ export async function loadLAS(
 }
 
 // E57 로더 (포인트 클라우드)
-// E57은 ASTM E2807 표준 포맷으로 XML 헤더와 바이너리 포인트 데이터로 구성
+// E57은 ASTM E2807 표준 포맷으로 XML 메타데이터 + 압축 바이너리 데이터 구조
+// 완전한 파싱은 어렵지만, 샘플링을 통해 대략적인 가시화 시도
 export async function loadE57(
   url: string,
   onProgress?: (progress: LoadProgress) => void
@@ -363,6 +384,7 @@ export async function loadE57(
 
   const arrayBuffer = await response.arrayBuffer()
   const dataView = new DataView(arrayBuffer)
+  const fileSize = arrayBuffer.byteLength
 
   // E57 파일 시그니처 확인 (ASTM-E57)
   const signature = String.fromCharCode(
@@ -380,112 +402,77 @@ export async function loadE57(
     throw new Error('유효하지 않은 E57 파일입니다.')
   }
 
-  // E57 헤더 파싱
-  // 버전 정보는 파일 검증에 사용될 수 있음 (현재 미사용)
-  // const majorVersion = dataView.getUint32(8, true)
-  // const minorVersion = dataView.getUint32(12, true)
-
-  // 파일 물리적 길이 (8바이트 위치 16부터)
-  const filePhysicalLength = Number(dataView.getBigUint64(16, true))
-
-  // XML 오프셋 (8바이트 위치 24부터)
-  const xmlPhysicalOffset = Number(dataView.getBigUint64(24, true))
-
-  // XML 논리적 길이 (8바이트 위치 32부터)
-  const xmlLogicalLength = Number(dataView.getBigUint64(32, true))
-
   if (onProgress) {
-    onProgress({ loaded: 48, total: filePhysicalLength, percent: 1 })
+    onProgress({ loaded: 10, total: 100, percent: 10 })
   }
 
-  // XML 섹션 읽기 (압축되지 않은 경우)
-  const decoder = new TextDecoder('utf-8')
-  let xmlString = ''
+  // XML 섹션 파싱하여 스케일/오프셋 정보 추출 시도
+  const xmlOffset = Number(dataView.getBigUint64(24, true))
+  const xmlLength = Number(dataView.getBigUint64(32, true))
+
+  let scaleX = 0.001, scaleY = 0.001, scaleZ = 0.001
+  let offsetX = 0, offsetY = 0, offsetZ = 0
 
   try {
-    const xmlBytes = new Uint8Array(arrayBuffer, xmlPhysicalOffset, Math.min(xmlLogicalLength, arrayBuffer.byteLength - xmlPhysicalOffset))
-    xmlString = decoder.decode(xmlBytes)
+    const xmlBytes = new Uint8Array(arrayBuffer, xmlOffset, Math.min(xmlLength, fileSize - xmlOffset))
+    const xmlString = new TextDecoder('utf-8').decode(xmlBytes)
+
+    // 스케일 추출 시도
+    const scaleMatch = xmlString.match(/cartesianBounds.*?xMinimum.*?>([-\d.e+]+)/is)
+    if (scaleMatch) {
+      const minVal = parseFloat(scaleMatch[1] || '0')
+      if (Math.abs(minVal) > 1000) {
+        // 좌표가 큰 경우 (미터 단위 측량 데이터)
+        offsetX = minVal
+      }
+    }
   } catch {
     // XML 파싱 실패 시 기본값 사용
-    console.warn('E57 XML 파싱 실패, 기본 설정 사용')
   }
 
-  // 간단한 포인트 데이터 추출 (XML에서 data3D 섹션 찾기)
+  if (onProgress) {
+    onProgress({ loaded: 20, total: 100, percent: 20 })
+  }
+
+  // 바이너리 데이터에서 유효한 포인트 패턴 탐색
+  // E57 데이터는 다양한 형식(float32, float64, scaled int32)으로 저장될 수 있음
   const positions: number[] = []
   const colors: number[] = []
-
-  // E57의 바이너리 섹션에서 포인트 데이터 추출
-  // 실제 E57 파싱은 매우 복잡하므로 간단한 구현
-  // 여기서는 XML에서 포인트 개수와 데이터 오프셋을 파싱하려 시도
-
-  let pointCount = 0
-  let dataOffset = 48 // 기본 헤더 이후
-
-  // XML에서 pointCount 추출 시도
-  const pointCountMatch = xmlString.match(/pointCount[^>]*>(\d+)/i)
-  if (pointCountMatch) {
-    pointCount = parseInt(pointCountMatch[1] ?? '0', 10)
-  }
-
-  // 바이너리 블롭 섹션 찾기 (compressedVector 이후 데이터)
-  const blobMatch = xmlString.match(/fileOffset[^>]*>(\d+)/i)
-  if (blobMatch) {
-    dataOffset = parseInt(blobMatch[1] ?? '48', 10)
-  }
-
-  // 포인트 개수 추정 (포인트당 약 12-24바이트)
-  if (pointCount === 0) {
-    const availableBytes = arrayBuffer.byteLength - dataOffset
-    pointCount = Math.floor(availableBytes / 12) // XYZ float32 기준
-  }
-
-  // 최대 포인트 수 제한
-  const maxPoints = Math.min(pointCount, 1000000)
-  const skipRate = Math.max(1, Math.ceil(pointCount / maxPoints))
 
   let minX = Infinity, minY = Infinity, minZ = Infinity
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
 
-  // 바이너리 데이터 읽기 시도
-  try {
-    for (let i = 0; i < maxPoints && dataOffset + i * skipRate * 12 + 12 <= arrayBuffer.byteLength; i++) {
-      const offset = dataOffset + i * skipRate * 12
+  // 여러 오프셋과 형식으로 포인트 데이터 탐색 시도
+  const searchStart = 48 // 헤더 이후
+  const searchEnd = Math.min(xmlOffset, fileSize)
+  const maxPoints = 500000 // 최대 포인트 수
 
-      const x = dataView.getFloat32(offset, true)
-      const y = dataView.getFloat32(offset + 4, true)
-      const z = dataView.getFloat32(offset + 8, true)
+  // 방법 1: Float64 (double) 형식 탐색 (24바이트 = XYZ double)
+  let foundPoints = tryParseFloat64Points(dataView, searchStart, searchEnd, maxPoints, onProgress)
 
-      // 유효한 값인지 확인
-      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
-      if (Math.abs(x) > 1e10 || Math.abs(y) > 1e10 || Math.abs(z) > 1e10) continue
-
-      positions.push(x, y, z)
-
-      minX = Math.min(minX, x)
-      minY = Math.min(minY, y)
-      minZ = Math.min(minZ, z)
-      maxX = Math.max(maxX, x)
-      maxY = Math.max(maxY, y)
-      maxZ = Math.max(maxZ, z)
-
-      // 기본 색상 (높이 기반으로 나중에 재계산)
-      colors.push(0.2, 0.5, 0.8)
-
-      if (onProgress && i % 10000 === 0) {
-        onProgress({
-          loaded: i,
-          total: maxPoints,
-          percent: Math.round((i / maxPoints) * 100),
-        })
-      }
-    }
-  } catch {
-    console.warn('E57 바이너리 데이터 파싱 중 오류')
+  // 방법 2: Float32 형식이 더 많으면 사용
+  if (foundPoints.positions.length < 1000) {
+    foundPoints = tryParseFloat32Points(dataView, searchStart, searchEnd, maxPoints, onProgress)
   }
 
-  if (positions.length === 0) {
-    throw new Error('E57 파일에서 포인트 데이터를 추출할 수 없습니다.')
+  // 방법 3: Scaled Int32 형식 시도
+  if (foundPoints.positions.length < 1000) {
+    foundPoints = tryParseScaledInt32Points(dataView, searchStart, searchEnd, maxPoints, scaleX, scaleY, scaleZ, onProgress)
   }
+
+  if (foundPoints.positions.length < 100) {
+    throw new Error(
+      'E57 파일에서 포인트 데이터를 추출할 수 없습니다.\n\n' +
+      '이 파일은 압축되었거나 지원하지 않는 형식입니다.\n' +
+      '해결 방법: CloudCompare로 PLY/LAS로 변환하세요\n' +
+      'https://www.cloudcompare.org/'
+    )
+  }
+
+  // 결과 사용
+  positions.push(...foundPoints.positions)
+  minX = foundPoints.minX; minY = foundPoints.minY; minZ = foundPoints.minZ
+  maxX = foundPoints.maxX; maxY = foundPoints.maxY; maxZ = foundPoints.maxZ
 
   // 중심 맞추기
   const centerX = (minX + maxX) / 2
@@ -502,18 +489,22 @@ export async function loadE57(
   const heightRange = maxZ - minZ || 1
   for (let i = 0; i < positions.length / 3; i++) {
     const z = (positions[i * 3 + 2] ?? 0) + centerZ - minZ
-    const normalizedHeight = z / heightRange
+    const normalizedHeight = Math.max(0, Math.min(1, z / heightRange))
 
-    // 높이에 따른 그라데이션 (파랑 -> 녹색 -> 빨강)
-    if (normalizedHeight < 0.5) {
-      colors[i * 3] = normalizedHeight * 2
-      colors[i * 3 + 1] = 0.5 + normalizedHeight
-      colors[i * 3 + 2] = 1 - normalizedHeight * 2
+    // 높이에 따른 그라데이션 (파랑 → 청록 → 녹색 → 노랑 → 빨강)
+    if (normalizedHeight < 0.25) {
+      colors.push(0, normalizedHeight * 4, 1)
+    } else if (normalizedHeight < 0.5) {
+      colors.push(0, 1, 1 - (normalizedHeight - 0.25) * 4)
+    } else if (normalizedHeight < 0.75) {
+      colors.push((normalizedHeight - 0.5) * 4, 1, 0)
     } else {
-      colors[i * 3] = 1
-      colors[i * 3 + 1] = 1 - (normalizedHeight - 0.5) * 2
-      colors[i * 3 + 2] = 0
+      colors.push(1, 1 - (normalizedHeight - 0.75) * 4, 0)
     }
+  }
+
+  if (onProgress) {
+    onProgress({ loaded: 100, total: 100, percent: 100 })
   }
 
   const geometry = new THREE.BufferGeometry()
@@ -521,8 +512,9 @@ export async function loadE57(
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
 
   const material = new THREE.PointsMaterial({
-    size: 0.05,
+    size: 0.02,
     vertexColors: true,
+    sizeAttenuation: true,
   })
 
   const points = new THREE.Points(geometry, material)
@@ -534,11 +526,140 @@ export async function loadE57(
     points.scale.setScalar(scale)
   }
 
+  console.log(`E57: ${positions.length / 3}개 포인트 로드됨`)
+
   return {
     type: 'points',
     object: points,
     format: 'e57',
   }
+}
+
+// Float64 (double) 포인트 탐색
+function tryParseFloat64Points(
+  dataView: DataView,
+  start: number,
+  end: number,
+  maxPoints: number,
+  onProgress?: (progress: LoadProgress) => void
+): { positions: number[], minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number } {
+  const positions: number[] = []
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+
+  const stride = 24 // 3 * float64
+  const sampleRate = Math.max(1, Math.floor((end - start) / stride / maxPoints))
+
+  for (let offset = start; offset + 24 <= end && positions.length / 3 < maxPoints; offset += stride * sampleRate) {
+    try {
+      const x = dataView.getFloat64(offset, true)
+      const y = dataView.getFloat64(offset + 8, true)
+      const z = dataView.getFloat64(offset + 16, true)
+
+      // 유효한 좌표 범위 확인 (일반적인 측량 데이터 범위)
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
+      if (Math.abs(x) > 1e9 || Math.abs(y) > 1e9 || Math.abs(z) > 1e9) continue
+      if (x === 0 && y === 0 && z === 0) continue
+
+      positions.push(x, y, z)
+      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z)
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z)
+
+      if (onProgress && positions.length % 50000 === 0) {
+        onProgress({ loaded: 20 + (positions.length / maxPoints) * 60, total: 100, percent: 20 + Math.round((positions.length / maxPoints) * 60) })
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return { positions, minX, minY, minZ, maxX, maxY, maxZ }
+}
+
+// Float32 포인트 탐색
+function tryParseFloat32Points(
+  dataView: DataView,
+  start: number,
+  end: number,
+  maxPoints: number,
+  onProgress?: (progress: LoadProgress) => void
+): { positions: number[], minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number } {
+  const positions: number[] = []
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+
+  const stride = 12 // 3 * float32
+  const sampleRate = Math.max(1, Math.floor((end - start) / stride / maxPoints))
+
+  for (let offset = start; offset + 12 <= end && positions.length / 3 < maxPoints; offset += stride * sampleRate) {
+    try {
+      const x = dataView.getFloat32(offset, true)
+      const y = dataView.getFloat32(offset + 4, true)
+      const z = dataView.getFloat32(offset + 8, true)
+
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
+      if (Math.abs(x) > 1e9 || Math.abs(y) > 1e9 || Math.abs(z) > 1e9) continue
+      if (x === 0 && y === 0 && z === 0) continue
+
+      positions.push(x, y, z)
+      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z)
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z)
+
+      if (onProgress && positions.length % 50000 === 0) {
+        onProgress({ loaded: 20 + (positions.length / maxPoints) * 60, total: 100, percent: 20 + Math.round((positions.length / maxPoints) * 60) })
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return { positions, minX, minY, minZ, maxX, maxY, maxZ }
+}
+
+// Scaled Int32 포인트 탐색
+function tryParseScaledInt32Points(
+  dataView: DataView,
+  start: number,
+  end: number,
+  maxPoints: number,
+  scaleX: number,
+  scaleY: number,
+  scaleZ: number,
+  onProgress?: (progress: LoadProgress) => void
+): { positions: number[], minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number } {
+  const positions: number[] = []
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+
+  const stride = 12 // 3 * int32
+  const sampleRate = Math.max(1, Math.floor((end - start) / stride / maxPoints))
+
+  for (let offset = start; offset + 12 <= end && positions.length / 3 < maxPoints; offset += stride * sampleRate) {
+    try {
+      const ix = dataView.getInt32(offset, true)
+      const iy = dataView.getInt32(offset + 4, true)
+      const iz = dataView.getInt32(offset + 8, true)
+
+      const x = ix * scaleX
+      const y = iy * scaleY
+      const z = iz * scaleZ
+
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
+      if (Math.abs(x) > 1e9 || Math.abs(y) > 1e9 || Math.abs(z) > 1e9) continue
+
+      positions.push(x, y, z)
+      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z)
+      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z)
+
+      if (onProgress && positions.length % 50000 === 0) {
+        onProgress({ loaded: 20 + (positions.length / maxPoints) * 60, total: 100, percent: 20 + Math.round((positions.length / maxPoints) * 60) })
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return { positions, minX, minY, minZ, maxX, maxY, maxZ }
 }
 
 // 통합 로더
@@ -552,20 +673,24 @@ export async function loadModel(
     throw new Error(`지원하지 않는 파일 형식입니다: ${url}`)
   }
 
+  // 실제 로딩에 사용할 URL에서 hash fragment 제거 (blob:...#filename.obj -> blob:...)
+  // hash fragment는 포맷 감지에만 사용됨
+  const loadUrl = url.split('#')[0] || url
+
   switch (format) {
     case 'gltf':
     case 'glb':
-      return loadGLTF(url, onProgress)
+      return loadGLTF(loadUrl, onProgress)
     case 'obj':
-      return loadOBJ(url, onProgress)
+      return loadOBJ(loadUrl, onProgress)
     case 'fbx':
-      return loadFBX(url, onProgress)
+      return loadFBX(loadUrl, onProgress)
     case 'ply':
-      return loadPLY(url, onProgress)
+      return loadPLY(loadUrl, onProgress)
     case 'las':
-      return loadLAS(url, onProgress)
+      return loadLAS(loadUrl, onProgress)
     case 'e57':
-      return loadE57(url, onProgress)
+      return loadE57(loadUrl, onProgress)
     default:
       throw new Error(`지원하지 않는 파일 형식입니다: ${format}`)
   }

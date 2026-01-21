@@ -1,17 +1,18 @@
 import { useEffect, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { loadModel, loadModelFromFile, type LoadProgress, type LoadedModel } from '../../utils/modelLoader'
+import { loadModel, loadModelFromFile, type LoadProgress, type LoadedModel, type SupportedFormat } from '../../utils/modelLoader'
 
 interface ModelViewerProps {
   url?: string
   file?: File
+  format?: string // 명시적 포맷 지정 (blob URL 사용 시)
   onLoad?: (model: LoadedModel) => void
   onError?: (error: Error) => void
   onProgress?: (progress: LoadProgress) => void
 }
 
-export default function ModelViewer({ url, file, onLoad, onError, onProgress }: ModelViewerProps) {
+export default function ModelViewer({ url, file, format, onLoad, onError, onProgress }: ModelViewerProps) {
   const { scene } = useThree()
   const modelRef = useRef<THREE.Object3D | null>(null)
 
@@ -25,7 +26,11 @@ export default function ModelViewer({ url, file, onLoad, onError, onProgress }: 
         if (file) {
           loadedModel = await loadModelFromFile(file, onProgress)
         } else if (url) {
-          loadedModel = await loadModel(url, onProgress)
+          // format이 명시적으로 지정된 경우 URL에 format 힌트 추가
+          const loadUrl = format && !url.includes('#')
+            ? `${url}#file.${format}`
+            : url
+          loadedModel = await loadModel(loadUrl, onProgress)
         } else {
           return
         }
@@ -63,7 +68,7 @@ export default function ModelViewer({ url, file, onLoad, onError, onProgress }: 
         modelRef.current = null
       }
     }
-  }, [url, file, scene, onLoad, onError, onProgress])
+  }, [url, file, format, scene, onLoad, onError, onProgress])
 
   // 모델이 없으면 null 반환 (scene에 직접 추가되므로)
   return null

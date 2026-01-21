@@ -10,7 +10,7 @@ services:
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - VITE_SUPABASE_URL=http://localhost:8100
+      - VITE_SUPABASE_URL=http://192.168.10.203:8100
       - VITE_SUPABASE_ANON_KEY=${ANON_KEY}
     command: npm run dev
     depends_on:
@@ -40,10 +40,10 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: http://localhost:8100
+      API_EXTERNAL_URL: http://192.168.10.203:8100
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
-      GOTRUE_SITE_URL: http://localhost:5174
+      GOTRUE_SITE_URL: http://192.168.10.203:5174
       GOTRUE_URI_ALLOW_LIST: "*"
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_JWT_ADMIN_ROLES: service_role
@@ -83,7 +83,7 @@ services:
       POSTGREST_URL: http://rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
-      FILE_SIZE_LIMIT: 52428800
+      FILE_SIZE_LIMIT: 1073741824  # 1GB (E57 등 대용량 3D 파일 지원)
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_ID: stub
@@ -147,7 +147,7 @@ services:
       DEFAULT_ORGANIZATION_NAME: Spatial Log
       DEFAULT_PROJECT_NAME: spatial-log
       SUPABASE_URL: http://kong:8000
-      SUPABASE_PUBLIC_URL: http://localhost:8100
+      SUPABASE_PUBLIC_URL: http://192.168.10.203:8100
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       AUTH_JWT_SECRET: ${JWT_SECRET}

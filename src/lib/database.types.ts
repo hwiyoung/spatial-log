@@ -30,7 +30,7 @@ export type Database = {
           exif_model: string | null
           exif_datetime: string | null
           tags: string[] | null
-          user_id: string
+          user_id: string | null
           created_at: string
           updated_at: string
         }
@@ -50,7 +50,7 @@ export type Database = {
           exif_model?: string | null
           exif_datetime?: string | null
           tags?: string[] | null
-          user_id: string
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -70,7 +70,7 @@ export type Database = {
           exif_model?: string | null
           exif_datetime?: string | null
           tags?: string[] | null
-          user_id?: string
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -81,7 +81,7 @@ export type Database = {
           name: string
           parent_id: string | null
           color: string | null
-          user_id: string
+          user_id: string | null
           created_at: string
           updated_at: string
         }
@@ -90,7 +90,7 @@ export type Database = {
           name: string
           parent_id?: string | null
           color?: string | null
-          user_id: string
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -99,7 +99,7 @@ export type Database = {
           name?: string
           parent_id?: string | null
           color?: string | null
-          user_id?: string
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -110,7 +110,9 @@ export type Database = {
           name: string
           description: string | null
           thumbnail_url: string | null
-          user_id: string
+          status: string
+          tags: string[]
+          user_id: string | null
           created_at: string
           updated_at: string
         }
@@ -119,7 +121,9 @@ export type Database = {
           name: string
           description?: string | null
           thumbnail_url?: string | null
-          user_id: string
+          status?: string
+          tags?: string[]
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -128,7 +132,9 @@ export type Database = {
           name?: string
           description?: string | null
           thumbnail_url?: string | null
-          user_id?: string
+          status?: string
+          tags?: string[]
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -136,7 +142,7 @@ export type Database = {
       annotations: {
         Row: {
           id: string
-          project_id: string
+          project_id: string | null
           title: string
           description: string | null
           priority: 'low' | 'medium' | 'high' | 'critical'
@@ -147,13 +153,13 @@ export type Database = {
           gps_latitude: number | null
           gps_longitude: number | null
           file_id: string | null
-          user_id: string
+          user_id: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          project_id: string
+          project_id?: string | null
           title: string
           description?: string | null
           priority?: 'low' | 'medium' | 'high' | 'critical'
@@ -164,13 +170,13 @@ export type Database = {
           gps_latitude?: number | null
           gps_longitude?: number | null
           file_id?: string | null
-          user_id: string
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          project_id?: string
+          project_id?: string | null
           title?: string
           description?: string | null
           priority?: 'low' | 'medium' | 'high' | 'critical'
@@ -181,7 +187,7 @@ export type Database = {
           gps_latitude?: number | null
           gps_longitude?: number | null
           file_id?: string | null
-          user_id?: string
+          user_id?: string | null
           created_at?: string
           updated_at?: string
         }

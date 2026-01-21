@@ -13,10 +13,24 @@
 
 ## 지원 데이터
 
-- **드론 매핑**: Orthomosaic, DSM, 3D 모델
-- **3D 스캔**: 포인트 클라우드 (LAS, PLY, E57)
-- **3D 모델**: OBJ, FBX, GLTF/GLB
-- **이미지**: 드론/스마트폰 촬영 이미지 (EXIF GPS 지원)
+| 포맷 | 지원 상태 | 비고 |
+|------|----------|------|
+| **GLTF/GLB** | ✅ 완전 지원 | 권장 포맷 |
+| **OBJ** | ✅ 완전 지원 | Z-up → Y-up 자동 변환 |
+| **FBX** | ✅ 완전 지원 | 스케일 자동 조정 |
+| **PLY** | ✅ 완전 지원 | 메시/포인트 클라우드 자동 감지 |
+| **LAS** | ✅ 완전 지원 | 포인트 클라우드, 높이 기반 색상 |
+| **E57** | ❌ 미지원 | 업로드 가능, 가시화 불가 → **CloudCompare로 PLY/LAS 변환 필수** |
+| **이미지** | ✅ 완전 지원 | JPEG, PNG, TIFF (EXIF GPS 추출) |
+
+### E57 파일 참고사항
+E57 포맷은 압축된 바이너리 데이터(Huffman, CRC32)를 포함하여 **웹 브라우저에서 가시화가 불가능**합니다.
+현재 상태: 업로드는 가능하나 3D 미리보기 시 에러 발생 ("maximum call stack size exceeded")
+
+**해결 방법**:
+1. [CloudCompare](https://www.cloudcompare.org/) 다운로드 (무료)
+2. E57 파일 열기 → File → Save As → **PLY** 또는 **LAS** 선택
+3. 변환된 파일 업로드
 
 ## 기술 스택
 
@@ -114,12 +128,35 @@ JWT_SECRET=your-jwt-secret
 ANON_KEY=your-anon-key
 SERVICE_ROLE_KEY=your-service-role-key
 
-# 프론트엔드 환경변수
+# 프론트엔드 환경변수 (네트워크 접속 시 IP 주소로 변경)
 VITE_SUPABASE_URL=http://localhost:8100
 VITE_SUPABASE_ANON_KEY=your-anon-key
 
 # Cesium Ion 토큰 (선택사항 - 3D 지형용)
 VITE_CESIUM_ION_TOKEN=your-cesium-token
+```
+
+### 네트워크 환경 설정
+
+다른 PC에서 접속할 경우 `.env`와 `docker-compose.yml`의 URL을 서버 IP로 변경:
+
+```bash
+# .env
+VITE_SUPABASE_URL=http://192.168.x.x:8100
+
+# docker-compose.yml의 app 서비스
+environment:
+  - VITE_SUPABASE_URL=http://192.168.x.x:8100
+```
+
+### 파일 업로드 제한
+
+기본 파일 크기 제한은 **1GB** 입니다. 변경하려면 `docker-compose.yml`:
+
+```yaml
+storage:
+  environment:
+    FILE_SIZE_LIMIT: 1073741824  # 바이트 단위 (1GB)
 ```
 
 ## 프로젝트 구조
@@ -148,7 +185,8 @@ spatial-log/
 │   ├── types/                  # TypeScript 타입 정의
 │   ├── utils/
 │   │   ├── storage.ts          # 로컬 스토리지 (IndexedDB)
-│   │   └── exifParser.ts       # EXIF 메타데이터 파서
+│   │   ├── exifParser.ts       # EXIF 메타데이터 파서
+│   │   └── modelLoader.ts      # 3D 모델 로더 (GLTF, OBJ, FBX, PLY, LAS, E57)
 │   ├── App.tsx
 │   └── main.tsx
 ├── supabase/
@@ -181,56 +219,95 @@ spatial-log/
 
 ## 개발 로드맵
 
-### Phase 1: 프로젝트 초기화
+### Phase 1: 프로젝트 초기화 ✅
 - [x] UI 프로토타입 (3DPlatformUI.jsx)
 - [x] Vite + React + TypeScript 프로젝트 구성
 - [x] Tailwind CSS 설정
 - [x] ESLint + Prettier 설정
 - [x] Docker 환경 구성
 
-### Phase 2: UI 컴포넌트 분리
+### Phase 2: UI 컴포넌트 분리 ✅
 - [x] 레이아웃 컴포넌트 (Sidebar, Header, MainLayout)
 - [x] 공통 컴포넌트 (Button, Modal, Card, Input)
 - [x] 페이지 라우팅 (React Router v6)
 - [x] 다크 테마 시스템
 
-### Phase 3: 페이지 구현
+### Phase 3: 페이지 구현 ✅
 - [x] Dashboard 페이지
 - [x] Projects 페이지
 - [x] Assets 페이지
 - [x] Annotations 페이지
 
-### Phase 4: 3D 뷰어 통합
+### Phase 4: 3D 뷰어 통합 ✅
 - [x] react-three-fiber 통합 (3D 모델)
 - [x] Resium 통합 (지리공간 데이터)
 - [x] 뷰어 모드 전환 (Grid/Map)
-- [x] 파일 포맷 지원 (OBJ, FBX, PLY, LAS, GLTF)
+- [x] 파일 포맷 지원 (GLTF, GLB, OBJ, FBX, PLY, LAS)
+- [ ] **E57 가시화 (파싱 에러 - 변환 필요)**
+- [x] OBJ Z-up → Y-up 좌표계 자동 변환
+- [x] WebGL 컨텍스트 손실 복구 처리
 
-### Phase 5: 데이터 관리
+### Phase 5: 데이터 관리 ✅
 - [x] 파일 업로드 (드래그 앤 드롭)
+- [x] 대용량 파일 지원 (최대 1GB)
 - [x] 폴더 구조 CRUD
 - [x] 파일 메타데이터 관리
 - [x] 클라이언트 스토리지 (IndexedDB)
 - [x] EXIF/GPS 메타데이터 추출
 
-### Phase 6: 프로젝트 시스템
-- [ ] 프로젝트 CRUD
-- [ ] 에셋 연결 및 관리
-- [ ] 프로젝트 설정
+### Phase 6: 프로젝트 시스템 ✅
+- [x] 프로젝트 CRUD
+- [x] 프로젝트 목록/그리드 뷰
+- [ ] 에셋-프로젝트 연결
+- [ ] 프로젝트 상세 설정
 
-### Phase 7: 어노테이션 시스템
+### Phase 7: 어노테이션 시스템 (진행 중)
+- [x] 이슈 CRUD (제목, 설명, 우선순위, 상태)
+- [x] 분포 맵 시각화
+- [x] 필터링 및 검색
+- [x] 맵에서 클릭으로 위치 지정
+- [x] 맵 드래그 이동
+- [ ] **맵 휠 줌 (브라우저 줌 간섭 문제)**
 - [ ] 3D 좌표 기반 마커 생성
-- [ ] 이슈 CRUD (제목, 설명, 우선순위, 상태)
 - [ ] 마커-뷰어 연동
-- [ ] 필터링 및 검색
 
-### Phase 8: 백엔드 연동
-- [x] Supabase 로컬 환경 구성
+### Phase 8: 백엔드 연동 ✅
+- [x] Supabase 로컬 환경 구성 (Docker Compose)
 - [x] 데이터베이스 스키마 설계 (PostgreSQL + PostGIS)
-- [x] API 추상화 레이어 (Supabase/로컬 스토리지)
-- [x] 사용자 인증 (Supabase Auth)
-- [x] 파일 스토리지 (Supabase Storage)
+- [x] API 추상화 레이어 (Supabase/로컬 스토리지 자동 전환)
+- [x] 사용자 인증 (Supabase Auth, 자동 확인)
+- [x] 파일 스토리지 (Supabase Storage, 1GB 지원)
+- [x] RLS 정책 설정 (개발 환경에서는 비활성화)
 - [ ] 클라우드 Supabase 배포
+
+## 알려진 제한사항 및 TODO
+
+### 🔴 해결 필요 (Critical)
+
+| 기능 | 증상 | 원인 분석 | TODO |
+|------|------|----------|------|
+| **E57 가시화** | "maximum call stack size exceeded" 에러 발생 | 샘플링 파서의 재귀/반복 로직 문제 또는 메모리 초과 | libE57 WebAssembly 포팅 검토 또는 서버사이드 변환 |
+| **어노테이션 맵 휠 줌** | 맵 콘텐츠가 아닌 패널 전체가 줌됨 (글씨 크기 변화) | 브라우저 Ctrl+휠 줌을 JavaScript로 완전히 차단 불가 | iframe 격리 또는 별도 뷰포트 사용 검토 |
+
+### 🟡 제한사항 (Known Limitations)
+
+| 기능 | 제한사항 | 해결 방법 |
+|------|----------|----------|
+| E57 포맷 | 압축된 E57 파일은 웹에서 파싱 불가 | **CloudCompare로 PLY/LAS 변환 후 업로드** |
+| 파일 크기 | 1GB 이상 파일 업로드 불가 | 파일 분할 또는 docker-compose.yml FILE_SIZE_LIMIT 변경 |
+| 브라우저 줌 | Ctrl+휠, 터치패드 핀치는 페이지 전체 줌 | 일반 마우스 휠 사용 (맵 줌 버튼 사용 권장) |
+
+### 향후 개선 방향
+
+1. **E57 지원 개선**
+   - 옵션 1: 서버사이드에서 PDAL/CloudCompare로 자동 변환
+   - 옵션 2: libE57Format을 WebAssembly로 컴파일하여 브라우저에서 직접 파싱
+   - 옵션 3: E57 업로드 시 변환 안내 UI 개선
+
+2. **맵 줌 개선**
+   - 옵션 1: 맵을 iframe으로 격리하여 브라우저 줌 영향 차단
+   - 옵션 2: Leaflet/MapLibre 등 전문 맵 라이브러리 사용
+   - 옵션 3: 줌 버튼만 사용하도록 UI/UX 변경
 
 ## 화면 구성
 
