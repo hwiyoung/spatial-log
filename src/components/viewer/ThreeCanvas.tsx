@@ -1,10 +1,12 @@
 import { Suspense, useState, useCallback, useRef, useEffect } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, Grid, Environment, PerspectiveCamera } from '@react-three/drei'
 import { Box as BoxIcon, AlertTriangle, Loader2 } from 'lucide-react'
 import * as THREE from 'three'
 import ModelViewer from './ModelViewer'
+import { AnnotationMarkers3D } from './AnnotationMarker3D'
 import { type LoadProgress, type LoadedModel } from '../../utils/modelLoader'
+import type { AnnotationData } from '@/services/api'
 
 // WebGL 컨텍스트 손실 방지를 위한 지연 시간 (ms)
 const CANVAS_MOUNT_DELAY = 100
@@ -21,6 +23,10 @@ interface ThreeCanvasProps {
   modelFormat?: string // 명시적 포맷 지정 (blob URL 사용 시)
   annotateMode?: boolean
   onPointClick?: (position: ClickPosition) => void
+  // 어노테이션 관련 props
+  annotations?: AnnotationData[]
+  selectedAnnotationId?: string | null
+  onAnnotationClick?: (annotation: AnnotationData) => void
 }
 
 function GridFloor() {
@@ -50,40 +56,82 @@ function PlaceholderBox() {
   )
 }
 
-// 클릭 가능한 바닥면 (어노테이션 배치용)
-interface ClickablePlaneProps {
+// 씬 전체 레이캐스팅 핸들러 (어노테이션 배치용)
+interface SceneRaycasterProps {
   onPointClick?: (position: ClickPosition) => void
   annotateMode: boolean
 }
 
-function ClickablePlane({ onPointClick, annotateMode }: ClickablePlaneProps) {
-  const { camera, raycaster, pointer } = useThree()
-  const planeRef = useRef<THREE.Mesh>(null)
+function SceneRaycaster({ onPointClick, annotateMode }: SceneRaycasterProps) {
+  const { camera, scene, raycaster, gl } = useThree()
+  const fallbackPlaneRef = useRef<THREE.Mesh>(null)
 
-  const handleClick = useCallback(() => {
-    if (!annotateMode || !onPointClick || !planeRef.current) return
+  useEffect(() => {
+    // 포인트 클라우드 레이캐스팅 임계값 설정
+    raycaster.params.Points.threshold = 0.1
+  }, [raycaster])
 
-    raycaster.setFromCamera(pointer, camera)
-    const intersects = raycaster.intersectObject(planeRef.current)
+  const handleClick = useCallback((event: MouseEvent) => {
+    if (!annotateMode || !onPointClick) return
 
-    if (intersects.length > 0) {
-      const point = intersects[0]?.point
-      if (point) {
-        onPointClick({
-          x: Math.round(point.x * 100) / 100,
-          y: Math.round(point.y * 100) / 100,
-          z: Math.round(point.z * 100) / 100,
-        })
+    // 마우스 좌표를 정규화된 디바이스 좌표로 변환
+    const rect = gl.domElement.getBoundingClientRect()
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+    const mouse = new THREE.Vector2(x, y)
+    raycaster.setFromCamera(mouse, camera)
+
+    // 씬의 모든 객체에 대해 레이캐스팅 (재귀적)
+    const intersects = raycaster.intersectObjects(scene.children, true)
+
+    // Grid와 fallback plane은 제외하고 실제 모델만 찾기
+    const modelIntersect = intersects.find((i) => {
+      // Grid helper와 fallback plane 제외
+      if (i.object === fallbackPlaneRef.current) return false
+      if (i.object.type === 'GridHelper') return false
+      if (i.object.name === 'fallbackPlane') return false
+      // visible이 false인 객체 제외
+      if (!i.object.visible) return false
+      return true
+    })
+
+    if (modelIntersect) {
+      const point = modelIntersect.point
+      onPointClick({
+        x: Math.round(point.x * 100) / 100,
+        y: Math.round(point.y * 100) / 100,
+        z: Math.round(point.z * 100) / 100,
+      })
+    } else if (fallbackPlaneRef.current) {
+      // 모델이 없으면 바닥면에서 위치 가져오기
+      const planeIntersects = raycaster.intersectObject(fallbackPlaneRef.current)
+      if (planeIntersects.length > 0) {
+        const point = planeIntersects[0]?.point
+        if (point) {
+          onPointClick({
+            x: Math.round(point.x * 100) / 100,
+            y: Math.round(point.y * 100) / 100,
+            z: Math.round(point.z * 100) / 100,
+          })
+        }
       }
     }
-  }, [annotateMode, onPointClick, camera, raycaster, pointer])
+  }, [annotateMode, onPointClick, camera, scene, raycaster, gl])
 
+  useEffect(() => {
+    const canvas = gl.domElement
+    canvas.addEventListener('click', handleClick)
+    return () => canvas.removeEventListener('click', handleClick)
+  }, [gl, handleClick])
+
+  // 폴백 바닥면 (모델이 없을 때 사용)
   return (
     <mesh
-      ref={planeRef}
+      ref={fallbackPlaneRef}
+      name="fallbackPlane"
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, 0, 0]}
-      onClick={handleClick}
       visible={false}
     >
       <planeGeometry args={[200, 200]} />
@@ -151,10 +199,83 @@ interface SceneContentProps {
   onError: (error: Error) => void
   onLoad: (model: LoadedModel) => void
   onPointClick?: (position: ClickPosition) => void
+  // 어노테이션 관련 props
+  annotations?: AnnotationData[]
+  selectedAnnotationId?: string | null
+  onAnnotationClick?: (annotation: AnnotationData) => void
 }
 
-function SceneContent({ modelUrl, modelFile, modelFormat, annotateMode, onProgress, onError, onLoad, onPointClick }: SceneContentProps) {
+// 카메라 컨트롤러 (선택된 어노테이션으로 이동)
+function CameraFlyTo({ targetPosition }: { targetPosition: { x: number; y: number; z: number } | null }) {
+  const { camera } = useThree()
+  const isAnimating = useRef(false)
+  const startPosition = useRef(new THREE.Vector3())
+  const endPosition = useRef(new THREE.Vector3())
+  const progress = useRef(0)
+  const prevTarget = useRef<{ x: number; y: number; z: number } | null>(null)
+
+  useEffect(() => {
+    if (!targetPosition) {
+      isAnimating.current = false
+      return
+    }
+
+    if (
+      prevTarget.current &&
+      prevTarget.current.x === targetPosition.x &&
+      prevTarget.current.y === targetPosition.y &&
+      prevTarget.current.z === targetPosition.z
+    ) {
+      return
+    }
+
+    prevTarget.current = targetPosition
+    startPosition.current.copy(camera.position)
+    endPosition.current.set(
+      targetPosition.x + 3,
+      targetPosition.y + 3,
+      targetPosition.z + 3
+    )
+    progress.current = 0
+    isAnimating.current = true
+  }, [targetPosition, camera])
+
+  useFrame((_, delta) => {
+    if (!isAnimating.current || !prevTarget.current) return
+
+    progress.current += delta / 1.0 // 1초 duration
+
+    if (progress.current >= 1) {
+      progress.current = 1
+      isAnimating.current = false
+    }
+
+    const t = 1 - Math.pow(1 - progress.current, 3)
+    camera.position.lerpVectors(startPosition.current, endPosition.current, t)
+    camera.lookAt(prevTarget.current.x, prevTarget.current.y, prevTarget.current.z)
+  })
+
+  return null
+}
+
+function SceneContent({
+  modelUrl,
+  modelFile,
+  modelFormat,
+  annotateMode,
+  onProgress,
+  onError,
+  onLoad,
+  onPointClick,
+  annotations = [],
+  selectedAnnotationId,
+  onAnnotationClick,
+}: SceneContentProps) {
   const hasModel = !!(modelUrl || modelFile)
+
+  // 선택된 어노테이션의 위치 찾기
+  const selectedAnnotation = annotations.find((a) => a.id === selectedAnnotationId)
+  const targetPosition = selectedAnnotation?.position || null
 
   return (
     <>
@@ -183,8 +304,8 @@ function SceneContent({ modelUrl, modelFile, modelFormat, annotateMode, onProgre
       {/* Grid */}
       <GridFloor />
 
-      {/* Clickable plane for annotation placement */}
-      <ClickablePlane onPointClick={onPointClick} annotateMode={annotateMode} />
+      {/* Scene raycaster for annotation placement */}
+      <SceneRaycaster onPointClick={onPointClick} annotateMode={annotateMode} />
 
       {/* Model or Placeholder */}
       {hasModel ? (
@@ -199,11 +320,32 @@ function SceneContent({ modelUrl, modelFile, modelFormat, annotateMode, onProgre
       ) : (
         <PlaceholderBox />
       )}
+
+      {/* 어노테이션 마커 */}
+      {onAnnotationClick && (
+        <AnnotationMarkers3D
+          annotations={annotations}
+          selectedId={selectedAnnotationId || null}
+          onAnnotationClick={onAnnotationClick}
+        />
+      )}
+
+      {/* 선택된 어노테이션으로 카메라 이동 */}
+      <CameraFlyTo targetPosition={targetPosition} />
     </>
   )
 }
 
-export default function ThreeCanvas({ modelUrl, modelFile, modelFormat, annotateMode = false, onPointClick }: ThreeCanvasProps) {
+export default function ThreeCanvas({
+  modelUrl,
+  modelFile,
+  modelFormat,
+  annotateMode = false,
+  onPointClick,
+  annotations = [],
+  selectedAnnotationId,
+  onAnnotationClick,
+}: ThreeCanvasProps) {
   const [progress, setProgress] = useState<LoadProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [modelInfo, setModelInfo] = useState<LoadedModel | null>(null)
@@ -264,13 +406,22 @@ export default function ThreeCanvas({ modelUrl, modelFile, modelFormat, annotate
           }}
           onCreated={({ gl }) => {
             // WebGL 컨텍스트 손실 처리
+            let contextLostTimeout: number | null = null
             gl.domElement.addEventListener('webglcontextlost', (e) => {
               e.preventDefault()
               console.warn('WebGL context lost, attempting recovery...')
-              setError('WebGL 컨텍스트 손실. 다시 시도해 주세요.')
+              // 일시적인 컨텍스트 손실일 수 있으므로 짧은 대기 후 에러 표시
+              contextLostTimeout = window.setTimeout(() => {
+                setError('WebGL 컨텍스트 손실. 다시 시도해 주세요.')
+              }, 500)
             })
             gl.domElement.addEventListener('webglcontextrestored', () => {
               console.log('WebGL context restored')
+              // 복구되면 타이머 취소 및 에러 해제
+              if (contextLostTimeout) {
+                clearTimeout(contextLostTimeout)
+                contextLostTimeout = null
+              }
               setError(null)
             })
           }}
@@ -284,13 +435,16 @@ export default function ThreeCanvas({ modelUrl, modelFile, modelFormat, annotate
             onError={handleError}
             onLoad={handleLoad}
             onPointClick={onPointClick}
+            annotations={annotations}
+            selectedAnnotationId={selectedAnnotationId}
+            onAnnotationClick={onAnnotationClick}
           />
         </Canvas>
       </Suspense>
       )}
 
-      {/* Loading/Error overlay */}
-      <ModelLoadingOverlay progress={progress} error={error} />
+      {/* Loading/Error overlay - 모델 로드 성공 시 에러 오버레이 숨김 */}
+      <ModelLoadingOverlay progress={progress} error={modelInfo ? null : error} />
 
       {/* Model info badge */}
       {modelInfo && !error && (

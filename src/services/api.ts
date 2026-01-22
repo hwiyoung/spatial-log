@@ -23,6 +23,7 @@ export interface FileMetadata {
   size: number
   format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
   folderId: string | null
+  projectId: string | null
   storagePath?: string
   thumbnailUrl?: string
   gps?: {
@@ -93,6 +94,7 @@ function mapFileRowToMetadata(row: FileRow): FileMetadata {
     size: row.size,
     format: row.format,
     folderId: row.folder_id,
+    projectId: row.project_id,
     storagePath: row.storage_path,
     thumbnailUrl: row.thumbnail_path ?? undefined,
     gps: row.gps_latitude && row.gps_longitude
@@ -173,6 +175,7 @@ export async function uploadFile(
     return {
       ...localMeta,
       type: localMeta.type,
+      projectId: localMeta.projectId ?? null,
       storagePath: undefined,
       thumbnailUrl: localMeta.thumbnail,
     }
@@ -298,6 +301,7 @@ export async function getFiles(folderId?: string | null): Promise<FileMetadata[]
       : await localStorage.getFilesByFolder(folderId)
     return localFiles.map(f => ({
       ...f,
+      projectId: f.projectId ?? null,
       storagePath: undefined,
       thumbnailUrl: f.thumbnail,
     }))
@@ -330,6 +334,7 @@ export async function getFile(id: string): Promise<{ metadata: FileMetadata; blo
     return {
       metadata: {
         ...result.metadata,
+        projectId: result.metadata.projectId ?? null,
         storagePath: undefined,
         thumbnailUrl: result.metadata.thumbnail,
       },
@@ -386,14 +391,12 @@ export async function getFileUrl(id: string): Promise<string | null> {
 
   const fileData = data as Pick<FileRow, 'storage_path'>
 
-  // 서명된 URL 생성 (1시간 유효)
-  const { data: urlData, error: urlError } = await supabase.storage
+  // 퍼블릭 URL 생성 (버킷이 public으로 설정됨)
+  const { data: urlData } = supabase.storage
     .from(STORAGE_BUCKET)
-    .createSignedUrl(fileData.storage_path, 3600)
+    .getPublicUrl(fileData.storage_path)
 
-  if (urlError || !urlData) return null
-
-  return urlData.signedUrl
+  return urlData.publicUrl
 }
 
 export async function deleteFile(id: string): Promise<void> {
@@ -437,17 +440,19 @@ export async function deleteFile(id: string): Promise<void> {
 
 export async function updateFile(
   id: string,
-  updates: Partial<Pick<FileMetadata, 'name' | 'folderId' | 'tags'>>
+  updates: Partial<Pick<FileMetadata, 'name' | 'folderId' | 'projectId' | 'tags'>>
 ): Promise<FileMetadata | null> {
   if (!isSupabaseConfigured()) {
     const result = await localStorage.updateFileMetadata(id, {
       name: updates.name,
       folderId: updates.folderId,
+      projectId: updates.projectId,
       tags: updates.tags,
     })
     if (!result) return null
     return {
       ...result,
+      projectId: result.projectId ?? null,
       storagePath: undefined,
       thumbnailUrl: result.thumbnail,
     }
@@ -457,6 +462,7 @@ export async function updateFile(
   const updateData: FileUpdate = {
     name: updates.name,
     folder_id: updates.folderId,
+    project_id: updates.projectId,
     tags: updates.tags,
   }
   const { data, error } = await supabase
@@ -959,4 +965,71 @@ export async function deleteAnnotation(id: string): Promise<void> {
 // 백엔드 연결 상태
 export function isBackendConnected(): boolean {
   return isSupabaseConfigured()
+}
+
+// === 프로젝트-파일 연결 API ===
+
+export async function getFilesByProject(projectId: string): Promise<FileMetadata[]> {
+  if (!isSupabaseConfigured()) {
+    const localFiles = await localStorage.getFilesByProject(projectId)
+    return localFiles.map(f => ({
+      ...f,
+      projectId: f.projectId ?? null,
+      storagePath: undefined,
+      thumbnailUrl: f.thumbnail,
+    }))
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('files')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw new Error(`프로젝트 파일 조회 실패: ${error.message}`)
+  }
+
+  return ((data || []) as FileRow[]).map(mapFileRowToMetadata)
+}
+
+export async function linkFilesToProject(fileIds: string[], projectId: string): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    await localStorage.linkFilesToProject(fileIds, projectId)
+    return
+  }
+
+  const supabase = getSupabaseClient()
+
+  for (const fileId of fileIds) {
+    const { error } = await supabase
+      .from('files')
+      .update({ project_id: projectId } as never)
+      .eq('id', fileId)
+
+    if (error) {
+      throw new Error(`파일 연결 실패: ${error.message}`)
+    }
+  }
+}
+
+export async function unlinkFilesFromProject(fileIds: string[]): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    await localStorage.unlinkFilesFromProject(fileIds)
+    return
+  }
+
+  const supabase = getSupabaseClient()
+
+  for (const fileId of fileIds) {
+    const { error } = await supabase
+      .from('files')
+      .update({ project_id: null } as never)
+      .eq('id', fileId)
+
+    if (error) {
+      throw new Error(`파일 연결 해제 실패: ${error.message}`)
+    }
+  }
 }

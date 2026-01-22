@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS public.files (
   size BIGINT NOT NULL,
   format file_format NOT NULL DEFAULT 'other',
   folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
+  project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
   storage_path TEXT,
   thumbnail_path TEXT,
   gps_latitude DOUBLE PRECISION,
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS public.annotations (
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_files_user_id ON public.files(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_folder_id ON public.files(folder_id);
+CREATE INDEX IF NOT EXISTS idx_files_project_id ON public.files(project_id);
 CREATE INDEX IF NOT EXISTS idx_files_format ON public.files(format);
 CREATE INDEX IF NOT EXISTS idx_files_location ON public.files USING GIST(location);
 CREATE INDEX IF NOT EXISTS idx_folders_user_id ON public.folders(user_id);
@@ -254,6 +256,34 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 
--- Storage bucket은 Storage API를 통해 생성됩니다.
--- Supabase Studio (http://192.168.10.203:3101)에서 Storage > Create new bucket으로 생성하거나
--- 앱 시작 시 자동으로 생성됩니다.
+-- Storage bucket 생성 및 정책 설정
+-- 버킷이 없으면 생성
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('spatial-files', 'spatial-files', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Storage RLS 정책 (기존 정책 삭제 후 재생성)
+DROP POLICY IF EXISTS "Allow public read access" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated deletes" ON storage.objects;
+
+-- 공개 읽기 정책 (모든 사용자가 파일 읽기 가능)
+CREATE POLICY "Allow public read access"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'spatial-files');
+
+-- 인증된 사용자 업로드 정책
+CREATE POLICY "Allow authenticated uploads"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'spatial-files');
+
+-- 인증된 사용자 삭제 정책
+CREATE POLICY "Allow authenticated deletes"
+ON storage.objects FOR DELETE
+USING (bucket_id = 'spatial-files');
+
+-- 익명 사용자도 업로드 가능 (개발 환경용)
+DROP POLICY IF EXISTS "Allow anon uploads" ON storage.objects;
+CREATE POLICY "Allow anon uploads"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'spatial-files');

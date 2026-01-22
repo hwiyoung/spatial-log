@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import { Box, Map, Database, FileDigit, Layers, Settings } from 'lucide-react'
 
 const menuItems = [
@@ -11,10 +11,10 @@ const menuItems = [
 export default function Sidebar() {
   return (
     <div className="w-64 h-full bg-slate-900 border-r border-slate-700 flex flex-col text-slate-300 flex-shrink-0">
-      <div className="p-6 flex items-center space-x-2 border-b border-slate-700">
+      <Link to="/" className="p-6 flex items-center space-x-2 border-b border-slate-700 hover:bg-slate-800/50 transition-colors">
         <Layers className="text-blue-500" size={28} />
         <span className="text-xl font-bold text-white tracking-tight">Spatial Log</span>
-      </div>
+      </Link>
 
       <nav className="flex-1 p-4 space-y-2">
         {menuItems.map((item) => (

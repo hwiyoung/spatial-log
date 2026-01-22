@@ -410,8 +410,7 @@ export async function loadE57(
   const xmlOffset = Number(dataView.getBigUint64(24, true))
   const xmlLength = Number(dataView.getBigUint64(32, true))
 
-  let scaleX = 0.001, scaleY = 0.001, scaleZ = 0.001
-  let offsetX = 0, offsetY = 0, offsetZ = 0
+  const scaleX = 0.001, scaleY = 0.001, scaleZ = 0.001
 
   try {
     const xmlBytes = new Uint8Array(arrayBuffer, xmlOffset, Math.min(xmlLength, fileSize - xmlOffset))
@@ -420,11 +419,8 @@ export async function loadE57(
     // 스케일 추출 시도
     const scaleMatch = xmlString.match(/cartesianBounds.*?xMinimum.*?>([-\d.e+]+)/is)
     if (scaleMatch) {
-      const minVal = parseFloat(scaleMatch[1] || '0')
-      if (Math.abs(minVal) > 1000) {
-        // 좌표가 큰 경우 (미터 단위 측량 데이터)
-        offsetX = minVal
-      }
+      // 좌표 범위 추출 (향후 좌표 보정에 사용 가능)
+      void scaleMatch[1]
     }
   } catch {
     // XML 파싱 실패 시 기본값 사용

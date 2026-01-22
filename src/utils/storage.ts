@@ -3,7 +3,7 @@
 import { extractExifFromFile } from './exifParser'
 
 const DB_NAME = 'spatial-log-db'
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 // 스토어 이름
 const STORES = {
@@ -22,6 +22,7 @@ export interface FileMetadata {
   size: number
   format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
   folderId: string | null
+  projectId: string | null
   createdAt: Date
   updatedAt: Date
   thumbnail?: string // Base64 또는 blob URL
@@ -130,8 +131,18 @@ function initDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORES.METADATA)) {
         const metaStore = db.createObjectStore(STORES.METADATA, { keyPath: 'id' })
         metaStore.createIndex('folderId', 'folderId', { unique: false })
+        metaStore.createIndex('projectId', 'projectId', { unique: false })
         metaStore.createIndex('format', 'format', { unique: false })
         metaStore.createIndex('name', 'name', { unique: false })
+      } else {
+        // 기존 스토어에 projectId 인덱스 추가 (v4 업그레이드)
+        const transaction = (event.target as IDBOpenDBRequest).transaction
+        if (transaction) {
+          const metaStore = transaction.objectStore(STORES.METADATA)
+          if (!metaStore.indexNames.contains('projectId')) {
+            metaStore.createIndex('projectId', 'projectId', { unique: false })
+          }
+        }
       }
 
       // 프로젝트 스토어
@@ -215,6 +226,7 @@ export async function saveFile(file: File, folderId: string | null = null): Prom
     size: file.size,
     format: detectFileFormat(file.name),
     folderId,
+    projectId: null,
     createdAt: now,
     updatedAt: now,
   }
@@ -844,4 +856,35 @@ export async function deleteAnnotation(id: string): Promise<void> {
     request.onerror = () => reject(new Error('어노테이션 삭제 실패'))
     request.onsuccess = () => resolve()
   })
+}
+
+// === 프로젝트-파일 연결 함수 ===
+
+// 프로젝트별 파일 조회
+export async function getFilesByProject(projectId: string): Promise<FileMetadata[]> {
+  const db = await initDB()
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.METADATA], 'readonly')
+    const store = transaction.objectStore(STORES.METADATA)
+    const index = store.index('projectId')
+    const request = index.getAll(projectId)
+
+    request.onerror = () => reject(new Error('프로젝트별 파일 조회 실패'))
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+// 파일을 프로젝트에 연결
+export async function linkFilesToProject(fileIds: string[], projectId: string): Promise<void> {
+  for (const fileId of fileIds) {
+    await updateFileMetadata(fileId, { projectId })
+  }
+}
+
+// 파일의 프로젝트 연결 해제
+export async function unlinkFilesFromProject(fileIds: string[]): Promise<void> {
+  for (const fileId of fileIds) {
+    await updateFileMetadata(fileId, { projectId: null })
+  }
 }

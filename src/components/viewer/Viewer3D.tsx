@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { MousePointer2, Ruler, PenTool, Box, Globe, RotateCcw, ZoomIn } from 'lucide-react'
 import ThreeCanvas, { type ClickPosition } from './ThreeCanvas'
 import MapView from './MapView'
@@ -12,7 +12,14 @@ type Tool = 'select' | 'measure' | 'annotate'
 
 interface Viewer3DProps {
   modelUrl?: string
-  annotations?: Array<{
+  modelFile?: File
+  modelFormat?: string
+  // 어노테이션 관련 props
+  annotations?: AnnotationData[]
+  selectedAnnotationId?: string | null
+  onAnnotationSelect?: (annotation: AnnotationData) => void
+  // Legacy props (호환성 유지)
+  legacyAnnotations?: Array<{
     id: number
     title: string
     x: string
@@ -21,18 +28,43 @@ interface Viewer3DProps {
   }>
 }
 
-export default function Viewer3D({ modelUrl, annotations }: Viewer3DProps) {
+export default function Viewer3D({
+  modelUrl,
+  modelFile,
+  modelFormat,
+  annotations: propAnnotations,
+  selectedAnnotationId: propSelectedId,
+  onAnnotationSelect,
+  legacyAnnotations,
+}: Viewer3DProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [activeTool, setActiveTool] = useState<Tool>('select')
   const [pendingPosition, setPendingPosition] = useState<ClickPosition | null>(null)
   const [showAnnotationModal, setShowAnnotationModal] = useState(false)
+  const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null)
 
-  const { createAnnotation } = useAnnotationStore()
+  const { annotations: storeAnnotations, createAnnotation, initialize: initAnnotations } = useAnnotationStore()
   const { projects, initialize: initProjects } = useProjectStore()
 
   useEffect(() => {
     initProjects()
-  }, [initProjects])
+    initAnnotations()
+  }, [initProjects, initAnnotations])
+
+  // 외부에서 전달된 어노테이션이 있으면 사용, 없으면 스토어 어노테이션 사용
+  const annotations = useMemo(() => propAnnotations ?? storeAnnotations, [propAnnotations, storeAnnotations])
+
+  // 선택된 어노테이션 ID (외부 제어 또는 내부 상태)
+  const selectedAnnotationId = propSelectedId ?? internalSelectedId
+
+  // 어노테이션 클릭 핸들러
+  const handleAnnotationClick = (annotation: AnnotationData) => {
+    if (onAnnotationSelect) {
+      onAnnotationSelect(annotation)
+    } else {
+      setInternalSelectedId(annotation.id)
+    }
+  }
 
   const handlePointClick = (position: ClickPosition) => {
     if (activeTool === 'annotate') {
@@ -145,11 +177,16 @@ export default function Viewer3D({ modelUrl, annotations }: Viewer3DProps) {
         {viewMode === 'grid' ? (
           <ThreeCanvas
             modelUrl={modelUrl}
+            modelFile={modelFile}
+            modelFormat={modelFormat}
             annotateMode={activeTool === 'annotate'}
             onPointClick={handlePointClick}
+            annotations={annotations}
+            selectedAnnotationId={selectedAnnotationId}
+            onAnnotationClick={handleAnnotationClick}
           />
         ) : (
-          <MapView annotations={annotations} />
+          <MapView annotations={legacyAnnotations} />
         )}
       </div>
 

@@ -21,6 +21,7 @@ export type Database = {
           size: number
           format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
           folder_id: string | null
+          project_id: string | null
           storage_path: string
           thumbnail_path: string | null
           gps_latitude: number | null
@@ -41,6 +42,7 @@ export type Database = {
           size: number
           format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
           folder_id?: string | null
+          project_id?: string | null
           storage_path: string
           thumbnail_path?: string | null
           gps_latitude?: number | null
@@ -61,6 +63,7 @@ export type Database = {
           size?: number
           format?: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
           folder_id?: string | null
+          project_id?: string | null
           storage_path?: string
           thumbnail_path?: string | null
           gps_latitude?: number | null

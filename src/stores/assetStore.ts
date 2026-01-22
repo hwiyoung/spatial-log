@@ -14,6 +14,9 @@ import {
   deleteFolder,
   getStorageUsage,
   isBackendConnected,
+  getFilesByProject,
+  linkFilesToProject,
+  unlinkFilesFromProject,
 } from '@/services/api'
 
 interface UploadProgress {
@@ -71,6 +74,11 @@ interface AssetState {
   // UI 액션
   setViewMode: (mode: 'grid' | 'list') => void
   clearError: () => void
+
+  // 프로젝트 연결 액션
+  fetchFilesByProject: (projectId: string) => Promise<FileMetadata[]>
+  linkToProject: (fileIds: string[], projectId: string) => Promise<void>
+  unlinkFromProject: (fileIds: string[]) => Promise<void>
 }
 
 export const useAssetStore = create<AssetState>((set, get) => ({
@@ -340,5 +348,46 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   // 에러 초기화
   clearError: () => {
     set({ error: null })
+  },
+
+  // 프로젝트별 파일 조회
+  fetchFilesByProject: async (projectId: string) => {
+    try {
+      const files = await getFilesByProject(projectId)
+      return files
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : '프로젝트 파일 조회 실패' })
+      return []
+    }
+  },
+
+  // 파일을 프로젝트에 연결
+  linkToProject: async (fileIds: string[], projectId: string) => {
+    set({ isLoading: true, error: null })
+    try {
+      await linkFilesToProject(fileIds, projectId)
+      await get().refreshFiles()
+      set({ isLoading: false })
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : '프로젝트 연결 실패',
+        isLoading: false,
+      })
+    }
+  },
+
+  // 파일의 프로젝트 연결 해제
+  unlinkFromProject: async (fileIds: string[]) => {
+    set({ isLoading: true, error: null })
+    try {
+      await unlinkFilesFromProject(fileIds)
+      await get().refreshFiles()
+      set({ isLoading: false })
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : '프로젝트 연결 해제 실패',
+        isLoading: false,
+      })
+    }
   },
 }))

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Filter, Search, Loader2, AlertCircle, FolderOpen } from 'lucide-react'
 import ProjectCard from '@/components/dashboard/ProjectCard'
 import { ProjectModal } from '@/components/project'
@@ -6,6 +7,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import type { ProjectData } from '@/services/api'
 
 export default function Projects() {
+  const navigate = useNavigate()
   const {
     projects,
     isLoading,
@@ -177,7 +179,7 @@ export default function Projects() {
               key={project.id}
               project={project}
               onClick={() => {
-                // TODO: 프로젝트 상세 페이지로 이동
+                navigate(`/projects/${project.id}`)
               }}
               onEdit={() => setEditingProject(project)}
               onDelete={() => setDeleteConfirm(project)}

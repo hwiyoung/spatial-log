@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { loadModel, loadModelFromFile, type LoadProgress, type LoadedModel, type SupportedFormat } from '../../utils/modelLoader'
+import { loadModel, loadModelFromFile, type LoadProgress, type LoadedModel } from '../../utils/modelLoader'
 
 interface ModelViewerProps {
   url?: string

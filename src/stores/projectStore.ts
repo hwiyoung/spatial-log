@@ -48,6 +48,9 @@ interface ProjectState {
   // 유틸리티
   getFilteredProjects: () => ProjectData[]
   clearError: () => void
+
+  // 단일 프로젝트 조회
+  getProject: (id: string) => Promise<ProjectData | null>
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -204,5 +207,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   // 에러 초기화
   clearError: () => {
     set({ error: null })
+  },
+
+  // 단일 프로젝트 조회
+  getProject: async (id: string) => {
+    try {
+      const project = await getProject(id)
+      return project
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : '프로젝트 조회 실패' })
+      return null
+    }
   },
 }))

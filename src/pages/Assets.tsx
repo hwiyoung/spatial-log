@@ -25,7 +25,6 @@ import { useAssetStore } from '@/stores/assetStore'
 import { Modal, Input, FileUpload } from '@/components/common'
 import ThreeCanvas from '@/components/viewer/ThreeCanvas'
 import { formatFileSize } from '@/utils/storage'
-import { getFileUrl } from '@/services/api'
 import type { FileMetadata, FolderData } from '@/services/api'
 
 // 포맷별 아이콘 매핑
@@ -90,7 +89,6 @@ export default function Assets() {
     selectFile,
     clearSelection,
     setViewMode,
-    getFileDownloadUrl,
     getFileBlob,
   } = useAssetStore()
 

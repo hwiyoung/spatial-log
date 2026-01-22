@@ -54,6 +54,9 @@ interface AnnotationState {
   // 유틸리티
   getFilteredAnnotations: () => AnnotationData[]
   clearError: () => void
+
+  // 프로젝트별 어노테이션 조회
+  fetchAnnotationsByProject: (projectId: string) => Promise<AnnotationData[]>
 }
 
 export const useAnnotationStore = create<AnnotationState>((set, get) => ({
@@ -233,5 +236,16 @@ export const useAnnotationStore = create<AnnotationState>((set, get) => ({
   // 에러 초기화
   clearError: () => {
     set({ error: null })
+  },
+
+  // 프로젝트별 어노테이션 조회
+  fetchAnnotationsByProject: async (projectId: string) => {
+    try {
+      const annotations = await getAnnotations(projectId)
+      return annotations
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : '프로젝트 어노테이션 조회 실패' })
+      return []
+    }
   },
 }))

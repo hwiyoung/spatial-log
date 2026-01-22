@@ -1,22 +1,39 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { UploadCloud, Plus, ChevronRight, Database, Eye, Box, Loader2, FolderOpen } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import ProjectCard from '@/components/dashboard/ProjectCard'
 import Viewer3D from '@/components/viewer/Viewer3D'
 import { useProjectStore } from '@/stores/projectStore'
 import { useAssetStore } from '@/stores/assetStore'
 import { formatFileSize } from '@/utils/storage'
-import type { ProjectData } from '@/services/api'
+import type { ProjectData, FileMetadata } from '@/services/api'
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const { projects, isLoading: projectsLoading, initialize: initProjects, deleteProject, updateProject } = useProjectStore()
-  const { files, isLoading: filesLoading, initialize: initFiles } = useAssetStore()
+  const { files, isLoading: filesLoading, initialize: initFiles, getFileBlob } = useAssetStore()
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectData | null>(null)
+  const [selectedFile, setSelectedFile] = useState<FileMetadata | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const previewUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     initProjects()
     initFiles()
   }, [initProjects, initFiles])
+
+  // 컴포넌트 언마운트 시 Blob URL 정리
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current
+        if (blobUrlOnly.startsWith('blob:')) {
+          URL.revokeObjectURL(blobUrlOnly)
+        }
+      }
+    }
+  }, [])
 
   const handleDelete = async () => {
     if (!deleteConfirm) return
@@ -27,6 +44,58 @@ export default function Dashboard() {
   const handleStatusChange = async (project: ProjectData, status: ProjectData['status']) => {
     await updateProject(project.id, { status })
   }
+
+  const handleProjectClick = (project: ProjectData) => {
+    navigate(`/projects/${project.id}`)
+  }
+
+  const handleFileClick = useCallback(async (file: FileMetadata) => {
+    // 3D 미리보기 지원 파일인지 확인
+    const is3DFormat = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)
+    if (!is3DFormat) {
+      setSelectedFile(file)
+      setPreviewUrl(null)
+      previewUrlRef.current = null
+      return
+    }
+
+    // 이전 미리보기 URL 정리
+    if (previewUrlRef.current) {
+      const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current
+      if (blobUrlOnly.startsWith('blob:')) {
+        URL.revokeObjectURL(blobUrlOnly)
+      }
+    }
+
+    setSelectedFile(file)
+    setPreviewUrl(null)
+    previewUrlRef.current = null
+    setIsLoadingPreview(true)
+
+    // WebGL 컨텍스트 안정화를 위한 짧은 대기
+    await new Promise(resolve => setTimeout(resolve, 150))
+
+    try {
+      // Blob으로 직접 다운로드하여 URL 생성 (signed URL 401 에러 회피)
+      const blob = await getFileBlob(file.id)
+      if (blob) {
+        // blob URL에 파일 확장자 힌트 추가
+        const blobUrl = URL.createObjectURL(blob) + `#file.${file.format}`
+        setPreviewUrl(blobUrl)
+        previewUrlRef.current = blobUrl
+      } else {
+        console.error('Failed to get file blob')
+        setPreviewUrl(null)
+        previewUrlRef.current = null
+      }
+    } catch (error) {
+      console.error('Failed to get file URL:', error)
+      setPreviewUrl(null)
+      previewUrlRef.current = null
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }, [getFileBlob])
 
   const recentProjects = projects.slice(0, 4)
   const recentFiles = files.slice(0, 10)
@@ -86,6 +155,7 @@ export default function Dashboard() {
                   <ProjectCard
                     key={project.id}
                     project={project}
+                    onClick={() => handleProjectClick(project)}
                     onDelete={() => setDeleteConfirm(project)}
                     onStatusChange={(status) => handleStatusChange(project, status)}
                   />
@@ -120,7 +190,12 @@ export default function Dashboard() {
                 recentFiles.map((file) => (
                   <div
                     key={file.id}
-                    className="flex items-center space-x-3 p-2 hover:bg-slate-800 rounded-lg group transition-colors cursor-pointer"
+                    onClick={() => handleFileClick(file)}
+                    className={`flex items-center space-x-3 p-2 rounded-lg group transition-colors cursor-pointer ${
+                      selectedFile?.id === file.id
+                        ? 'bg-blue-500/20 border border-blue-500/50'
+                        : 'hover:bg-slate-800'
+                    }`}
                   >
                     <div className="relative">
                       {file.thumbnailUrl ? (
@@ -155,9 +230,26 @@ export default function Dashboard() {
           <div className="flex justify-between items-center px-1">
             <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
               <Eye size={16} /> 미리보기
+              {selectedFile && (
+                <span className="text-xs font-normal text-slate-400 ml-2">
+                  - {selectedFile.name}
+                </span>
+              )}
             </h2>
           </div>
-          <Viewer3D />
+          {isLoadingPreview ? (
+            <div className="w-full h-full bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3 text-slate-400">
+                <Loader2 size={40} className="animate-spin" />
+                <span className="text-sm">모델 로딩 중...</span>
+              </div>
+            </div>
+          ) : (
+            <Viewer3D
+              modelUrl={previewUrl || undefined}
+              modelFormat={selectedFile?.format}
+            />
+          )}
         </div>
       </div>
 

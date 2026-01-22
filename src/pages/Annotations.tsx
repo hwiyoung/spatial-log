@@ -1,6 +1,5 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  Filter,
   List,
   Plus,
   Search,
@@ -8,18 +7,12 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  MapPin,
   Loader2,
   Edit2,
   Trash2,
   MoreVertical,
-  PenTool,
-  ZoomIn,
-  ZoomOut,
-  Move,
-  RotateCcw,
 } from 'lucide-react'
-import { AnnotationModal } from '@/components/annotation'
+import { AnnotationModal, AnnotationMapView } from '@/components/annotation'
 import { useAnnotationStore } from '@/stores/annotationStore'
 import { useProjectStore } from '@/stores/projectStore'
 import type { AnnotationData } from '@/services/api'
@@ -87,14 +80,7 @@ export default function Annotations() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [isMapCreateMode, setIsMapCreateMode] = useState(false)
-  const [mapClickPosition, setMapClickPosition] = useState<{ x: number; y: number } | null>(null)
-
-  // 맵 확대/축소/이동 상태
-  const [mapTransform, setMapTransform] = useState({ scale: 1, x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
-  const mapRef = useRef<HTMLDivElement>(null)
-  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const [mapClickPosition, setMapClickPosition] = useState<{ lat: number; lng: number } | null>(null)
 
   // 초기화
   useEffect(() => {
@@ -144,101 +130,12 @@ export default function Annotations() {
   const filteredAnnotations = getFilteredAnnotations()
   const selectedAnnotation = filteredAnnotations.find((a) => a.id === selectedId)
 
-  // 맵 위의 핀 위치 계산 (시뮬레이션)
-  const getPinPosition = (index: number, total: number) => {
-    const angle = (index / total) * 2 * Math.PI
-    const radius = 30 + Math.random() * 20
-    const x = 50 + radius * Math.cos(angle)
-    const y = 50 + radius * Math.sin(angle)
-    return { x: `${Math.max(10, Math.min(90, x))}%`, y: `${Math.max(10, Math.min(90, y))}%` }
-  }
-
-  // 맵 휠 줌 핸들러
-  // 주의: 브라우저 Ctrl+휠 줌은 JavaScript로 완전히 막을 수 없는 경우가 있음
-  // 이 핸들러는 일반 휠 스크롤만 처리하고, Ctrl+휠은 무시함
-  useEffect(() => {
-    const containerElement = mapContainerRef.current
-    if (!containerElement) return
-
-    const handleWheel = (e: WheelEvent) => {
-      // 맵 영역 내에서만 동작
-      const rect = containerElement.getBoundingClientRect()
-      const isInside = (
-        e.clientX >= rect.left &&
-        e.clientX <= rect.right &&
-        e.clientY >= rect.top &&
-        e.clientY <= rect.bottom
-      )
-
-      if (!isInside) return
-
-      // Ctrl+휠은 브라우저 줌이므로 무시 (JavaScript로 막을 수 없음)
-      // 일반 휠만 맵 줌으로 처리
-      if (e.ctrlKey || e.metaKey) {
-        // Ctrl+휠 줌은 브라우저가 처리하도록 허용
-        // 대신 사용자에게 일반 휠 사용 안내
-        return
-      }
-
-      // 일반 휠 스크롤 → 맵 줌으로 변환
-      e.preventDefault()
-      e.stopPropagation()
-
-      const delta = e.deltaY > 0 ? 0.9 : 1.1
-      setMapTransform((prev) => ({
-        ...prev,
-        scale: Math.max(0.5, Math.min(4, prev.scale * delta)),
-      }))
+  // 맵 클릭 핸들러 (어노테이션 추가 모드)
+  const handleMapClick = (lat: number, lng: number) => {
+    if (isMapCreateMode) {
+      setMapClickPosition({ lat, lng })
     }
-
-    // 컨테이너에 직접 이벤트 리스너 등록
-    containerElement.addEventListener('wheel', handleWheel, { passive: false })
-    return () => containerElement.removeEventListener('wheel', handleWheel)
-  }, [])
-
-  // 맵 드래그 시작
-  const handleMapMouseDown = useCallback((e: React.MouseEvent) => {
-    // 어노테이션 추가 모드가 아닐 때만 드래그 활성화
-    if (isMapCreateMode && !mapClickPosition) return
-    if (e.button !== 0) return // 좌클릭만
-    setIsDragging(true)
-    setDragStart({ x: e.clientX - mapTransform.x, y: e.clientY - mapTransform.y })
-  }, [isMapCreateMode, mapClickPosition, mapTransform.x, mapTransform.y])
-
-  // 맵 드래그 중
-  const handleMapMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return
-    setMapTransform((prev) => ({
-      ...prev,
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
-    }))
-  }, [isDragging, dragStart])
-
-  // 맵 드래그 종료
-  const handleMapMouseUp = useCallback(() => {
-    setIsDragging(false)
-  }, [])
-
-  // 맵 뷰 리셋
-  const resetMapView = useCallback(() => {
-    setMapTransform({ scale: 1, x: 0, y: 0 })
-  }, [])
-
-  // 줌 인/아웃 버튼
-  const zoomIn = useCallback(() => {
-    setMapTransform((prev) => ({
-      ...prev,
-      scale: Math.min(4, prev.scale * 1.2),
-    }))
-  }, [])
-
-  const zoomOut = useCallback(() => {
-    setMapTransform((prev) => ({
-      ...prev,
-      scale: Math.max(0.5, prev.scale / 1.2),
-    }))
-  }, [])
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full">
@@ -437,205 +334,26 @@ export default function Annotations() {
           )}
         </div>
 
-        {/* 오른쪽: 분포 맵 & 상세 정보 */}
-        <div
-          ref={mapContainerRef}
-          className="flex-1 bg-slate-950 rounded-xl border border-slate-800 relative overflow-hidden flex flex-col"
-          style={{
-            touchAction: 'none',              // 터치/제스처 기본 동작 비활성화
-            overscrollBehavior: 'contain',    // 스크롤 체인 방지
-            // @ts-expect-error CSS zoom property
-            zoom: 1,                          // 브라우저 줌 영향 방지
-            contain: 'layout style',          // 레이아웃 격리
-          }}
-        >
-          {/* 맵 상단 툴바 */}
-          <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
-            <div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-3 py-1.5 rounded-lg text-xs text-white shadow-lg">
-              <span className="font-bold text-blue-400">분포 현황</span> : 전체 프로젝트 통합 뷰
-            </div>
-            {/* 맵에서 어노테이션 추가 버튼 */}
-            <button
-              onClick={() => {
-                setIsMapCreateMode(!isMapCreateMode)
-                if (isMapCreateMode) {
-                  setMapClickPosition(null) // 모드 종료 시 임시 마커 제거
-                }
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs shadow-lg transition-colors ${
-                isMapCreateMode
-                  ? 'bg-orange-500/90 text-white border border-orange-400'
-                  : 'bg-slate-900/90 backdrop-blur border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <PenTool size={14} />
-              <span>{isMapCreateMode ? '추가 모드 종료' : '맵에서 추가'}</span>
-            </button>
-          </div>
-
-          {/* 줌/팬 컨트롤 버튼 */}
-          <div className="absolute top-4 right-4 z-10 flex flex-col gap-1">
-            <button
-              onClick={zoomIn}
-              className="p-2 bg-slate-900/90 backdrop-blur border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg shadow-lg transition-colors"
-              title="확대"
-            >
-              <ZoomIn size={16} />
-            </button>
-            <button
-              onClick={zoomOut}
-              className="p-2 bg-slate-900/90 backdrop-blur border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg shadow-lg transition-colors"
-              title="축소"
-            >
-              <ZoomOut size={16} />
-            </button>
-            <button
-              onClick={resetMapView}
-              className="p-2 bg-slate-900/90 backdrop-blur border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg shadow-lg transition-colors"
-              title="뷰 리셋"
-            >
-              <RotateCcw size={16} />
-            </button>
-          </div>
-
-          {/* 현재 줌 레벨 표시 */}
-          {mapTransform.scale !== 1 && (
-            <div className="absolute bottom-4 right-4 z-10 bg-slate-900/90 backdrop-blur border border-slate-700 px-2 py-1 rounded text-xs text-slate-400">
-              {Math.round(mapTransform.scale * 100)}%
-            </div>
-          )}
-
-          <div
-            ref={mapRef}
-            className={`flex-1 relative overflow-hidden ${isMapCreateMode ? 'cursor-crosshair' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-            onMouseDown={handleMapMouseDown}
-            onMouseMove={handleMapMouseMove}
-            onMouseUp={handleMapMouseUp}
-            onMouseLeave={handleMapMouseUp}
-            onClick={(e) => {
-              if (!isMapCreateMode || isDragging) return
-              const rect = e.currentTarget.getBoundingClientRect()
-              // 변환을 고려한 좌표 계산
-              const x = ((e.clientX - rect.left - mapTransform.x) / mapTransform.scale / rect.width) * 100
-              const y = ((e.clientY - rect.top - mapTransform.y) / mapTransform.scale / rect.height) * 100
-              // 범위 내로 제한
-              const clampedX = Math.max(0, Math.min(100, x))
-              const clampedY = Math.max(0, Math.min(100, y))
-              setMapClickPosition({ x: clampedX, y: clampedY })
+        {/* 오른쪽: Leaflet 맵 뷰 */}
+        <div className="flex-1 bg-slate-950 rounded-xl border border-slate-800 relative overflow-hidden flex flex-col">
+          <AnnotationMapView
+            annotations={filteredAnnotations}
+            selectedId={selectedId}
+            onAnnotationClick={(annotation) => setSelectedId(annotation.id)}
+            onMapClick={handleMapClick}
+            isCreateMode={isMapCreateMode}
+            onCreateModeChange={setIsMapCreateMode}
+            pendingPosition={mapClickPosition}
+            onConfirmPosition={() => {
+              setIsCreateModalOpen(true)
+              setIsMapCreateMode(false)
             }}
-          >
-            {/* 변환 가능한 맵 컨텐츠 컨테이너 */}
-            <div
-              className="absolute inset-0 origin-top-left"
-              style={{
-                transform: `translate(${mapTransform.x}px, ${mapTransform.y}px) scale(${mapTransform.scale})`,
-                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-              }}
-            >
-            {/* 맵 배경 */}
-            <div className="absolute inset-0 bg-slate-900">
-              <div
-                className="absolute inset-0 opacity-40 bg-cover bg-center grayscale contrast-125 brightness-50"
-                style={{
-                  backgroundImage:
-                    "url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop')",
-                }}
-              />
-              <div className="absolute inset-0 bg-blue-900/10 mix-blend-overlay" />
-              <div
-                className="absolute inset-0 opacity-20"
-                style={{
-                  backgroundImage:
-                    'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)',
-                  backgroundSize: '50px 50px',
-                }}
-              />
-            </div>
-
-            {/* 핀들 */}
-            {filteredAnnotations.map((note, index) => {
-              const pos = getPinPosition(index, filteredAnnotations.length)
-              const isSelected = selectedId === note.id
-
-              return (
-                <div
-                  key={note.id}
-                  className="absolute group cursor-pointer transition-transform"
-                  style={{ left: pos.x, top: pos.y, transform: isSelected ? 'scale(1.3)' : 'scale(1)' }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setSelectedId(note.id)
-                  }}
-                >
-                  <div
-                    className={`relative -translate-x-1/2 -translate-y-full ${PRIORITY_CONFIG[note.priority].pin}`}
-                  >
-                    <MapPin
-                      size={isSelected ? 32 : 24}
-                      className={`fill-current drop-shadow-lg ${isSelected ? '' : 'animate-bounce'}`}
-                      style={{ animationDuration: '2s' }}
-                    />
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-20 pointer-events-none">
-                      {note.title}
-                    </div>
-                  </div>
-                  <div className="w-2 h-1 bg-black/50 blur-[2px] rounded-full absolute top-0 left-1/2 -translate-x-1/2" />
-                </div>
-              )
-            })}
-
-            {/* 추가 모드 안내 오버레이 */}
-            {isMapCreateMode && !mapClickPosition && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="bg-orange-500/20 border-2 border-dashed border-orange-400 rounded-xl px-6 py-4 text-orange-300 text-sm backdrop-blur-sm">
-                  맵을 클릭하여 위치를 선택하세요
-                </div>
-              </div>
-            )}
-
-            {/* 임시 마커 (위치 선택 후) */}
-            {isMapCreateMode && mapClickPosition && (
-              <div
-                className="absolute z-30"
-                style={{ left: `${mapClickPosition.x}%`, top: `${mapClickPosition.y}%` }}
-              >
-                {/* 마커 */}
-                <div className="relative -translate-x-1/2 -translate-y-full text-orange-400">
-                  <MapPin size={32} className="fill-orange-500 drop-shadow-lg animate-pulse" />
-                </div>
-                {/* 확인 팝업 */}
-                <div
-                  className="absolute left-1/2 -translate-x-1/2 mt-2 bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-3 min-w-[160px]"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <p className="text-xs text-slate-400 mb-2 text-center">이 위치에 추가할까요?</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setMapClickPosition(null)}
-                      className="flex-1 px-2 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors"
-                    >
-                      취소
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsCreateModalOpen(true)
-                        setIsMapCreateMode(false)
-                      }}
-                      className="flex-1 px-2 py-1.5 text-xs bg-orange-500 hover:bg-orange-400 text-white rounded transition-colors"
-                    >
-                      추가
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-            </div>
-            {/* 변환 컨테이너 닫힘 */}
-          </div>
+            onCancelPosition={() => setMapClickPosition(null)}
+          />
 
           {/* 선택된 이슈 상세 정보 */}
           {selectedAnnotation && (
-            <div className="absolute bottom-4 left-4 right-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-4 shadow-xl">
+            <div className="absolute bottom-4 left-4 right-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-4 shadow-xl z-[1000]">
               <div className="flex justify-between items-start mb-2">
                 <h4 className="font-medium text-white">{selectedAnnotation.title}</h4>
                 <div className="flex items-center gap-2">
@@ -681,7 +399,7 @@ export default function Annotations() {
         onSubmit={handleCreate}
         title={mapClickPosition ? '새 이슈 (맵에서 선택)' : '새 이슈'}
         projects={projects}
-        initialPosition={mapClickPosition ? { x: mapClickPosition.x, y: mapClickPosition.y, z: 0 } : undefined}
+        initialPosition={mapClickPosition ? { x: mapClickPosition.lng, y: mapClickPosition.lat, z: 0 } : undefined}
       />
 
       {/* 편집 모달 */}

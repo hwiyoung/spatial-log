@@ -8,8 +8,8 @@
 |------|------|
 | **데이터 관리** | 폴더 기반 파일 업로드, 정리, 검색 |
 | **3D 가시화** | Three.js + CesiumJS 하이브리드 뷰어 |
-| **프로젝트 관리** | 데이터셋 그룹화 및 협업 |
-| **어노테이션** | 3D 좌표 기반 이슈 트래킹 |
+| **프로젝트 관리** | 데이터셋 그룹화, 에셋 연결, 협업 |
+| **어노테이션** | 2D/3D 맵 기반 이슈 트래킹 |
 
 ## 지원 데이터
 
@@ -42,7 +42,8 @@ E57 포맷은 압축된 바이너리 데이터(Huffman, CRC32)를 포함하여 *
 
 ### 3D Engine
 - **Three.js** (react-three-fiber): 일반 3D 모델 렌더링
-- **CesiumJS** (Resium): 지리공간 데이터 가시화
+- **CesiumJS** (순수 API): 3D 지구본 가시화 (OpenStreetMap 타일)
+- **Leaflet** (react-leaflet): 2D 맵 가시화
 
 ### Backend
 - **Supabase**: 인증, 데이터베이스, 스토리지
@@ -131,10 +132,9 @@ SERVICE_ROLE_KEY=your-service-role-key
 # 프론트엔드 환경변수 (네트워크 접속 시 IP 주소로 변경)
 VITE_SUPABASE_URL=http://localhost:8100
 VITE_SUPABASE_ANON_KEY=your-anon-key
-
-# Cesium Ion 토큰 (선택사항 - 3D 지형용)
-VITE_CESIUM_ION_TOKEN=your-cesium-token
 ```
+
+> **참고**: Cesium Ion 토큰은 더 이상 필요하지 않습니다. OpenStreetMap 타일을 사용합니다.
 
 ### 네트워크 환경 설정
 
@@ -168,11 +168,14 @@ spatial-log/
 │   ├── components/
 │   │   ├── common/             # Button, Modal, Card, Input
 │   │   ├── layout/             # Sidebar, Header, MainLayout
-│   │   ├── viewer/             # Viewer3D, ViewerToolbar
-│   │   └── dashboard/          # ProjectCard, AssetCard
+│   │   ├── viewer/             # Viewer3D, ThreeCanvas, MapView
+│   │   ├── dashboard/          # ProjectCard, AssetCard
+│   │   ├── project/            # AssetLinkModal
+│   │   └── annotation/         # AnnotationModal, AnnotationMapView, AnnotationMapView3D
 │   ├── pages/
 │   │   ├── Dashboard.tsx
 │   │   ├── Projects.tsx
+│   │   ├── ProjectDetail.tsx   # 프로젝트 상세 (에셋, 어노테이션, 3D 뷰어)
 │   │   ├── Assets.tsx
 │   │   └── Annotations.tsx
 │   ├── lib/
@@ -209,13 +212,14 @@ spatial-log/
 |--------|------|
 | `projects` | 프로젝트 정보 |
 | `folders` | 폴더 계층 구조 |
-| `files` | 파일 메타데이터 (GPS, EXIF 포함) |
+| `files` | 파일 메타데이터 (GPS, EXIF, project_id 포함) |
 | `annotations` | 3D 어노테이션 |
 
 ### 주요 기능
 - **PostGIS 확장**: 공간 쿼리 지원
 - **Row Level Security (RLS)**: 사용자별 데이터 격리
 - **자동 위치 계산**: GPS 좌표 → Geography 타입 자동 변환
+- **프로젝트-에셋 연결**: files.project_id 외래키
 
 ## 개발 로드맵
 
@@ -240,12 +244,12 @@ spatial-log/
 
 ### Phase 4: 3D 뷰어 통합 ✅
 - [x] react-three-fiber 통합 (3D 모델)
-- [x] Resium 통합 (지리공간 데이터)
+- [x] CesiumJS 순수 API 통합 (지리공간 데이터, React 18 호환)
 - [x] 뷰어 모드 전환 (Grid/Map)
 - [x] 파일 포맷 지원 (GLTF, GLB, OBJ, FBX, PLY, LAS)
 - [ ] **E57 가시화 (파싱 에러 - 변환 필요)**
 - [x] OBJ Z-up → Y-up 좌표계 자동 변환
-- [x] WebGL 컨텍스트 손실 복구 처리
+- [x] WebGL 컨텍스트 손실 복구 처리 (타임아웃 기반 에러 표시)
 
 ### Phase 5: 데이터 관리 ✅
 - [x] 파일 업로드 (드래그 앤 드롭)
@@ -258,18 +262,21 @@ spatial-log/
 ### Phase 6: 프로젝트 시스템 ✅
 - [x] 프로젝트 CRUD
 - [x] 프로젝트 목록/그리드 뷰
-- [ ] 에셋-프로젝트 연결
-- [ ] 프로젝트 상세 설정
+- [x] 에셋-프로젝트 연결 (AssetLinkModal)
+- [x] 프로젝트 상세 페이지 (ProjectDetail.tsx)
+- [x] 프로젝트 내 3D 뷰어 통합
+- [x] 에셋 연결/해제 기능
 
-### Phase 7: 어노테이션 시스템 (진행 중)
+### Phase 7: 어노테이션 시스템 ✅
 - [x] 이슈 CRUD (제목, 설명, 우선순위, 상태)
 - [x] 분포 맵 시각화
 - [x] 필터링 및 검색
 - [x] 맵에서 클릭으로 위치 지정
 - [x] 맵 드래그 이동
-- [ ] **맵 휠 줌 (브라우저 줌 간섭 문제)**
-- [ ] 3D 좌표 기반 마커 생성
-- [ ] 마커-뷰어 연동
+- [x] **맵 휠 줌 (Leaflet 기반 2D 맵)**
+- [x] **2D/3D 맵 토글 (Leaflet + CesiumJS)**
+- [ ] 3D 좌표 기반 마커 생성 (ThreeCanvas 레이캐스팅)
+- [ ] 마커-뷰어 연동 (CameraController)
 
 ### Phase 8: 백엔드 연동 ✅
 - [x] Supabase 로컬 환경 구성 (Docker Compose)
@@ -287,7 +294,16 @@ spatial-log/
 | 기능 | 증상 | 원인 분석 | TODO |
 |------|------|----------|------|
 | **E57 가시화** | "maximum call stack size exceeded" 에러 발생 | 샘플링 파서의 재귀/반복 로직 문제 또는 메모리 초과 | libE57 WebAssembly 포팅 검토 또는 서버사이드 변환 |
-| **어노테이션 맵 휠 줌** | 맵 콘텐츠가 아닌 패널 전체가 줌됨 (글씨 크기 변화) | 브라우저 Ctrl+휠 줌을 JavaScript로 완전히 차단 불가 | iframe 격리 또는 별도 뷰포트 사용 검토 |
+
+### 🟢 해결 완료 (Resolved)
+
+| 기능 | 증상 | 해결 방법 |
+|------|------|----------|
+| **어노테이션 맵 휠 줌** | 맵 콘텐츠가 아닌 패널 전체가 줌됨 | Leaflet 라이브러리 도입으로 해결 |
+| **Resium React 18 호환** | `recentlyCreatedOwnerStacks` 에러 | Resium 제거, CesiumJS 순수 API로 교체 |
+| **Cesium Ion 토큰 만료** | 401 Unauthorized 에러 | OpenStreetMap 타일로 교체 (토큰 불필요) |
+| **대시보드 미리보기 401** | Supabase Storage signed URL 에러 | Blob URL 직접 다운로드 방식으로 변경 |
+| **WebGL 컨텍스트 손실** | 정상 동작에도 에러 표시 | 타임아웃 기반 에러 표시, 모델 로드 성공 시 숨김 |
 
 ### 🟡 제한사항 (Known Limitations)
 
@@ -295,7 +311,6 @@ spatial-log/
 |------|----------|----------|
 | E57 포맷 | 압축된 E57 파일은 웹에서 파싱 불가 | **CloudCompare로 PLY/LAS 변환 후 업로드** |
 | 파일 크기 | 1GB 이상 파일 업로드 불가 | 파일 분할 또는 docker-compose.yml FILE_SIZE_LIMIT 변경 |
-| 브라우저 줌 | Ctrl+휠, 터치패드 핀치는 페이지 전체 줌 | 일반 마우스 휠 사용 (맵 줌 버튼 사용 권장) |
 
 ### 향후 개선 방향
 
@@ -304,22 +319,31 @@ spatial-log/
    - 옵션 2: libE57Format을 WebAssembly로 컴파일하여 브라우저에서 직접 파싱
    - 옵션 3: E57 업로드 시 변환 안내 UI 개선
 
-2. **맵 줌 개선**
-   - 옵션 1: 맵을 iframe으로 격리하여 브라우저 줌 영향 차단
-   - 옵션 2: Leaflet/MapLibre 등 전문 맵 라이브러리 사용
-   - 옵션 3: 줌 버튼만 사용하도록 UI/UX 변경
+2. **3D 어노테이션 완성**
+   - ThreeCanvas 전체 씬 레이캐스팅 (모델 표면 클릭)
+   - 포인트 클라우드 클릭 지원 (raycaster.params.Points.threshold)
+   - CameraController: 어노테이션 선택 시 카메라 자동 이동
+   - AnnotationMarker3D: 3D 공간 마커 렌더링
+
+3. **클라우드 배포**
+   - Supabase 클라우드 프로젝트 생성
+   - 환경변수 업데이트
+   - 스토리지 버킷 설정
 
 ## 화면 구성
 
 ### 대시보드
 - 최근 프로젝트 목록
 - 최근 업로드 데이터
-- 3D 뷰어 미리보기
+- 3D 뷰어 미리보기 (파일 클릭 시)
 
 ### 프로젝트
 - 프로젝트 카드 그리드
 - 프로젝트 생성/편집
-- 팀원 관리
+- 프로젝트 상세 페이지
+  - 에셋 탭: 연결된 파일 목록, 파일 추가/연결 해제
+  - 어노테이션 탭: 프로젝트 관련 어노테이션
+  - 3D 뷰어 탭: 선택한 에셋 3D 미리보기
 
 ### 데이터 보관함
 - 폴더 트리 네비게이션
@@ -328,7 +352,9 @@ spatial-log/
 
 ### 어노테이션
 - 이슈 목록 (필터링, 정렬)
-- 분포 맵 시각화
+- 2D/3D 맵 토글
+  - 2D 맵: Leaflet 기반 (휠 줌 지원)
+  - 3D 맵: CesiumJS 기반 지구본
 - 이슈 상세 패널
 
 ## 기여하기
