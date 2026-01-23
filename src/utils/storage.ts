@@ -167,7 +167,7 @@ function initDB(): Promise<IDBDatabase> {
 // 파일 포맷 감지
 export function detectFileFormat(
   filename: string
-): 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other' {
+): 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other' {
   const ext = filename.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'gltf':
@@ -184,6 +184,16 @@ export function detectFileFormat(
       return 'las'
     case 'e57':
       return 'e57'
+    // 3D Tiles 관련 파일
+    case 'b3dm':
+    case 'i3dm':
+    case 'pnts':
+    case 'cmpt':
+      return '3dtiles'
+    // Gaussian Splatting
+    case 'splat':
+    case 'ksplat':
+      return 'splat'
     case 'jpg':
     case 'jpeg':
     case 'png':

@@ -294,6 +294,7 @@ spatial-log/
 | 기능 | 증상 | 원인 분석 | TODO |
 |------|------|----------|------|
 | **E57 가시화** | "maximum call stack size exceeded" 에러 발생 | 샘플링 파서의 재귀/반복 로직 문제 또는 메모리 초과 | libE57 WebAssembly 포팅 검토 또는 서버사이드 변환 |
+| **OBJ 텍스처 로딩 성능** | OBJ+MTL+텍스처 미리보기 시 텍스처 가시화가 매우 느림 (5MB 파일 30초+) | Three.js MTLLoader의 텍스처 로딩이 렌더링 시점에 동기적으로 발생, blob URL 매핑 오버헤드 | 텍스처 프리로딩 비동기 처리, Worker 기반 로딩 검토 |
 
 ### 🟢 해결 완료 (Resolved)
 
@@ -311,6 +312,9 @@ spatial-log/
 |------|----------|----------|
 | E57 포맷 | 압축된 E57 파일은 웹에서 파싱 불가 | **CloudCompare로 PLY/LAS 변환 후 업로드** |
 | 파일 크기 | 1GB 이상 파일 업로드 불가 | 파일 분할 또는 docker-compose.yml FILE_SIZE_LIMIT 변경 |
+| OBJ 관련 파일 | OBJ+MTL+텍스처 업로드 시 각각 별도 DB 레코드로 저장됨 | 정상 동작, 관리 탭에서 실제보다 많은 파일 수 표시됨 |
+| 고아 파일 발생 | OBJ 삭제 시 연관 파일(MTL, 텍스처) DB 레코드가 남을 수 있음 | **Assets > 관리 탭 > 무결성 검사 > "모두 삭제" 클릭** |
+| 파일 수 불일치 | DB 레코드 수와 Storage 파일 수가 다를 수 있음 | 무결성 검사로 고아 레코드/파일 확인 및 정리 |
 
 ### 향후 개선 방향
 
@@ -319,16 +323,69 @@ spatial-log/
    - 옵션 2: libE57Format을 WebAssembly로 컴파일하여 브라우저에서 직접 파싱
    - 옵션 3: E57 업로드 시 변환 안내 UI 개선
 
-2. **3D 어노테이션 완성**
+2. **OBJ 로딩 성능 개선**
+   - Web Worker 기반 텍스처 프리로딩
+   - 텍스처 캐싱 시스템 도입
+   - 저해상도 프록시 텍스처 사용 (LOD)
+
+3. **파일 관리 개선**
+   - OBJ+MTL+텍스처를 단일 에셋으로 그룹화하여 표시
+   - 연관 파일 cascade 삭제 안정성 강화
+   - 자동 고아 파일 정리 스케줄러
+
+4. **3D 어노테이션 완성**
    - ThreeCanvas 전체 씬 레이캐스팅 (모델 표면 클릭)
    - 포인트 클라우드 클릭 지원 (raycaster.params.Points.threshold)
    - CameraController: 어노테이션 선택 시 카메라 자동 이동
    - AnnotationMarker3D: 3D 공간 마커 렌더링
 
-3. **클라우드 배포**
+5. **클라우드 배포**
    - Supabase 클라우드 프로젝트 생성
    - 환경변수 업데이트
    - 스토리지 버킷 설정
+
+## 유지보수
+
+### 고아 파일 정리
+
+OBJ 파일과 연관 파일(MTL, 텍스처) 삭제 시 일부 DB 레코드가 남을 수 있습니다. 정기적으로 정리가 필요합니다.
+
+**방법 1: UI에서 정리**
+1. **Assets** 페이지 이동
+2. **관리** 탭 클릭
+3. **검사 실행** 버튼 클릭
+4. 고아 DB 레코드/Storage 파일 확인
+5. **모두 삭제** 버튼으로 정리
+
+**방법 2: SQL로 직접 정리**
+```sql
+-- 고아 DB 레코드 확인 (Storage에 파일 없는 레코드)
+SELECT id, name, storage_path FROM files
+WHERE storage_path NOT IN (SELECT name FROM storage.objects WHERE bucket_id = 'spatial-files');
+
+-- 고아 레코드 삭제
+DELETE FROM files WHERE id IN (
+  SELECT id FROM files
+  WHERE storage_path NOT IN (SELECT name FROM storage.objects WHERE bucket_id = 'spatial-files')
+);
+```
+
+### integrity_logs 테이블 생성
+
+무결성 검사 로그를 저장하려면 테이블이 필요합니다. Docker 재시작 시 자동 생성되지만, 수동으로 생성하려면:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.integrity_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  check_type VARCHAR(50) NOT NULL,
+  status VARCHAR(20) NOT NULL,
+  orphaned_records INTEGER DEFAULT 0,
+  orphaned_files INTEGER DEFAULT 0,
+  valid_files INTEGER DEFAULT 0,
+  details JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
 
 ## 화면 구성
 

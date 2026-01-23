@@ -21,7 +21,7 @@ export interface FileMetadata {
   name: string
   type: string
   size: number
-  format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
+  format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
   folderId: string | null
   projectId: string | null
   storagePath?: string
@@ -167,7 +167,12 @@ function mapAnnotationRowToData(row: AnnotationRow): AnnotationData {
 
 export async function uploadFile(
   file: File,
-  folderId: string | null = null
+  folderId: string | null = null,
+  options?: {
+    tags?: string[]
+    groupId?: string
+    parentFileId?: string
+  }
 ): Promise<FileMetadata> {
   // Supabase가 설정되지 않으면 로컬 스토리지 사용
   if (!isSupabaseConfigured()) {
@@ -262,6 +267,15 @@ export async function uploadFile(
     }
   }
 
+  // 태그 생성 (그룹 정보 포함)
+  const tags: string[] = options?.tags ? [...options.tags] : []
+  if (options?.groupId) {
+    tags.push(`group:${options.groupId}`)
+  }
+  if (options?.parentFileId) {
+    tags.push(`parent:${options.parentFileId}`)
+  }
+
   // 메타데이터 DB에 저장
   const insertData: FileInsert = {
     name: file.name,
@@ -278,6 +292,7 @@ export async function uploadFile(
     exif_model: exifData?.model,
     exif_datetime: exifData?.dateTime?.toISOString(),
     user_id: user?.id ?? null,
+    tags: tags.length > 0 ? tags : null,
   }
   const { data, error: insertError } = await supabase
     .from('files')
@@ -294,17 +309,23 @@ export async function uploadFile(
   return mapFileRowToMetadata(data)
 }
 
-export async function getFiles(folderId?: string | null): Promise<FileMetadata[]> {
+export async function getFiles(folderId?: string | null, options?: { includeRelated?: boolean }): Promise<FileMetadata[]> {
   if (!isSupabaseConfigured()) {
     const localFiles = folderId === undefined
       ? await localStorage.getAllFileMetadata()
       : await localStorage.getFilesByFolder(folderId)
-    return localFiles.map(f => ({
+    const files = localFiles.map(f => ({
       ...f,
       projectId: f.projectId ?? null,
       storagePath: undefined,
       thumbnailUrl: f.thumbnail,
     }))
+
+    // 연관 파일 필터링 (기본적으로 숨김)
+    if (!options?.includeRelated) {
+      return files.filter(f => !f.tags?.some(t => t.startsWith('parent:')))
+    }
+    return files
   }
 
   const supabase = getSupabaseClient()
@@ -322,6 +343,42 @@ export async function getFiles(folderId?: string | null): Promise<FileMetadata[]
 
   if (error) {
     throw new Error(`파일 목록 조회 실패: ${error.message}`)
+  }
+
+  const files = ((data || []) as FileRow[]).map(mapFileRowToMetadata)
+
+  // 연관 파일 필터링 (기본적으로 숨김)
+  if (!options?.includeRelated) {
+    return files.filter(f => !f.tags?.some(t => t.startsWith('parent:')))
+  }
+  return files
+}
+
+/**
+ * 특정 파일의 연관 파일들 조회 (MTL, 텍스처 등)
+ */
+export async function getRelatedFiles(parentFileId: string): Promise<FileMetadata[]> {
+  if (!isSupabaseConfigured()) {
+    const allFiles = await localStorage.getAllFileMetadata()
+    return allFiles
+      .filter(f => f.tags?.includes(`parent:${parentFileId}`))
+      .map(f => ({
+        ...f,
+        projectId: f.projectId ?? null,
+        storagePath: undefined,
+        thumbnailUrl: f.thumbnail,
+      }))
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('files')
+    .select('*')
+    .contains('tags', [`parent:${parentFileId}`])
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw new Error(`연관 파일 조회 실패: ${error.message}`)
   }
 
   return ((data || []) as FileRow[]).map(mapFileRowToMetadata)
@@ -399,18 +456,36 @@ export async function getFileUrl(id: string): Promise<string | null> {
   return urlData.publicUrl
 }
 
-export async function deleteFile(id: string): Promise<void> {
+// 삭제 결과 타입
+export interface DeleteResult {
+  success: boolean
+  deletedAt: Date
+  softDeleted?: boolean
+}
+
+export interface BatchDeleteResult {
+  success: string[]
+  failed: { id: string; error: string }[]
+}
+
+/**
+ * 트랜잭션 기반 파일 삭제 (안정성 개선)
+ * 1. 연관 파일 먼저 삭제 (MTL, 텍스처 등)
+ * 2. Storage 파일 삭제
+ * 3. DB 레코드 삭제
+ */
+export async function deleteFileWithTransaction(id: string): Promise<DeleteResult> {
   if (!isSupabaseConfigured()) {
     await localStorage.deleteFile(id)
-    return
+    return { success: true, deletedAt: new Date() }
   }
 
   const supabase = getSupabaseClient()
 
-  // 메타데이터에서 storage_path 조회
+  // 1. 메타데이터 조회
   const { data, error: selectError } = await supabase
     .from('files')
-    .select('storage_path, thumbnail_path')
+    .select('*')
     .eq('id', id)
     .single()
 
@@ -418,24 +493,136 @@ export async function deleteFile(id: string): Promise<void> {
     throw new Error('파일을 찾을 수 없습니다.')
   }
 
-  const fileData = data as Pick<FileRow, 'storage_path' | 'thumbnail_path'>
+  const fileData = data as FileRow
 
-  // Storage에서 파일 삭제
-  const pathsToDelete = [fileData.storage_path]
-  if (fileData.thumbnail_path) {
-    // thumbnail_path가 전체 URL인 경우 경로만 추출
-    const thumbPath = fileData.thumbnail_path.split('/').slice(-3).join('/')
-    pathsToDelete.push(thumbPath)
+  // 2. 연관 파일 삭제 (MTL, 텍스처 등 - parent:{id} 태그가 있는 파일들)
+  try {
+    const { data: relatedFiles } = await supabase
+      .from('files')
+      .select('id, storage_path')
+      .contains('tags', [`parent:${id}`])
+
+    if (relatedFiles && relatedFiles.length > 0) {
+      // 연관 파일들의 Storage 삭제
+      const relatedPaths = relatedFiles.map((f: { storage_path: string }) => f.storage_path).filter(Boolean)
+      if (relatedPaths.length > 0) {
+        await supabase.storage.from(STORAGE_BUCKET).remove(relatedPaths)
+      }
+
+      // 연관 파일들의 DB 레코드 삭제
+      const relatedIds = relatedFiles.map((f: { id: string }) => f.id)
+      await supabase.from('files').delete().in('id', relatedIds)
+      console.log(`연관 파일 ${relatedIds.length}개 삭제됨`)
+    }
+  } catch (relatedError) {
+    console.warn('연관 파일 삭제 실패:', relatedError)
+    // 연관 파일 삭제 실패해도 메인 파일은 삭제 진행
   }
 
-  await supabase.storage.from(STORAGE_BUCKET).remove(pathsToDelete)
+  // 3. Storage 삭제 시도
+  try {
+    const pathsToDelete = [fileData.storage_path]
+    if (fileData.thumbnail_path) {
+      // thumbnail_path가 전체 URL인 경우 경로만 추출
+      const thumbPath = extractStoragePathFromUrl(fileData.thumbnail_path)
+      if (thumbPath) {
+        pathsToDelete.push(thumbPath)
+      }
+    }
+    await supabase.storage.from(STORAGE_BUCKET).remove(pathsToDelete)
+  } catch (storageError) {
+    console.warn('Storage 삭제 실패 (나중에 정리 필요):', storageError)
+    // Storage 삭제 실패는 기록만 하고 계속 진행
+  }
 
-  // 메타데이터 삭제
-  const { error: deleteError } = await supabase.from('files').delete().eq('id', id)
+  // 4. DB 레코드 삭제
+  const { error: deleteError } = await supabase
+    .from('files')
+    .delete()
+    .eq('id', id)
 
   if (deleteError) {
-    throw new Error(`파일 삭제 실패: ${deleteError.message}`)
+    throw new Error(`삭제 실패: ${deleteError.message}`)
   }
+
+  return { success: true, deletedAt: new Date() }
+}
+
+/**
+ * 배치 파일 삭제
+ * 여러 파일을 병렬로 삭제합니다.
+ */
+export async function deleteFilesInBatch(ids: string[]): Promise<BatchDeleteResult> {
+  const results: BatchDeleteResult = {
+    success: [],
+    failed: [],
+  }
+
+  // 병렬 처리 (최대 5개씩)
+  const chunks = chunkArray(ids, 5)
+
+  for (const chunk of chunks) {
+    const deletePromises = chunk.map(async (id) => {
+      try {
+        await deleteFileWithTransaction(id)
+        results.success.push(id)
+      } catch (err) {
+        results.failed.push({
+          id,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        })
+      }
+    })
+    await Promise.all(deletePromises)
+  }
+
+  return results
+}
+
+/**
+ * 기존 deleteFile 함수 (하위 호환성 유지)
+ * 내부적으로 deleteFileWithTransaction을 호출합니다.
+ */
+export async function deleteFile(id: string): Promise<void> {
+  await deleteFileWithTransaction(id)
+}
+
+/**
+ * Storage URL에서 경로만 추출
+ */
+function extractStoragePathFromUrl(url: string): string | null {
+  if (!url) return null
+
+  // 이미 경로인 경우
+  if (!url.startsWith('http')) {
+    return url
+  }
+
+  // URL에서 경로 추출 (예: http://host/storage/v1/object/public/spatial-files/user/file.jpg)
+  try {
+    const urlObj = new URL(url)
+    const pathParts = urlObj.pathname.split('/')
+    const bucketIndex = pathParts.findIndex(p => p === STORAGE_BUCKET)
+    if (bucketIndex !== -1 && bucketIndex < pathParts.length - 1) {
+      return pathParts.slice(bucketIndex + 1).join('/')
+    }
+    // 대체: 마지막 3개 세그먼트 사용
+    return pathParts.slice(-3).join('/')
+  } catch {
+    // URL 파싱 실패 시 기존 방식 사용
+    return url.split('/').slice(-3).join('/')
+  }
+}
+
+/**
+ * 배열을 청크로 분할
+ */
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size))
+  }
+  return chunks
 }
 
 export async function updateFile(

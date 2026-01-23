@@ -19,7 +19,7 @@ export type Database = {
           name: string
           mime_type: string
           size: number
-          format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
+          format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
           folder_id: string | null
           project_id: string | null
           storage_path: string
@@ -32,6 +32,9 @@ export type Database = {
           exif_datetime: string | null
           tags: string[] | null
           user_id: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          last_verified_at: string | null
           created_at: string
           updated_at: string
         }
@@ -40,7 +43,7 @@ export type Database = {
           name: string
           mime_type: string
           size: number
-          format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
+          format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
           folder_id?: string | null
           project_id?: string | null
           storage_path: string
@@ -53,6 +56,9 @@ export type Database = {
           exif_datetime?: string | null
           tags?: string[] | null
           user_id?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          last_verified_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -61,7 +67,7 @@ export type Database = {
           name?: string
           mime_type?: string
           size?: number
-          format?: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
+          format?: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
           folder_id?: string | null
           project_id?: string | null
           storage_path?: string
@@ -74,6 +80,9 @@ export type Database = {
           exif_datetime?: string | null
           tags?: string[] | null
           user_id?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          last_verified_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -142,6 +151,38 @@ export type Database = {
           updated_at?: string
         }
       }
+      integrity_logs: {
+        Row: {
+          id: string
+          check_type: string
+          status: string
+          orphaned_records: number
+          orphaned_files: number
+          valid_files: number
+          details: Record<string, unknown> | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          check_type: string
+          status: string
+          orphaned_records?: number
+          orphaned_files?: number
+          valid_files?: number
+          details?: Record<string, unknown> | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          check_type?: string
+          status?: string
+          orphaned_records?: number
+          orphaned_files?: number
+          valid_files?: number
+          details?: Record<string, unknown> | null
+          created_at?: string
+        }
+      }
       annotations: {
         Row: {
           id: string
@@ -203,7 +244,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      file_format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
+      file_format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
       annotation_priority: 'low' | 'medium' | 'high' | 'critical'
       annotation_status: 'open' | 'in_progress' | 'resolved' | 'closed'
     }
@@ -294,3 +335,4 @@ export type FileRow = Tables<'files'>
 export type FolderRow = Tables<'folders'>
 export type ProjectRow = Tables<'projects'>
 export type AnnotationRow = Tables<'annotations'>
+export type IntegrityLogRow = Tables<'integrity_logs'>

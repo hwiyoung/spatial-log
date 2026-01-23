@@ -328,10 +328,10 @@ export default function ProjectDetail() {
       </div>
 
       {/* 탭 컨텐츠 */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-hidden">
         {/* 에셋 탭 */}
         {activeTab === 'assets' && (
-          <div>
+          <div className="h-full overflow-auto pr-2">
             {/* 액션 바 */}
             <div className="flex justify-between items-center mb-4">
               <div className="text-sm text-slate-400">
@@ -372,7 +372,7 @@ export default function ProjectDetail() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                 {files.map((file) => {
                   const FileIcon = getFileIcon(file.format)
                   const isSelected = selectedFileIds.includes(file.id)

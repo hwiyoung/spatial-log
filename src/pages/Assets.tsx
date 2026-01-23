@@ -20,12 +20,20 @@ import {
   Scan,
   Download,
   Eye,
+  Shield,
+  Files,
+  CheckSquare,
+  Square,
 } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
-import { Modal, Input, FileUpload } from '@/components/common'
+import { Modal, Input, FileUpload, type FileGroup } from '@/components/common'
 import ThreeCanvas from '@/components/viewer/ThreeCanvas'
+import IntegrityChecker from '@/components/admin/IntegrityChecker'
 import { formatFileSize } from '@/utils/storage'
 import type { FileMetadata, FolderData } from '@/services/api'
+
+// 탭 타입
+type TabType = 'files' | 'admin'
 
 // 포맷별 아이콘 매핑
 function FileIcon({ format }: { format: FileMetadata['format'] }) {
@@ -90,11 +98,19 @@ export default function Assets() {
     clearSelection,
     setViewMode,
     getFileBlob,
+    getRelatedFileBlobs,
   } = useAssetStore()
+
+  // 탭 상태
+  const [activeTab, setActiveTab] = useState<TabType>('files')
 
   // 모달 상태
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showNewFolderModal, setShowNewFolderModal] = useState(false)
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false)
+  const [filesToDelete, setFilesToDelete] = useState<FileMetadata[]>([])
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteProgress, setDeleteProgress] = useState(0)
   const [newFolderName, setNewFolderName] = useState('')
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
   const [editingFolderName, setEditingFolderName] = useState('')
@@ -104,6 +120,11 @@ export default function Assets() {
   const [previewFile, setPreviewFile] = useState<FileMetadata | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const [previewRelatedFiles, setPreviewRelatedFiles] = useState<{ name: string; blob: Blob; type: 'material' | 'texture' | 'other' }[]>([])
+
+
+  // 다중 선택 모드
+  const [multiSelectMode, setMultiSelectMode] = useState(false)
 
   // 초기화
   useEffect(() => {
@@ -111,8 +132,8 @@ export default function Assets() {
   }, [initialize])
 
   // 파일 업로드 핸들러
-  const handleUpload = useCallback(async (uploadedFiles: File[]) => {
-    await uploadFiles(uploadedFiles)
+  const handleUpload = useCallback(async (uploadedFiles: File[], groups?: FileGroup[]) => {
+    await uploadFiles(uploadedFiles, groups)
     setShowUploadModal(false)
   }, [uploadFiles])
 
@@ -141,17 +162,67 @@ export default function Assets() {
     setEditingFolderName('')
   }, [editingFolderId, editingFolderName, renameFolder])
 
-  // 파일 선택 (Ctrl 키로 다중 선택)
+  // 파일 선택 (다중 선택 모드 또는 Ctrl 키로 다중 선택)
   const handleFileClick = useCallback((e: React.MouseEvent, fileId: string) => {
-    selectFile(fileId, e.ctrlKey || e.metaKey)
+    e.stopPropagation()
+    selectFile(fileId, multiSelectMode || e.ctrlKey || e.metaKey)
+  }, [selectFile, multiSelectMode])
+
+  // 체크박스 토글 (다중 선택용)
+  const handleCheckboxToggle = useCallback((e: React.MouseEvent, fileId: string) => {
+    e.stopPropagation()
+    selectFile(fileId, true) // 항상 다중 선택 모드로 토글
   }, [selectFile])
 
-  // 선택된 파일 삭제
-  const handleDeleteSelected = useCallback(async () => {
-    if (selectedFileIds.length > 0) {
-      await deleteFiles(selectedFileIds)
+  // 다중 선택 모드 토글
+  const toggleMultiSelectMode = useCallback(() => {
+    setMultiSelectMode(prev => !prev)
+    if (multiSelectMode) {
+      clearSelection() // 다중 선택 모드 종료 시 선택 해제
     }
-  }, [selectedFileIds, deleteFiles])
+  }, [multiSelectMode, clearSelection])
+
+  // 선택된 파일 삭제 확인 모달 열기
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedFileIds.length > 0) {
+      const selectedFiles = files.filter(f => selectedFileIds.includes(f.id))
+      setFilesToDelete(selectedFiles)
+      setShowDeleteConfirmModal(true)
+    }
+  }, [selectedFileIds, files])
+
+  // 삭제 실행
+  const executeDelete = useCallback(async () => {
+    if (filesToDelete.length === 0) return
+
+    setIsDeleting(true)
+    setDeleteProgress(0)
+
+    const ids = filesToDelete.map(f => f.id)
+    const total = ids.length
+
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i]
+        if (!id) continue
+        await deleteFiles([id])
+        setDeleteProgress(Math.round(((i + 1) / total) * 100))
+      }
+    } finally {
+      setIsDeleting(false)
+      setDeleteProgress(0)
+      setFilesToDelete([])
+      setShowDeleteConfirmModal(false)
+    }
+  }, [filesToDelete, deleteFiles])
+
+  // 삭제 취소
+  const cancelDelete = useCallback(() => {
+    if (!isDeleting) {
+      setShowDeleteConfirmModal(false)
+      setFilesToDelete([])
+    }
+  }, [isDeleting])
 
   // 컨텍스트 메뉴
   const handleContextMenu = useCallback((e: React.MouseEvent, type: 'file' | 'folder', id: string) => {
@@ -196,6 +267,7 @@ export default function Assets() {
       URL.revokeObjectURL(previewUrl)
       setPreviewUrl(null)
       setPreviewFile(null)
+      setPreviewRelatedFiles([])
       // WebGL 컨텍스트 정리를 위한 대기
       await new Promise(resolve => setTimeout(resolve, 150))
     }
@@ -210,6 +282,20 @@ export default function Assets() {
         // blob URL에 파일 확장자 힌트 추가
         const blobUrl = URL.createObjectURL(blob) + `#file.${file.format}`
         setPreviewUrl(blobUrl)
+
+        // OBJ 파일인 경우 연관 파일 (MTL, 텍스처) 로드
+        if (file.format === 'obj') {
+          try {
+            const relatedBlobs = await getRelatedFileBlobs(file.id)
+            setPreviewRelatedFiles(relatedBlobs.map(f => ({
+              name: f.name,
+              blob: f.blob,
+              type: f.type as 'material' | 'texture' | 'other',
+            })))
+          } catch (relatedErr) {
+            console.warn('연관 파일 로드 실패:', relatedErr)
+          }
+        }
       } else {
         alert('파일을 로드할 수 없습니다.')
         setPreviewFile(null)
@@ -221,7 +307,7 @@ export default function Assets() {
     } finally {
       setIsLoadingPreview(false)
     }
-  }, [getFileBlob, previewUrl])
+  }, [getFileBlob, getRelatedFileBlobs, previewUrl])
 
   // 미리보기 닫기
   const closePreview = useCallback(() => {
@@ -234,6 +320,7 @@ export default function Assets() {
     }
     setPreviewFile(null)
     setPreviewUrl(null)
+    setPreviewRelatedFiles([])
   }, [previewUrl])
 
   // 컨텍스트 메뉴 닫기
@@ -269,15 +356,42 @@ export default function Assets() {
     <div className="flex-1 flex flex-col h-full">
       {/* 헤더 */}
       <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">데이터 보관함</h1>
-          <p className="text-slate-500 text-sm mt-1">
-            {fileCount}개 파일 · {formatFileSize(storageUsed)} 사용 중
-          </p>
+        <div className="flex items-center gap-6">
+          <div>
+            <h1 className="text-2xl font-bold text-white">데이터 보관함</h1>
+            <p className="text-slate-500 text-sm mt-1">
+              {fileCount}개 파일 · {formatFileSize(storageUsed)} 사용 중
+            </p>
+          </div>
+          {/* 탭 */}
+          <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
+            <button
+              onClick={() => setActiveTab('files')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'files'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Files size={16} />
+              <span>파일</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'admin'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Shield size={16} />
+              <span>관리</span>
+            </button>
+          </div>
         </div>
         <div className="flex items-center space-x-3">
-          {/* 선택된 파일 액션 */}
-          {selectedFileIds.length > 0 && (
+          {/* 선택된 파일 액션 (파일 탭에서만) */}
+          {activeTab === 'files' && selectedFileIds.length > 0 && (
             <div className="flex items-center space-x-2 mr-4">
               <span className="text-sm text-slate-400">{selectedFileIds.length}개 선택됨</span>
               {selectedFileIds.length === 1 && (
@@ -308,39 +422,63 @@ export default function Assets() {
             </div>
           )}
 
-          {/* 뷰 모드 토글 */}
-          <div className="bg-slate-800 rounded-lg p-1 flex border border-slate-700">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <Grid size={16} />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
-            >
-              <List size={16} />
-            </button>
-          </div>
+          {/* 뷰 모드 토글 (파일 탭에서만) */}
+          {activeTab === 'files' && (
+            <>
+              {/* 다중 선택 모드 토글 */}
+              <button
+                onClick={toggleMultiSelectMode}
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-colors ${
+                  multiSelectMode
+                    ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                }`}
+                title="다중 선택 모드"
+              >
+                <CheckSquare size={16} />
+                <span className="text-sm">다중 선택</span>
+              </button>
 
-          <button
-            onClick={() => setShowNewFolderModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700"
-          >
-            <FolderPlus size={18} />
-            <span>새 폴더</span>
-          </button>
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-          >
-            <UploadCloud size={18} />
-            <span>파일 업로드</span>
-          </button>
+              <div className="bg-slate-800 rounded-lg p-1 flex border border-slate-700">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <Grid size={16} />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <List size={16} />
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowNewFolderModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700"
+              >
+                <FolderPlus size={18} />
+                <span>새 폴더</span>
+              </button>
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              >
+                <UploadCloud size={18} />
+                <span>파일 업로드</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
+      {/* 탭 컨텐츠 */}
+      {activeTab === 'admin' ? (
+        <div className="flex-1 min-h-0 bg-slate-900/50 rounded-xl border border-slate-800 overflow-auto p-6">
+          <IntegrityChecker />
+        </div>
+      ) : (
       <div className="flex-1 flex gap-6 min-h-0 bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
         {/* 폴더 트리 */}
         <div className="w-60 bg-slate-900 border-r border-slate-800 p-4">
@@ -441,7 +579,7 @@ export default function Assets() {
                   key={file.id}
                   onClick={(e) => handleFileClick(e, file.id)}
                   onDoubleClick={() => {
-                    if (['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
+                    if (!multiSelectMode && ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
                       handlePreview(file)
                     }
                   }}
@@ -457,6 +595,20 @@ export default function Assets() {
                       <img src={file.thumbnailUrl} alt={file.name} className="w-full h-full object-cover" />
                     ) : (
                       <FileIcon format={file.format} />
+                    )}
+
+                    {/* 체크박스 (다중 선택 모드 또는 선택된 항목이 있을 때) */}
+                    {(multiSelectMode || selectedFileIds.length > 0) && (
+                      <button
+                        onClick={(e) => handleCheckboxToggle(e, file.id)}
+                        className="absolute top-2 right-2 p-1 bg-slate-900/80 rounded hover:bg-slate-700 z-10"
+                      >
+                        {selectedFileIds.includes(file.id) ? (
+                          <CheckSquare size={16} className="text-blue-400" />
+                        ) : (
+                          <Square size={16} className="text-slate-400" />
+                        )}
+                      </button>
                     )}
 
                     {/* 포맷 배지 */}
@@ -535,7 +687,10 @@ export default function Assets() {
             <div className="space-y-1">
               {/* 헤더 */}
               <div className="grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-slate-500 uppercase border-b border-slate-800">
-                <span className="col-span-5">이름</span>
+                {(multiSelectMode || selectedFileIds.length > 0) && (
+                  <span className="col-span-1"></span>
+                )}
+                <span className={multiSelectMode || selectedFileIds.length > 0 ? 'col-span-4' : 'col-span-5'}>이름</span>
                 <span className="col-span-2">포맷</span>
                 <span className="col-span-2">크기</span>
                 <span className="col-span-2">수정일</span>
@@ -547,7 +702,7 @@ export default function Assets() {
                   key={file.id}
                   onClick={(e) => handleFileClick(e, file.id)}
                   onDoubleClick={() => {
-                    if (['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
+                    if (!multiSelectMode && ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
                       handlePreview(file)
                     }
                   }}
@@ -558,7 +713,22 @@ export default function Assets() {
                       : 'hover:bg-slate-800 border border-transparent'
                   }`}
                 >
-                  <div className="col-span-5 flex items-center space-x-3">
+                  {/* 체크박스 */}
+                  {(multiSelectMode || selectedFileIds.length > 0) && (
+                    <div className="col-span-1 flex items-center">
+                      <button
+                        onClick={(e) => handleCheckboxToggle(e, file.id)}
+                        className="p-1 hover:bg-slate-700 rounded"
+                      >
+                        {selectedFileIds.includes(file.id) ? (
+                          <CheckSquare size={18} className="text-blue-400" />
+                        ) : (
+                          <Square size={18} className="text-slate-500" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  <div className={`${multiSelectMode || selectedFileIds.length > 0 ? 'col-span-4' : 'col-span-5'} flex items-center space-x-3`}>
                     <div className={`w-8 h-8 rounded flex items-center justify-center ${getFormatBgColor(file.format)}`}>
                       {file.thumbnailUrl ? (
                         <img src={file.thumbnailUrl} alt="" className="w-full h-full object-cover rounded" />
@@ -612,6 +782,7 @@ export default function Assets() {
           )}
         </div>
       </div>
+      )}
 
       {/* 업로드 모달 */}
       <Modal
@@ -732,7 +903,11 @@ export default function Assets() {
               </button>
               <button
                 onClick={() => {
-                  deleteFiles([contextMenu.id])
+                  const file = files.find(f => f.id === contextMenu.id)
+                  if (file) {
+                    setFilesToDelete([file])
+                    setShowDeleteConfirmModal(true)
+                  }
                   setContextMenu(null)
                 }}
                 className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-red-400 hover:bg-slate-700"
@@ -744,6 +919,88 @@ export default function Assets() {
           )}
         </div>
       )}
+
+      {/* 삭제 확인 모달 */}
+      <Modal
+        isOpen={showDeleteConfirmModal}
+        onClose={cancelDelete}
+        title="파일 삭제 확인"
+      >
+        <div className="space-y-4">
+          {isDeleting ? (
+            // 삭제 진행 중
+            <div className="py-6">
+              <div className="flex flex-col items-center gap-4">
+                <Loader2 size={40} className="text-red-400 animate-spin" />
+                <p className="text-white font-medium">파일 삭제 중...</p>
+                <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-500 transition-all duration-300"
+                    style={{ width: `${deleteProgress}%` }}
+                  />
+                </div>
+                <p className="text-slate-400 text-sm">{deleteProgress}% 완료</p>
+              </div>
+            </div>
+          ) : (
+            // 삭제 확인
+            <>
+              <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-800/50 rounded-lg">
+                <Trash2 className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-red-200 font-medium">
+                    {filesToDelete.length}개 파일을 삭제하시겠습니까?
+                  </p>
+                  <p className="text-red-300/70 text-sm mt-1">
+                    이 작업은 되돌릴 수 없습니다. 파일이 Storage와 DB에서 영구적으로 삭제됩니다.
+                  </p>
+                </div>
+              </div>
+
+              {/* 삭제할 파일 목록 */}
+              <div className="max-h-60 overflow-y-auto bg-slate-900 rounded-lg border border-slate-700">
+                {filesToDelete.map((file) => (
+                  <div
+                    key={file.id}
+                    className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 last:border-b-0"
+                  >
+                    <FileIcon format={file.format} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">{file.name}</p>
+                      <p className="text-xs text-slate-500">{formatFileSize(file.size)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 총 용량 */}
+              <div className="flex justify-between items-center px-4 py-2 bg-slate-800 rounded-lg">
+                <span className="text-slate-400 text-sm">총 용량</span>
+                <span className="text-white font-medium">
+                  {formatFileSize(filesToDelete.reduce((sum, f) => sum + f.size, 0))}
+                </span>
+              </div>
+
+              {/* 버튼 */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  onClick={cancelDelete}
+                  className="px-4 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={executeDelete}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                >
+                  <Trash2 size={16} />
+                  <span>{filesToDelete.length}개 파일 삭제</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
 
       {/* 3D 미리보기 모달 */}
       {previewFile && (
@@ -787,7 +1044,11 @@ export default function Assets() {
                   </div>
                 </div>
               ) : previewUrl ? (
-                <ThreeCanvas modelUrl={previewUrl} modelFormat={previewFile?.format} />
+                <ThreeCanvas
+                  modelUrl={previewUrl}
+                  modelFormat={previewFile?.format}
+                  relatedFiles={previewRelatedFiles}
+                />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-slate-500">
                   <span>파일을 로드할 수 없습니다</span>

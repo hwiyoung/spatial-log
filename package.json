@@ -13,8 +13,10 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@mkkellogg/gaussian-splat-3d": "^0.4.0",
     "@react-three/drei": "^9.121.4",
     "@react-three/fiber": "^8.17.14",
+    "@react-three/postprocessing": "^2.16.0",
     "cesium": "^1.124.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
@@ -24,6 +26,7 @@
     "react-router-dom": "^7.1.1",
     "resium": "^1.18.2",
     "@supabase/supabase-js": "^2.47.10",
+    "postprocessing": "^6.35.0",
     "three": "^0.171.0",
     "zustand": "^5.0.2"
   },

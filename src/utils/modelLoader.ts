@@ -1,8 +1,16 @@
 import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
+
+// 연관 파일 정보 타입
+export interface RelatedFile {
+  name: string
+  blob: Blob
+  type: 'material' | 'texture' | 'other'
+}
 
 // 지원하는 파일 확장자
 export type SupportedFormat = 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57'
@@ -101,15 +109,76 @@ export async function loadGLTF(
   })
 }
 
-// OBJ 로더
+// OBJ 로더 (MTL/텍스처 지원)
 export async function loadOBJ(
   url: string,
-  onProgress?: (progress: LoadProgress) => void
+  onProgress?: (progress: LoadProgress) => void,
+  relatedFiles?: RelatedFile[]
 ): Promise<LoadedModel> {
-  const loader = new OBJLoader()
+  const objLoader = new OBJLoader()
+
+  // 텍스처 URL 매핑 (파일명 -> blob URL)
+  const textureUrls = new Map<string, string>()
+  // MTL 파일에서 파싱한 텍스처 참조 목록
+  const mtlTextureRefs: string[] = []
+  let materials: MTLLoader.MaterialCreator | null = null
+
+  if (relatedFiles && relatedFiles.length > 0) {
+    // 텍스처 파일들의 blob URL 생성
+    for (const file of relatedFiles) {
+      if (file.type === 'texture') {
+        const blobUrl = URL.createObjectURL(file.blob)
+        // 파일 이름만 추출 (경로 제거)
+        const fileName = file.name.split('/').pop()?.toLowerCase() || file.name.toLowerCase()
+        textureUrls.set(fileName, blobUrl)
+        // 원본 케이스도 저장
+        textureUrls.set(file.name.split('/').pop() || file.name, blobUrl)
+      }
+    }
+
+    // MTL 파일 로드 및 파싱
+    const mtlFile = relatedFiles.find(f => f.type === 'material' && f.name.toLowerCase().endsWith('.mtl'))
+    if (mtlFile) {
+      try {
+        const mtlText = await mtlFile.blob.text()
+
+        // MTL 파일에서 텍스처 참조 추출 (map_Kd, map_Ka, map_Ks 등)
+        const textureRefRegex = /^\s*map_(?:Kd|Ka|Ks|Ns|d|bump|Bump|disp|Disp|refl)\s+(.+)$/gmi
+        let match
+        while ((match = textureRefRegex.exec(mtlText)) !== null) {
+          const texPath = match[1].trim()
+          const texFileName = texPath.split(/[/\\]/).pop() || texPath
+          mtlTextureRefs.push(texFileName)
+        }
+
+        // 커스텀 LoadingManager로 텍스처 로딩 가로채기
+        const loadingManager = new THREE.LoadingManager()
+        loadingManager.setURLModifier((originalUrl: string) => {
+          // 텍스처 파일명 추출
+          const fileName = originalUrl.split(/[/\\]/).pop()?.toLowerCase() || ''
+          const blobUrl = findTextureUrl(fileName, textureUrls)
+          if (blobUrl) {
+            return blobUrl
+          }
+          return originalUrl
+        })
+
+        const mtlLoader = new MTLLoader(loadingManager)
+        materials = mtlLoader.parse(mtlText, '')
+        // preload() 제거 - 텍스처는 렌더링 시 lazy 로드됨
+      } catch (err) {
+        console.warn('MTL 로드 실패:', err)
+      }
+    }
+  }
+
+  // 머티리얼이 로드되었으면 OBJLoader에 설정
+  if (materials) {
+    objLoader.setMaterials(materials)
+  }
 
   return new Promise((resolve, reject) => {
-    loader.load(
+    objLoader.load(
       url,
       (object) => {
         // OBJ 파일은 종종 Z-up 좌표계를 사용하므로 Y-up으로 변환
@@ -122,7 +191,7 @@ export async function loadOBJ(
         const center = box.getCenter(new THREE.Vector3())
         object.position.sub(center)
 
-        // 기본 머티리얼 적용
+        // 기본 머티리얼 적용 (머티리얼이 없는 경우에만)
         object.traverse((child) => {
           if (child instanceof THREE.Mesh && !child.material) {
             child.material = new THREE.MeshStandardMaterial({ color: 0x808080 })
@@ -139,6 +208,39 @@ export async function loadOBJ(
       (error) => reject(new Error(`OBJ 로드 실패: ${error}`))
     )
   })
+}
+
+// 텍스처 이름으로 blob URL 찾기
+function findTextureUrl(texName: string, textureUrls: Map<string, string>): string | null {
+  const lowerName = texName.toLowerCase()
+
+  // 정확한 매칭
+  if (textureUrls.has(lowerName)) {
+    return textureUrls.get(lowerName) || null
+  }
+
+  // 원본 케이스 매칭
+  if (textureUrls.has(texName)) {
+    return textureUrls.get(texName) || null
+  }
+
+  // 확장자 제거 후 비교
+  const nameWithoutExt = lowerName.split('.').slice(0, -1).join('.')
+  for (const [key, value] of textureUrls) {
+    const keyWithoutExt = key.toLowerCase().split('.').slice(0, -1).join('.')
+    if (keyWithoutExt === nameWithoutExt) {
+      return value
+    }
+  }
+
+  // 부분 매칭 (텍스처 이름이 파일명에 포함된 경우)
+  for (const [key, value] of textureUrls) {
+    if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
+      return value
+    }
+  }
+
+  return null
 }
 
 // FBX 로더
@@ -661,7 +763,8 @@ function tryParseScaledInt32Points(
 // 통합 로더
 export async function loadModel(
   url: string,
-  onProgress?: (progress: LoadProgress) => void
+  onProgress?: (progress: LoadProgress) => void,
+  relatedFiles?: RelatedFile[]
 ): Promise<LoadedModel> {
   const format = getFormatFromUrl(url)
 
@@ -678,7 +781,7 @@ export async function loadModel(
     case 'glb':
       return loadGLTF(loadUrl, onProgress)
     case 'obj':
-      return loadOBJ(loadUrl, onProgress)
+      return loadOBJ(loadUrl, onProgress, relatedFiles)
     case 'fbx':
       return loadFBX(loadUrl, onProgress)
     case 'ply':

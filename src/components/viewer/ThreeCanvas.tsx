@@ -1,15 +1,33 @@
-import { Suspense, useState, useCallback, useRef, useEffect } from 'react'
+import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, Grid, Environment, PerspectiveCamera } from '@react-three/drei'
-import { Box as BoxIcon, AlertTriangle, Loader2 } from 'lucide-react'
+import { Box as BoxIcon, AlertTriangle, Loader2, Settings, Activity } from 'lucide-react'
 import * as THREE from 'three'
 import ModelViewer from './ModelViewer'
 import { AnnotationMarkers3D } from './AnnotationMarker3D'
-import { type LoadProgress, type LoadedModel } from '../../utils/modelLoader'
+import { SimpleLighting } from './LightingSystem'
+import { type LoadProgress, type LoadedModel, type RelatedFile } from '../../utils/modelLoader'
 import type { AnnotationData } from '@/services/api'
+import {
+  type QualityLevel,
+  QUALITY_PRESETS,
+  QUALITY_LABELS,
+  loadQualitySettings,
+  saveQualitySettings,
+  getQualityOptions,
+} from '@/utils/renderingOptions'
 
 // WebGL 컨텍스트 손실 방지를 위한 지연 시간 (ms)
 const CANVAS_MOUNT_DELAY = 100
+
+// FPS 모니터링 상태 타입
+interface PerformanceStats {
+  fps: number
+  frameTime: number
+  triangles: number
+  drawCalls: number
+  memory?: number
+}
 
 export interface ClickPosition {
   x: number
@@ -21,12 +39,15 @@ interface ThreeCanvasProps {
   modelUrl?: string
   modelFile?: File
   modelFormat?: string // 명시적 포맷 지정 (blob URL 사용 시)
+  relatedFiles?: RelatedFile[] // 연관 파일 (MTL, 텍스처 등)
   annotateMode?: boolean
   onPointClick?: (position: ClickPosition) => void
   // 어노테이션 관련 props
   annotations?: AnnotationData[]
   selectedAnnotationId?: string | null
   onAnnotationClick?: (annotation: AnnotationData) => void
+  // 품질 설정 관련
+  showQualitySettings?: boolean
 }
 
 function GridFloor() {
@@ -54,6 +75,42 @@ function PlaceholderBox() {
       <meshStandardMaterial color="#3b82f6" wireframe />
     </mesh>
   )
+}
+
+// 성능 모니터링 컴포넌트 (씬 내부)
+function PerformanceMonitor({ onStats }: { onStats: (stats: PerformanceStats) => void }) {
+  const { gl } = useThree()
+  const frameTimesRef = useRef<number[]>([])
+  const lastTimeRef = useRef(performance.now())
+
+  useFrame(() => {
+    const now = performance.now()
+    const frameTime = now - lastTimeRef.current
+    lastTimeRef.current = now
+
+    // 최근 60개 프레임 시간 저장
+    frameTimesRef.current.push(frameTime)
+    if (frameTimesRef.current.length > 60) {
+      frameTimesRef.current.shift()
+    }
+
+    // 매 30프레임마다 통계 업데이트
+    if (frameTimesRef.current.length % 30 === 0) {
+      const avgFrameTime = frameTimesRef.current.reduce((a, b) => a + b, 0) / frameTimesRef.current.length
+      const fps = 1000 / avgFrameTime
+
+      const info = gl.info
+      onStats({
+        fps: Math.round(fps),
+        frameTime: Math.round(avgFrameTime * 100) / 100,
+        triangles: info.render?.triangles || 0,
+        drawCalls: info.render?.calls || 0,
+        memory: (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize,
+      })
+    }
+  })
+
+  return null
 }
 
 // 씬 전체 레이캐스팅 핸들러 (어노테이션 배치용)
@@ -194,6 +251,7 @@ interface SceneContentProps {
   modelUrl?: string
   modelFile?: File
   modelFormat?: string
+  relatedFiles?: RelatedFile[]
   annotateMode: boolean
   onProgress: (progress: LoadProgress) => void
   onError: (error: Error) => void
@@ -203,6 +261,8 @@ interface SceneContentProps {
   annotations?: AnnotationData[]
   selectedAnnotationId?: string | null
   onAnnotationClick?: (annotation: AnnotationData) => void
+  // 성능 모니터링
+  onStats?: (stats: PerformanceStats) => void
 }
 
 // 카메라 컨트롤러 (선택된 어노테이션으로 이동)
@@ -262,6 +322,7 @@ function SceneContent({
   modelUrl,
   modelFile,
   modelFormat,
+  relatedFiles,
   annotateMode,
   onProgress,
   onError,
@@ -270,6 +331,7 @@ function SceneContent({
   annotations = [],
   selectedAnnotationId,
   onAnnotationClick,
+  onStats,
 }: SceneContentProps) {
   const hasModel = !!(modelUrl || modelFile)
 
@@ -281,6 +343,7 @@ function SceneContent({
     <>
       <PerspectiveCamera makeDefault position={[5, 5, 5]} fov={50} />
       <OrbitControls
+        makeDefault
         enableDamping
         dampingFactor={0.05}
         minDistance={0.5}
@@ -313,6 +376,7 @@ function SceneContent({
           url={modelUrl}
           file={modelFile}
           format={modelFormat}
+          relatedFiles={relatedFiles}
           onProgress={onProgress}
           onError={onError}
           onLoad={onLoad}
@@ -332,6 +396,9 @@ function SceneContent({
 
       {/* 선택된 어노테이션으로 카메라 이동 */}
       <CameraFlyTo targetPosition={targetPosition} />
+
+      {/* 성능 모니터링 */}
+      {onStats && <PerformanceMonitor onStats={onStats} />}
     </>
   )
 }
@@ -340,11 +407,13 @@ export default function ThreeCanvas({
   modelUrl,
   modelFile,
   modelFormat,
+  relatedFiles,
   annotateMode = false,
   onPointClick,
   annotations = [],
   selectedAnnotationId,
   onAnnotationClick,
+  showQualitySettings = true,
 }: ThreeCanvasProps) {
   const [progress, setProgress] = useState<LoadProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -352,6 +421,22 @@ export default function ThreeCanvas({
   const [isCanvasReady, setIsCanvasReady] = useState(false)
   const [currentModelKey, setCurrentModelKey] = useState<string | null>(null)
   const canvasContainerRef = useRef<HTMLDivElement>(null)
+
+  // 품질 설정
+  const [qualityLevel, setQualityLevel] = useState<QualityLevel>(() => loadQualitySettings())
+  const [showQualityMenu, setShowQualityMenu] = useState(false)
+  const qualityOptions = useMemo(() => getQualityOptions(qualityLevel), [qualityLevel])
+
+  // 성능 모니터링
+  const [showStats, setShowStats] = useState(false)
+  const [perfStats, setPerfStats] = useState<PerformanceStats | null>(null)
+
+  // 품질 변경 핸들러
+  const handleQualityChange = useCallback((level: QualityLevel) => {
+    setQualityLevel(level)
+    saveQualitySettings(level)
+    setShowQualityMenu(false)
+  }, [])
 
   // 모델 변경 시 상태 초기화 및 약간의 지연 후 로드
   useEffect(() => {
@@ -397,9 +482,10 @@ export default function ThreeCanvas({
       ) : (
       <Suspense fallback={<CanvasLoadingFallback />}>
         <Canvas
-          shadows
+          shadows={qualityOptions.shadowsEnabled}
+          dpr={qualityOptions.pixelRatio}
           gl={{
-            antialias: true,
+            antialias: qualityOptions.antialias,
             powerPreference: 'high-performance',
             failIfMajorPerformanceCaveat: false,
             preserveDrawingBuffer: true,
@@ -430,6 +516,7 @@ export default function ThreeCanvas({
             modelUrl={modelUrl}
             modelFile={modelFile}
             modelFormat={modelFormat}
+            relatedFiles={relatedFiles}
             annotateMode={annotateMode}
             onProgress={handleProgress}
             onError={handleError}
@@ -438,6 +525,7 @@ export default function ThreeCanvas({
             annotations={annotations}
             selectedAnnotationId={selectedAnnotationId}
             onAnnotationClick={onAnnotationClick}
+            onStats={showStats ? setPerfStats : undefined}
           />
         </Canvas>
       </Suspense>
@@ -453,6 +541,113 @@ export default function ThreeCanvas({
           <span className="text-slate-400 ml-2">
             {modelInfo.type === 'points' ? '포인트 클라우드' : '3D 모델'}
           </span>
+        </div>
+      )}
+
+      {/* 품질 설정 버튼 */}
+      {showQualitySettings && (
+        <div className="absolute top-4 left-4 flex items-start gap-2">
+          <div>
+            <button
+              onClick={() => setShowQualityMenu(!showQualityMenu)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-lg text-xs text-white shadow-lg hover:bg-slate-800/90 transition-colors"
+            >
+              <Settings size={14} />
+              <span>품질: {QUALITY_LABELS[qualityLevel].label}</span>
+            </button>
+
+            {/* 품질 선택 드롭다운 */}
+            {showQualityMenu && (
+              <div className="absolute top-full left-0 mt-1 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-xl overflow-hidden min-w-48 z-10">
+                {(['low', 'medium', 'high', 'ultra'] as QualityLevel[]).map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => handleQualityChange(level)}
+                    className={`w-full flex flex-col items-start px-4 py-2.5 text-left hover:bg-slate-800 transition-colors ${
+                      qualityLevel === level ? 'bg-blue-600/20 border-l-2 border-blue-500' : ''
+                    }`}
+                  >
+                    <span className={`text-sm font-medium ${qualityLevel === level ? 'text-blue-400' : 'text-white'}`}>
+                      {QUALITY_LABELS[level].label}
+                    </span>
+                    <span className="text-xs text-slate-400 mt-0.5">
+                      {QUALITY_LABELS[level].description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 성능 모니터 토글 버튼 */}
+          <button
+            onClick={() => setShowStats(!showStats)}
+            className={`flex items-center gap-2 px-3 py-1.5 backdrop-blur border rounded-lg text-xs shadow-lg transition-colors ${
+              showStats
+                ? 'bg-green-600/20 border-green-600 text-green-400 hover:bg-green-600/30'
+                : 'bg-slate-900/90 border-slate-700 text-white hover:bg-slate-800/90'
+            }`}
+            title="성능 모니터링"
+          >
+            <Activity size={14} />
+            <span>FPS</span>
+          </button>
+        </div>
+      )}
+
+      {/* 성능 통계 패널 */}
+      {showStats && perfStats && (
+        <div className="absolute bottom-4 left-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-xl p-3 min-w-44">
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-700">
+            <Activity size={14} className="text-green-400" />
+            <span className="text-xs font-medium text-white">성능 모니터</span>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">FPS</span>
+              <span className={`font-mono font-bold ${
+                perfStats.fps >= 55 ? 'text-green-400' :
+                perfStats.fps >= 30 ? 'text-yellow-400' :
+                'text-red-400'
+              }`}>
+                {perfStats.fps}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">프레임 시간</span>
+              <span className="text-white font-mono">{perfStats.frameTime}ms</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">삼각형</span>
+              <span className="text-white font-mono">{perfStats.triangles.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">드로우 콜</span>
+              <span className="text-white font-mono">{perfStats.drawCalls}</span>
+            </div>
+            {perfStats.memory && (
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">메모리</span>
+                <span className="text-white font-mono">
+                  {Math.round(perfStats.memory / 1024 / 1024)}MB
+                </span>
+              </div>
+            )}
+          </div>
+          {/* 품질 수준 표시 */}
+          <div className="mt-2 pt-2 border-t border-slate-700">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-400">품질 설정</span>
+              <span className={`font-medium ${
+                qualityLevel === 'ultra' ? 'text-purple-400' :
+                qualityLevel === 'high' ? 'text-blue-400' :
+                qualityLevel === 'medium' ? 'text-yellow-400' :
+                'text-slate-400'
+              }`}>
+                {QUALITY_LABELS[qualityLevel].label}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 

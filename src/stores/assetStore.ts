@@ -17,7 +17,15 @@ import {
   getFilesByProject,
   linkFilesToProject,
   unlinkFilesFromProject,
+  getRelatedFiles,
 } from '@/services/api'
+import type { FileGroup } from '@/components/common/FileUpload'
+
+// ZIP 파일인지 확인
+function isZipFile(file: File): boolean {
+  const ext = file.name.toLowerCase().split('.').pop()
+  return ext === 'zip'
+}
 
 interface UploadProgress {
   fileId: string
@@ -53,12 +61,13 @@ interface AssetState {
   refreshFolders: () => Promise<void>
 
   // 파일 액션
-  uploadFiles: (files: File[]) => Promise<void>
+  uploadFiles: (files: File[], groups?: FileGroup[]) => Promise<void>
   deleteFiles: (ids: string[]) => Promise<void>
   moveFiles: (ids: string[], folderId: string | null) => Promise<void>
   renameFile: (id: string, name: string) => Promise<void>
   getFileBlob: (id: string) => Promise<Blob | null>
   getFileDownloadUrl: (id: string) => Promise<string | null>
+  getRelatedFileBlobs: (parentFileId: string) => Promise<{ name: string; blob: Blob; type: string }[]>
 
   // 폴더 액션
   createFolder: (name: string, parentId?: string | null) => Promise<void>
@@ -142,11 +151,33 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   },
 
   // 파일 업로드
-  uploadFiles: async (filesToUpload: File[]) => {
+  uploadFiles: async (filesToUpload: File[], groups?: FileGroup[]) => {
     const { selectedFolderId } = get()
 
-    // 업로드 진행 상태 초기화
-    const progress: UploadProgress[] = filesToUpload.map((file, index) => ({
+    // 그룹 정보를 파일명 기반으로 매핑
+    const fileGroupMap = new Map<string, { groupId: string; isMain: boolean; mainFileName?: string }>()
+    if (groups && groups.length > 0) {
+      for (const group of groups) {
+        if (group.mainFile) {
+          fileGroupMap.set(group.mainFile.name, { groupId: group.groupId, isMain: true })
+          // 연관 파일들에 메인 파일 정보 추가
+          for (const mtl of group.materialFiles) {
+            fileGroupMap.set(mtl.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
+          }
+          for (const tex of group.textureFiles) {
+            fileGroupMap.set(tex.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
+          }
+        }
+      }
+    }
+
+    // 업로드 진행 상태 초기화 (메인 파일만 표시)
+    const mainFilesToUpload = filesToUpload.filter(file => {
+      const groupInfo = fileGroupMap.get(file.name)
+      return !groupInfo || groupInfo.isMain
+    })
+
+    const progress: UploadProgress[] = mainFilesToUpload.map((file, index) => ({
       fileId: `temp-${index}`,
       fileName: file.name,
       progress: 0,
@@ -154,32 +185,54 @@ export const useAssetStore = create<AssetState>((set, get) => ({
     }))
     set({ uploadProgress: progress })
 
-    for (let i = 0; i < filesToUpload.length; i++) {
-      const file = filesToUpload[i]
-      if (!file) continue
+    // 메인 파일 ID 매핑 (연관 파일 업로드 시 사용)
+    const mainFileIds = new Map<string, string>()
+    let progressIndex = 0
+
+    // 메인 파일 먼저 업로드
+    for (const file of filesToUpload) {
+      const groupInfo = fileGroupMap.get(file.name)
+      if (groupInfo && !groupInfo.isMain) continue // 연관 파일은 나중에
 
       try {
         // 업로드 시작
+        const currentIndex = progressIndex++
         set((state) => ({
           uploadProgress: state.uploadProgress.map((p, idx) =>
-            idx === i ? { ...p, status: 'uploading', progress: 50 } : p
+            idx === currentIndex ? { ...p, status: 'uploading', progress: 20 } : p
           ),
         }))
 
-        // 파일 업로드 (API 레이어 사용)
-        const metadata = await uploadFile(file, selectedFolderId)
+        // 업로드 옵션 설정
+        const options = groupInfo ? {
+          groupId: groupInfo.groupId,
+          tags: ['group:main'],
+        } : undefined
+
+        set((state) => ({
+          uploadProgress: state.uploadProgress.map((p, idx) =>
+            idx === currentIndex ? { ...p, progress: 50 } : p
+          ),
+        }))
+
+        const metadata = await uploadFile(file, selectedFolderId, options)
+
+        // 메인 파일 ID 저장
+        if (groupInfo) {
+          mainFileIds.set(file.name, metadata.id)
+        }
 
         // 업로드 완료
         set((state) => ({
           uploadProgress: state.uploadProgress.map((p, idx) =>
-            idx === i ? { ...p, fileId: metadata.id, status: 'complete', progress: 100 } : p
+            idx === currentIndex ? { ...p, fileId: metadata.id, status: 'complete', progress: 100 } : p
           ),
         }))
       } catch (err) {
-        // 에러 처리
+        const currentIndex = progressIndex - 1
         set((state) => ({
           uploadProgress: state.uploadProgress.map((p, idx) =>
-            idx === i
+            idx === currentIndex
               ? {
                   ...p,
                   status: 'error',
@@ -188,6 +241,29 @@ export const useAssetStore = create<AssetState>((set, get) => ({
               : p
           ),
         }))
+      }
+    }
+
+    // 연관 파일 업로드 (MTL, 텍스처 등)
+    for (const file of filesToUpload) {
+      const groupInfo = fileGroupMap.get(file.name)
+      if (!groupInfo || groupInfo.isMain) continue // 메인 파일은 이미 업로드됨
+
+      const parentFileId = groupInfo.mainFileName ? mainFileIds.get(groupInfo.mainFileName) : undefined
+      if (!parentFileId) {
+        console.warn(`연관 파일 ${file.name}의 부모 파일을 찾을 수 없습니다.`)
+        continue
+      }
+
+      try {
+        // 연관 파일 업로드 (진행바에 표시하지 않음)
+        await uploadFile(file, selectedFolderId, {
+          groupId: groupInfo.groupId,
+          parentFileId,
+          tags: [file.name.toLowerCase().endsWith('.mtl') ? 'group:material' : 'group:texture'],
+        })
+      } catch (err) {
+        console.warn(`연관 파일 ${file.name} 업로드 실패:`, err)
       }
     }
 
@@ -257,6 +333,34 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   // 파일 다운로드 URL 가져오기
   getFileDownloadUrl: async (id: string) => {
     return await getFileUrl(id)
+  },
+
+  // 연관 파일 Blob들 가져오기 (MTL, 텍스처 등) - 병렬 다운로드
+  getRelatedFileBlobs: async (parentFileId: string) => {
+    const relatedFiles = await getRelatedFiles(parentFileId)
+
+    // 모든 파일을 병렬로 다운로드
+    const downloadPromises = relatedFiles.map(async (fileMetadata) => {
+      try {
+        const result = await getFile(fileMetadata.id)
+        if (result?.blob) {
+          // 파일 타입 결정 (태그에서 추출)
+          let type = 'other'
+          if (fileMetadata.tags?.includes('group:material') || fileMetadata.name.toLowerCase().endsWith('.mtl')) {
+            type = 'material'
+          } else if (fileMetadata.tags?.includes('group:texture') || /\.(jpg|jpeg|png|gif|webp|tiff|tif|bmp|dds|ktx|ktx2)$/i.test(fileMetadata.name)) {
+            type = 'texture'
+          }
+          return { name: fileMetadata.name, blob: result.blob, type }
+        }
+      } catch (err) {
+        console.warn(`연관 파일 ${fileMetadata.name} 로드 실패:`, err)
+      }
+      return null
+    })
+
+    const results = await Promise.all(downloadPromises)
+    return results.filter((r): r is { name: string; blob: Blob; type: string } => r !== null)
   },
 
   // 폴더 생성

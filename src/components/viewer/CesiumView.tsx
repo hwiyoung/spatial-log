@@ -10,6 +10,7 @@ import {
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   defined,
+  OpenStreetMapImageryProvider,
 } from 'cesium'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 
@@ -47,19 +48,28 @@ export default function CesiumView({ annotations = [], onAnnotationClick }: Cesi
     let viewer: CesiumViewer | null = null
 
     try {
+      // OpenStreetMap 이미저리 프로바이더 (무료, 인증 불필요)
+      const osmProvider = new OpenStreetMapImageryProvider({
+        url: 'https://tile.openstreetmap.org/',
+      })
+
       // Cesium Viewer 생성
       viewer = new CesiumViewer(containerRef.current, {
         timeline: false,
         animation: false,
         homeButton: false,
         sceneModePicker: true,
-        baseLayerPicker: true,
+        baseLayerPicker: false, // Ion 인증 필요한 기본 레이어 선택기 비활성화
         navigationHelpButton: false,
         fullscreenButton: false,
         geocoder: false,
         infoBox: true,
         selectionIndicator: true,
+        baseLayer: false, // 기본 레이어 비활성화
       })
+
+      // OSM 레이어 추가
+      viewer.imageryLayers.addImageryProvider(osmProvider)
 
       viewerRef.current = viewer
       setIsLoading(false)

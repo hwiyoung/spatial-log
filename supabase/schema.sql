@@ -26,7 +26,20 @@ CREATE EXTENSION IF NOT EXISTS "postgis";
 
 -- Enums
 DO $$ BEGIN
-  CREATE TYPE file_format AS ENUM ('gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57', 'image', 'other');
+  CREATE TYPE file_format AS ENUM ('gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57', '3dtiles', 'splat', 'image', 'other');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- 기존 enum에 새 값 추가 (이미 존재하면 무시)
+DO $$ BEGIN
+  ALTER TYPE file_format ADD VALUE IF NOT EXISTS '3dtiles';
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TYPE file_format ADD VALUE IF NOT EXISTS 'splat';
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
@@ -87,6 +100,11 @@ CREATE TABLE IF NOT EXISTS public.files (
   exif_datetime TIMESTAMPTZ,
   tags TEXT[] DEFAULT '{}',
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- 소프트 삭제 지원
+  deleted_at TIMESTAMPTZ,
+  deleted_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  -- 무결성 검증
+  last_verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -111,16 +129,30 @@ CREATE TABLE IF NOT EXISTS public.annotations (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Integrity logs table (무결성 검사 로그)
+CREATE TABLE IF NOT EXISTS public.integrity_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  check_type VARCHAR(50) NOT NULL,  -- 'full', 'incremental', 'single'
+  status VARCHAR(20) NOT NULL,       -- 'success', 'warning', 'error'
+  orphaned_records INTEGER DEFAULT 0,
+  orphaned_files INTEGER DEFAULT 0,
+  valid_files INTEGER DEFAULT 0,
+  details JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_files_user_id ON public.files(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_folder_id ON public.files(folder_id);
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON public.files(project_id);
 CREATE INDEX IF NOT EXISTS idx_files_format ON public.files(format);
 CREATE INDEX IF NOT EXISTS idx_files_location ON public.files USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_files_deleted ON public.files(deleted_at) WHERE deleted_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_folders_user_id ON public.folders(user_id);
 CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON public.folders(parent_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_project_id ON public.annotations(project_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_location ON public.annotations USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_integrity_logs_created ON public.integrity_logs(created_at DESC);
 
 -- Functions
 CREATE OR REPLACE FUNCTION public.update_file_location()
@@ -188,6 +220,7 @@ ALTER TABLE public.projects DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.folders DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.files DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.annotations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.integrity_logs DISABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they exist
 DROP POLICY IF EXISTS "Users can view own projects" ON public.projects;
