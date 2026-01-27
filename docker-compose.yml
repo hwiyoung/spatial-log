@@ -26,7 +26,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXP: 3600
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - ./data/db:/var/lib/postgresql/data
       - ./supabase/schema.sql:/docker-entrypoint-initdb.d/zzz-schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -92,7 +92,7 @@ services:
       ENABLE_IMAGE_TRANSFORMATION: "true"
       IMGPROXY_URL: http://imgproxy:8080
     volumes:
-      - storage-data:/var/lib/storage
+      - ./data/storage:/var/lib/storage
     depends_on:
       db:
         condition: service_healthy
@@ -107,7 +107,7 @@ services:
       IMGPROXY_USE_ETAG: "true"
       IMGPROXY_ENABLE_WEBP_DETECTION: "true"
     volumes:
-      - storage-data:/var/lib/storage
+      - ./data/storage:/var/lib/storage
 
   kong:
     image: kong:2.8.1
@@ -173,6 +173,27 @@ services:
       db:
         condition: service_healthy
 
-volumes:
-  db-data:
-  storage-data:
+  # 3D 데이터 변환 서비스
+  spatial-converter:
+    build:
+      context: ./services/spatial-converter
+      dockerfile: Dockerfile
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./data/storage:/var/lib/storage:ro
+      - ./data/converter-output:/app/output
+    environment:
+      - STORAGE_PATH=/var/lib/storage/stub/stub
+      - SUPABASE_URL=http://kong:8000
+      - SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
+      - DEV_MODE=true
+    depends_on:
+      - storage
+      - kong
+    restart: unless-stopped
+
+# 데이터는 ./data/ 디렉토리에 로컬 저장됨
+# - ./data/db/: PostgreSQL 데이터
+# - ./data/storage/: 업로드된 파일
+# - ./data/converter-output/: 변환된 파일

@@ -35,6 +35,11 @@ export type Database = {
           deleted_at: string | null
           deleted_by: string | null
           last_verified_at: string | null
+          // 3D 데이터 변환 상태
+          conversion_status: 'pending' | 'converting' | 'ready' | 'failed' | null
+          conversion_progress: number | null
+          converted_path: string | null
+          conversion_error: string | null
           created_at: string
           updated_at: string
         }
@@ -59,6 +64,10 @@ export type Database = {
           deleted_at?: string | null
           deleted_by?: string | null
           last_verified_at?: string | null
+          conversion_status?: 'pending' | 'converting' | 'ready' | 'failed' | null
+          conversion_progress?: number | null
+          converted_path?: string | null
+          conversion_error?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -83,6 +92,10 @@ export type Database = {
           deleted_at?: string | null
           deleted_by?: string | null
           last_verified_at?: string | null
+          conversion_status?: 'pending' | 'converting' | 'ready' | 'failed' | null
+          conversion_progress?: number | null
+          converted_path?: string | null
+          conversion_error?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -336,3 +349,6 @@ export type FolderRow = Tables<'folders'>
 export type ProjectRow = Tables<'projects'>
 export type AnnotationRow = Tables<'annotations'>
 export type IntegrityLogRow = Tables<'integrity_logs'>
+
+// 파일 포맷 타입
+export type FileFormat = Database['public']['Enums']['file_format']

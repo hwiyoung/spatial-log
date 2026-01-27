@@ -3,7 +3,7 @@
 
 import JSZip from 'jszip'
 import { getSupabaseClient, isSupabaseConfigured, STORAGE_BUCKET } from '@/lib/supabase'
-import type { FileRow, FileFormat } from '@/lib/database.types'
+import type { FileFormat, FileRow, InsertTables } from '@/lib/database.types'
 
 // 연관 파일 그룹 타입
 export interface RelatedFileGroup {
@@ -89,13 +89,13 @@ export async function parseZipFile(zipFile: File): Promise<RelatedFileGroup> {
   // 모든 파일 추출
   const filePromises: Promise<void>[] = []
 
-  zip.forEach((relativePath, zipEntry) => {
+  zip.forEach((relativePath: string, zipEntry: JSZip.JSZipObject) => {
     if (zipEntry.dir) return // 디렉토리 스킵
 
     const filename = relativePath.split('/').pop() || relativePath
     if (filename.startsWith('.')) return // 숨김 파일 스킵
 
-    const promise = zipEntry.async('arraybuffer').then((data) => {
+    const promise = zipEntry.async('arraybuffer').then((data: ArrayBuffer) => {
       const fileType = classifyFile(filename)
 
       if (fileType === 'model') {
@@ -163,7 +163,15 @@ export async function uploadFileGroup(
   }
 
   const supabase = getSupabaseClient()
-  const userId = 'local-user' // TODO: 실제 사용자 ID
+
+  // 인증 확인
+  const { data: { user } } = await supabase.auth.getUser()
+  const isDevelopment = import.meta.env.DEV
+  if (!user && !isDevelopment) {
+    throw new Error('파일 업로드에는 인증이 필요합니다.')
+  }
+  const userId = user?.id ?? 'dev-user'
+
   const totalFiles = 1 + group.relatedFiles.length
   let uploadedCount = 0
 
@@ -190,18 +198,19 @@ export async function uploadFileGroup(
 
     // 2. DB에 메인 파일 레코드 생성
     const mainFileId = generateUUID()
+    const mainFileInsert: InsertTables<'files'> = {
+      id: mainFileId,
+      name: group.mainFile.name,
+      mime_type: getMimeType(group.mainFile.name),
+      format: group.mainFile.format,
+      size: group.mainFile.data.byteLength,
+      storage_path: mainFilePath,
+      user_id: userId,
+      tags: [`group:${group.groupId}`, 'main-file'],
+    }
     const { error: dbError } = await supabase
       .from('files')
-      .insert({
-        id: mainFileId,
-        name: group.mainFile.name,
-        format: group.mainFile.format,
-        size: group.mainFile.data.byteLength,
-        storage_path: mainFilePath,
-        user_id: userId,
-        group_id: group.groupId,
-        is_main_file: true,
-      } as Partial<FileRow> & Record<string, unknown>)
+      .insert(mainFileInsert as never)
 
     if (dbError) {
       // 롤백: Storage 파일 삭제
@@ -231,19 +240,19 @@ export async function uploadFileGroup(
       uploadedRelatedPaths.push(relatedPath)
 
       // 연관 파일 DB 레코드 생성 (선택적)
+      const relatedFileInsert: InsertTables<'files'> = {
+        id: generateUUID(),
+        name: related.name,
+        mime_type: getMimeType(related.name),
+        format: 'other' as FileFormat,
+        size: related.data.byteLength,
+        storage_path: relatedPath,
+        user_id: userId,
+        tags: [`group:${group.groupId}`, `related:${related.type}`],
+      }
       await supabase
         .from('files')
-        .insert({
-          id: generateUUID(),
-          name: related.name,
-          format: 'other' as FileFormat,
-          size: related.data.byteLength,
-          storage_path: relatedPath,
-          user_id: userId,
-          group_id: group.groupId,
-          is_main_file: false,
-          related_type: related.type,
-        } as Partial<FileRow> & Record<string, unknown>)
+        .insert(relatedFileInsert as never)
 
       uploadedCount++
     }
@@ -285,7 +294,7 @@ export async function uploadZipFile(
 }
 
 /**
- * 파일 그룹 삭제
+ * 파일 그룹 삭제 (tags 기반)
  */
 export async function deleteFileGroup(groupId: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured()) {
@@ -295,11 +304,11 @@ export async function deleteFileGroup(groupId: string): Promise<{ success: boole
   const supabase = getSupabaseClient()
 
   try {
-    // 1. 그룹의 모든 파일 레코드 조회
+    // 1. 그룹의 모든 파일 레코드 조회 (tags 기반)
     const { data: files, error: queryError } = await supabase
       .from('files')
       .select('id, storage_path')
-      .eq('group_id', groupId)
+      .contains('tags', [`group:${groupId}`])
 
     if (queryError) {
       throw new Error(`그룹 조회 실패: ${queryError.message}`)
@@ -336,7 +345,7 @@ export async function deleteFileGroup(groupId: string): Promise<{ success: boole
 }
 
 /**
- * 파일 그룹 정보 조회
+ * 파일 그룹 정보 조회 (tags 기반)
  */
 export async function getFileGroupInfo(groupId: string): Promise<{
   mainFile: FileRow | null
@@ -348,18 +357,19 @@ export async function getFileGroupInfo(groupId: string): Promise<{
 
   const supabase = getSupabaseClient()
 
+  // tags에 group:groupId가 포함된 파일 조회
   const { data, error } = await supabase
     .from('files')
     .select('*')
-    .eq('group_id', groupId)
-    .order('is_main_file', { ascending: false })
+    .contains('tags', [`group:${groupId}`])
 
   if (error) {
     throw new Error(`그룹 정보 조회 실패: ${error.message}`)
   }
 
   const files = (data || []) as FileRow[]
-  const mainFile = files.find((f) => (f as FileRow & { is_main_file?: boolean }).is_main_file) || files[0] || null
+  // main-file 태그가 있는 파일을 메인 파일로 식별
+  const mainFile = files.find((f) => f.tags?.includes('main-file')) || files[0] || null
   const relatedFiles = files.filter((f) => f !== mainFile)
 
   return { mainFile, relatedFiles }

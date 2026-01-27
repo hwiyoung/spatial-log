@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 're
 import L, { type LeafletMouseEvent } from 'leaflet'
 import { PenTool, Map as MapIcon, Globe, Loader2 } from 'lucide-react'
 import type { AnnotationData } from '@/services/api'
+import { getPriorityColor, PRIORITY_COLORS } from '@/constants/annotation'
 import 'leaflet/dist/leaflet.css'
 
 // Cesium 컴포넌트 지연 로딩 (무거운 번들 최적화)
@@ -57,15 +58,8 @@ interface AnnotationMapViewProps {
   zoom?: number
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  low: '#22c55e',
-  medium: '#eab308',
-  high: '#f97316',
-  critical: '#ef4444',
-}
-
 function createMarkerIcon(priority: string, isSelected: boolean): L.DivIcon {
-  const color = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium
+  const color = getPriorityColor(priority)
   const size = isSelected ? 32 : 24
   const borderWidth = isSelected ? 3 : 2
 

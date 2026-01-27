@@ -37,6 +37,11 @@ export interface FileMetadata {
     dateTime?: Date
   }
   tags?: string[]
+  // 3D 데이터 변환 상태
+  conversionStatus?: 'pending' | 'converting' | 'ready' | 'failed' | null
+  conversionProgress?: number
+  convertedPath?: string
+  conversionError?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -112,6 +117,11 @@ function mapFileRowToMetadata(row: FileRow): FileMetadata {
         }
       : undefined,
     tags: row.tags ?? undefined,
+    // 변환 상태
+    conversionStatus: row.conversion_status as FileMetadata['conversionStatus'] ?? undefined,
+    conversionProgress: row.conversion_progress ?? undefined,
+    convertedPath: row.converted_path ?? undefined,
+    conversionError: row.conversion_error ?? undefined,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   }
@@ -188,9 +198,15 @@ export async function uploadFile(
 
   const supabase = getSupabaseClient()
 
-  // 개발 환경에서는 인증 없이 진행 (user_id는 nullable)
+  // 인증 확인
   const { data: { user } } = await supabase.auth.getUser()
-  const userId = user?.id ?? 'anonymous'
+
+  // 프로덕션에서는 인증 필수, 개발 환경에서는 'dev-user' 사용
+  const isDevelopment = import.meta.env.DEV
+  if (!user && !isDevelopment) {
+    throw new Error('파일 업로드에는 인증이 필요합니다.')
+  }
+  const userId = user?.id ?? 'dev-user'
 
   // 파일 경로 생성 (user_id/folder_id/filename)
   const timestamp = Date.now()
@@ -382,6 +398,36 @@ export async function getRelatedFiles(parentFileId: string): Promise<FileMetadat
   }
 
   return ((data || []) as FileRow[]).map(mapFileRowToMetadata)
+}
+
+/**
+ * 파일 메타데이터만 조회 (blob 없이)
+ */
+export async function getFileMetadata(id: string): Promise<FileMetadata | null> {
+  if (!isSupabaseConfigured()) {
+    const result = await localStorage.getFile(id)
+    if (!result) return null
+    return {
+      ...result.metadata,
+      projectId: result.metadata.projectId ?? null,
+      storagePath: undefined,
+      thumbnailUrl: result.metadata.thumbnail,
+    }
+  }
+
+  const supabase = getSupabaseClient()
+
+  const { data, error } = await supabase
+    .from('files')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  return mapFileRowToMetadata(data as FileRow)
 }
 
 export async function getFile(id: string): Promise<{ metadata: FileMetadata; blob: Blob } | null> {
@@ -660,6 +706,42 @@ export async function updateFile(
     .single()
 
   if (error || !data) {
+    return null
+  }
+
+  return mapFileRowToMetadata(data as FileRow)
+}
+
+// 파일 변환 상태 업데이트
+export async function updateFileConversionStatus(
+  id: string,
+  status: 'pending' | 'converting' | 'ready' | 'failed',
+  progress?: number,
+  convertedPath?: string,
+  error?: string
+): Promise<FileMetadata | null> {
+  if (!isSupabaseConfigured()) {
+    // 로컬 스토리지에서는 변환 상태 지원하지 않음
+    console.warn('로컬 스토리지에서는 변환 상태를 지원하지 않습니다.')
+    return null
+  }
+
+  const supabase = getSupabaseClient()
+  const updateData: FileUpdate = {
+    conversion_status: status,
+    conversion_progress: progress ?? (status === 'ready' ? 100 : status === 'pending' ? 0 : undefined),
+    converted_path: convertedPath,
+    conversion_error: error,
+  }
+  const { data, error: dbError } = await supabase
+    .from('files')
+    .update(updateData as never)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (dbError || !data) {
+    console.error('변환 상태 업데이트 실패:', dbError?.message)
     return null
   }
 

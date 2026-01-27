@@ -3,13 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { AnnotationData } from '@/services/api'
-
-const PRIORITY_COLORS: Record<string, string> = {
-  low: '#22c55e',
-  medium: '#eab308',
-  high: '#f97316',
-  critical: '#ef4444',
-}
+import { getPriorityColor } from '@/constants/annotation'
 
 interface AnnotationMarker3DProps {
   annotation: AnnotationData
@@ -42,7 +36,7 @@ export default function AnnotationMarker3D({
 
   if (!annotation.position) return null
 
-  const color = PRIORITY_COLORS[annotation.priority] || PRIORITY_COLORS.medium
+  const color = getPriorityColor(annotation.priority)
   const { x, y, z } = annotation.position
 
   return (

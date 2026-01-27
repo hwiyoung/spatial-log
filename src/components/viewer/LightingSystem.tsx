@@ -24,7 +24,9 @@ export default function LightingSystem({
   const rimLightRef = useRef<THREE.DirectionalLight>(null)
   const { scene } = useThree()
 
-  const config = LIGHTING_PRESETS[preset] || LIGHTING_PRESETS.studio
+  // LIGHTING_PRESETS에서 preset을 가져오고, 없으면 studio 사용
+  // LIGHTING_PRESETS.studio는 항상 존재하므로 non-null assertion 사용
+  const config = (LIGHTING_PRESETS[preset] ?? LIGHTING_PRESETS.studio)!
   const ambientIntensity = customAmbient ?? config.ambient ?? quality.ambientIntensity
   const intensityMultiplier = customIntensity ?? 1
 

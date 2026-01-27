@@ -29,3 +29,6 @@ Thumbs.db
 
 # Testing
 coverage
+
+# Local data (Docker bind mounts)
+data/

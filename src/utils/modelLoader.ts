@@ -146,9 +146,11 @@ export async function loadOBJ(
         const textureRefRegex = /^\s*map_(?:Kd|Ka|Ks|Ns|d|bump|Bump|disp|Disp|refl)\s+(.+)$/gmi
         let match
         while ((match = textureRefRegex.exec(mtlText)) !== null) {
-          const texPath = match[1].trim()
-          const texFileName = texPath.split(/[/\\]/).pop() || texPath
-          mtlTextureRefs.push(texFileName)
+          const texPath = match[1]?.trim()
+          if (texPath) {
+            const texFileName = texPath.split(/[/\\]/).pop() || texPath
+            mtlTextureRefs.push(texFileName)
+          }
         }
 
         // 커스텀 LoadingManager로 텍스처 로딩 가로채기

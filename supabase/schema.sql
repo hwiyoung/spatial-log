@@ -105,9 +105,24 @@ CREATE TABLE IF NOT EXISTS public.files (
   deleted_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   -- 무결성 검증
   last_verified_at TIMESTAMPTZ,
+  -- 3D 데이터 변환 상태
+  conversion_status VARCHAR(20), -- 'pending', 'converting', 'ready', 'failed'
+  conversion_progress INTEGER DEFAULT 0,
+  converted_path TEXT,           -- 변환된 파일 경로 (COPC, 3D Tiles 등)
+  conversion_error TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 기존 테이블에 변환 컬럼 추가 (이미 테이블이 존재하는 경우)
+DO $$ BEGIN
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_status VARCHAR(20);
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_progress INTEGER DEFAULT 0;
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS converted_path TEXT;
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_error TEXT;
+EXCEPTION
+  WHEN duplicate_column THEN null;
+END $$;
 
 -- Annotations table
 CREATE TABLE IF NOT EXISTS public.annotations (
@@ -290,7 +305,7 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 
 -- Storage bucket 생성 및 정책 설정
--- 버킷이 없으면 생성
+-- 버킷이 없으면 생성, public = true로 설정 (개발 환경)
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('spatial-files', 'spatial-files', true)
 ON CONFLICT (id) DO UPDATE SET public = true;

@@ -17,6 +17,7 @@ import {
   OpenStreetMapImageryProvider,
 } from 'cesium'
 import type { AnnotationData } from '@/services/api'
+import { PRIORITY_COLORS, DEFAULT_MARKER_COLOR, type AnnotationPriority } from '@/constants/annotation'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 
 interface AnnotationMapView3DProps {
@@ -28,13 +29,16 @@ interface AnnotationMapView3DProps {
   pendingPosition?: { lat: number; lng: number } | null
 }
 
-const DEFAULT_COLOR = Color.fromCssColorString('#eab308')
+// Cesium Color 객체로 변환된 우선순위 색상
+const PRIORITY_CESIUM_COLORS: Record<string, Color> = Object.fromEntries(
+  Object.entries(PRIORITY_COLORS).map(([key, value]) => [key, Color.fromCssColorString(value)])
+)
 
-const PRIORITY_COLORS: Record<string, Color> = {
-  low: Color.fromCssColorString('#22c55e'),
-  medium: Color.fromCssColorString('#eab308'),
-  high: Color.fromCssColorString('#f97316'),
-  critical: Color.fromCssColorString('#ef4444'),
+const DEFAULT_COLOR = Color.fromCssColorString(DEFAULT_MARKER_COLOR)
+
+// 우선순위별 Cesium Color 가져오기
+function getPriorityCesiumColor(priority: string): Color {
+  return PRIORITY_CESIUM_COLORS[priority as AnnotationPriority] || DEFAULT_COLOR
 }
 
 // 마커 캔버스 생성 함수
@@ -202,7 +206,7 @@ export default function AnnotationMapView3D({
     // 마커 생성 또는 업데이트
     annotationsWithGps.forEach((annotation) => {
       const isSelected = annotation.id === selectedId
-      const color = PRIORITY_COLORS[annotation.priority] ?? DEFAULT_COLOR
+      const color = getPriorityCesiumColor(annotation.priority)
       const existingEntity = entitiesRef.current.get(annotation.id)
 
       if (existingEntity) {

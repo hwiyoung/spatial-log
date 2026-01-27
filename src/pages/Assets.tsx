@@ -24,13 +24,20 @@ import {
   Files,
   CheckSquare,
   Square,
+  Terminal,
+  RefreshCw,
 } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
 import { Modal, Input, FileUpload, type FileGroup } from '@/components/common'
 import ThreeCanvas from '@/components/viewer/ThreeCanvas'
 import IntegrityChecker from '@/components/admin/IntegrityChecker'
+import DevConsole from '@/components/admin/DevConsole'
 import { formatFileSize } from '@/utils/storage'
 import type { FileMetadata, FolderData } from '@/services/api'
+import { getFileMetadata } from '@/services/api'
+import { ConversionStatusBadge } from '@/components/common/ConversionStatus'
+import { needsConversion } from '@/services/conversionService'
+import type { ConversionStatus } from '@/services/conversionService'
 
 // 탭 타입
 type TabType = 'files' | 'admin'
@@ -120,11 +127,15 @@ export default function Assets() {
   const [previewFile, setPreviewFile] = useState<FileMetadata | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [previewRelatedFiles, setPreviewRelatedFiles] = useState<{ name: string; blob: Blob; type: 'material' | 'texture' | 'other' }[]>([])
 
 
   // 다중 선택 모드
   const [multiSelectMode, setMultiSelectMode] = useState(false)
+
+  // 개발자 콘솔
+  const [showDevConsole, setShowDevConsole] = useState(false)
 
   // 초기화
   useEffect(() => {
@@ -260,6 +271,104 @@ export default function Assets() {
     if (!is3DFormat) {
       alert('3D 미리보기는 GLTF, GLB, OBJ, FBX, PLY, LAS 파일만 지원합니다.')
       return
+    }
+
+    // 변환이 필요한 파일 처리 (E57, OBJ 등)
+    const needsConversionFormats = ['e57', 'obj']
+    if (needsConversionFormats.includes(file.format)) {
+      // 최신 변환 상태 조회 (DB에서 직접 가져오기)
+      let currentFile = file
+      try {
+        const freshMetadata = await getFileMetadata(file.id)
+        if (freshMetadata) {
+          currentFile = freshMetadata
+        }
+      } catch (err) {
+        console.warn('파일 메타데이터 조회 실패, 캐시된 데이터 사용:', err)
+      }
+
+      if (currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
+        // 변환 완료된 파일 사용 - 컨버터 서비스에서 직접 로드
+        const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+
+        // 파일 경로 결정 (E57→PLY 또는 OBJ→GLB)
+        let convertedFileUrl: string
+        let fileExtHint: string
+
+        if (currentFile.format === 'e57') {
+          // E57 → PLY (단일 파일)
+          const filename = currentFile.convertedPath!.split('/').pop() || ''
+          convertedFileUrl = `${converterUrl}/output/${filename}`
+          fileExtHint = 'ply'
+        } else {
+          // OBJ → 3D Tiles (디렉토리 내 GLB 파일)
+          // convertedPath가 디렉토리인 경우, GLB 파일 경로 구성
+          const dirName = currentFile.convertedPath!.split('/').pop() || ''
+          const glbName = dirName.replace('_3dtiles', '') + '.glb'
+          convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
+          fileExtHint = 'glb'
+        }
+
+        // 이전 미리보기 정리
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl)
+          setPreviewUrl(null)
+          setPreviewFile(null)
+          setPreviewRelatedFiles([])
+          await new Promise(resolve => setTimeout(resolve, 150))
+        }
+
+        setPreviewFile(file)
+        setIsLoadingPreview(true)
+        setDownloadProgress(null)
+
+        try {
+          // 변환된 파일 로드 (진행률 표시 포함)
+          const blob = await new Promise<Blob>((resolve, reject) => {
+            const xhr = new XMLHttpRequest()
+            xhr.open('GET', convertedFileUrl, true)
+            xhr.responseType = 'blob'
+
+            xhr.onprogress = (event) => {
+              if (event.lengthComputable) {
+                setDownloadProgress({ loaded: event.loaded, total: event.total })
+              }
+            }
+
+            xhr.onload = () => {
+              if (xhr.status === 200) {
+                resolve(xhr.response as Blob)
+              } else {
+                reject(new Error(`변환된 파일을 로드할 수 없습니다: ${xhr.status}`))
+              }
+            }
+
+            xhr.onerror = () => reject(new Error('네트워크 오류'))
+            xhr.send()
+          })
+
+          const blobUrl = URL.createObjectURL(blob) + `#file.${fileExtHint}`
+          setPreviewUrl(blobUrl)
+        } catch (err) {
+          console.error('변환된 파일 로드 실패:', err)
+          alert('변환된 파일을 로드할 수 없습니다.')
+          setPreviewFile(null)
+        } finally {
+          setIsLoadingPreview(false)
+          setDownloadProgress(null)
+        }
+        return
+      } else if (currentFile.conversionStatus === 'converting' || currentFile.conversionStatus === 'pending') {
+        alert(`${currentFile.format.toUpperCase()} 파일이 변환 중입니다. (${currentFile.conversionProgress || 0}%)\n잠시 후 다시 시도해주세요.`)
+        return
+      } else if (currentFile.conversionStatus === 'failed') {
+        alert(`${currentFile.format.toUpperCase()} 변환 실패: ${currentFile.conversionError || '알 수 없는 오류'}`)
+        return
+      } else {
+        // 변환이 안 된 E57/OBJ는 원본 로드 대신 변환 안내
+        alert(`${currentFile.format.toUpperCase()} 파일은 변환 후 미리보기가 가능합니다.\n\n변환 서비스가 실행 중이면 자동으로 변환됩니다.`)
+        return
+      }
     }
 
     // 이전 미리보기가 있다면 먼저 닫기
@@ -476,6 +585,18 @@ export default function Assets() {
       {/* 탭 컨텐츠 */}
       {activeTab === 'admin' ? (
         <div className="flex-1 min-h-0 bg-slate-900/50 rounded-xl border border-slate-800 overflow-auto p-6">
+          {/* 관리 도구 버튼들 */}
+          <div className="flex items-center gap-3 mb-6">
+            <button
+              onClick={() => setShowDevConsole(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 rounded-lg text-green-400 transition-colors"
+            >
+              <Terminal size={18} />
+              <span>개발자 콘솔</span>
+            </button>
+          </div>
+
+          {/* 무결성 검사 */}
           <IntegrityChecker />
         </div>
       ) : (
@@ -626,6 +747,28 @@ export default function Assets() {
                       </span>
                     )}
 
+                    {/* 변환 상태 표시 */}
+                    {file.conversionStatus && file.conversionStatus !== 'ready' && (
+                      <div className="absolute bottom-2 right-2">
+                        <ConversionStatusBadge
+                          status={file.conversionStatus as ConversionStatus}
+                          progress={file.conversionProgress}
+                          error={file.conversionError}
+                          compact
+                        />
+                      </div>
+                    )}
+
+                    {/* 변환 필요 표시 (변환되지 않은 파일) */}
+                    {!file.conversionStatus && needsConversion(file.format) && (
+                      <span
+                        className="absolute bottom-2 right-2 p-1 bg-cyan-600/80 rounded text-white"
+                        title="변환 가능"
+                      >
+                        <RefreshCw size={10} />
+                      </span>
+                    )}
+
                     {/* 호버 액션 */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
                       {['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format) && (
@@ -690,8 +833,9 @@ export default function Assets() {
                 {(multiSelectMode || selectedFileIds.length > 0) && (
                   <span className="col-span-1"></span>
                 )}
-                <span className={multiSelectMode || selectedFileIds.length > 0 ? 'col-span-4' : 'col-span-5'}>이름</span>
+                <span className={multiSelectMode || selectedFileIds.length > 0 ? 'col-span-3' : 'col-span-4'}>이름</span>
                 <span className="col-span-2">포맷</span>
+                <span className="col-span-2">상태</span>
                 <span className="col-span-2">크기</span>
                 <span className="col-span-2">수정일</span>
                 <span className="col-span-1"></span>
@@ -728,7 +872,7 @@ export default function Assets() {
                       </button>
                     </div>
                   )}
-                  <div className={`${multiSelectMode || selectedFileIds.length > 0 ? 'col-span-4' : 'col-span-5'} flex items-center space-x-3`}>
+                  <div className={`${multiSelectMode || selectedFileIds.length > 0 ? 'col-span-3' : 'col-span-4'} flex items-center space-x-3`}>
                     <div className={`w-8 h-8 rounded flex items-center justify-center ${getFormatBgColor(file.format)}`}>
                       {file.thumbnailUrl ? (
                         <img src={file.thumbnailUrl} alt="" className="w-full h-full object-cover rounded" />
@@ -739,6 +883,23 @@ export default function Assets() {
                     <span className="text-sm text-white truncate">{file.name}</span>
                   </div>
                   <span className="col-span-2 text-sm text-slate-400 uppercase flex items-center">{file.format}</span>
+                  <div className="col-span-2 flex items-center">
+                    {file.conversionStatus ? (
+                      <ConversionStatusBadge
+                        status={file.conversionStatus as ConversionStatus}
+                        progress={file.conversionProgress}
+                        error={file.conversionError}
+                        compact
+                      />
+                    ) : needsConversion(file.format) ? (
+                      <span className="text-xs px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded flex items-center gap-1">
+                        <RefreshCw size={10} />
+                        변환 가능
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500">-</span>
+                    )}
+                  </div>
                   <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatFileSize(file.size)}</span>
                   <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatDate(file.createdAt)}</span>
                   <div className="col-span-1 flex items-center justify-end space-x-1">
@@ -1041,6 +1202,23 @@ export default function Assets() {
                   <div className="flex flex-col items-center gap-3 text-slate-400">
                     <Loader2 size={40} className="animate-spin" />
                     <span>모델 로딩 중...</span>
+                    {downloadProgress && (
+                      <div className="w-48">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span>다운로드</span>
+                          <span>{Math.round((downloadProgress.loaded / downloadProgress.total) * 100)}%</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500 transition-all duration-300"
+                            style={{ width: `${(downloadProgress.loaded / downloadProgress.total) * 100}%` }}
+                          />
+                        </div>
+                        <div className="text-xs mt-1 text-center">
+                          {(downloadProgress.loaded / 1024 / 1024).toFixed(1)} / {(downloadProgress.total / 1024 / 1024).toFixed(1)} MB
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : previewUrl ? (
@@ -1058,6 +1236,14 @@ export default function Assets() {
           </div>
         </div>
       )}
+
+      {/* 개발자 콘솔 */}
+      <DevConsole
+        files={files}
+        isOpen={showDevConsole}
+        onClose={() => setShowDevConsole(false)}
+        onRefresh={initialize}
+      />
     </div>
   )
 }

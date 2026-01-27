@@ -18,14 +18,16 @@ import {
   linkFilesToProject,
   unlinkFilesFromProject,
   getRelatedFiles,
+  updateFileConversionStatus,
 } from '@/services/api'
 import type { FileGroup } from '@/components/common/FileUpload'
-
-// ZIP 파일인지 확인
-function isZipFile(file: File): boolean {
-  const ext = file.name.toLowerCase().split('.').pop()
-  return ext === 'zip'
-}
+import {
+  needsConversion,
+  getConversionTypeForFormat,
+  startConversion,
+  getConversionStatus,
+  checkConverterHealth,
+} from '@/services/conversionService'
 
 interface UploadProgress {
   fileId: string
@@ -33,6 +35,110 @@ interface UploadProgress {
   progress: number
   status: 'pending' | 'uploading' | 'complete' | 'error'
   error?: string
+}
+
+// 파일 변환을 백그라운드에서 트리거하고 상태를 폴링하는 헬퍼 함수
+async function triggerConversionForFile(
+  fileId: string,
+  storagePath: string,
+  format: string,
+  originalName: string,
+  onUpdate?: () => Promise<void>
+): Promise<void> {
+  try {
+    // 변환 서비스 상태 확인
+    const health = await checkConverterHealth()
+    if (health.status !== 'healthy') {
+      console.warn('변환 서비스가 사용 불가능합니다:', health.status)
+      return
+    }
+
+    // 변환 타입 결정
+    const conversionType = getConversionTypeForFormat(format)
+    if (!conversionType) {
+      console.warn(`지원하지 않는 변환 포맷: ${format}`)
+      return
+    }
+
+    // DB에 pending 상태 저장
+    await updateFileConversionStatus(fileId, 'pending', 0)
+
+    // 변환 시작 (원본 파일명을 옵션으로 전달)
+    const response = await startConversion({
+      fileId,
+      sourcePath: storagePath,
+      conversionType,
+      options: { original_name: originalName },
+    })
+
+    console.log(`변환 시작: ${fileId}, jobId: ${response.jobId}`)
+
+    // 상태 폴링 시작 (백그라운드)
+    pollConversionStatus(fileId, response.jobId, onUpdate)
+  } catch (err) {
+    console.error('변환 트리거 실패:', err)
+    // 실패 상태 저장
+    await updateFileConversionStatus(
+      fileId,
+      'failed',
+      0,
+      undefined,
+      err instanceof Error ? err.message : '변환 시작 실패'
+    )
+  }
+}
+
+// 변환 상태 폴링 함수
+async function pollConversionStatus(
+  fileId: string,
+  jobId: string,
+  onUpdate?: () => Promise<void>,
+  intervalMs: number = 3000,
+  maxAttempts: number = 600 // 30분 (3초 * 600)
+): Promise<void> {
+  let attempts = 0
+
+  const poll = async () => {
+    if (attempts >= maxAttempts) {
+      console.warn(`변환 타임아웃: ${fileId}`)
+      await updateFileConversionStatus(fileId, 'failed', 0, undefined, '변환 타임아웃')
+      return
+    }
+
+    attempts++
+
+    try {
+      const status = await getConversionStatus(jobId)
+
+      // DB 상태 업데이트
+      await updateFileConversionStatus(
+        fileId,
+        status.status,
+        status.progress,
+        status.outputPath,
+        status.error
+      )
+
+      // 파일 목록 새로고침 (UI 업데이트)
+      onUpdate?.()
+
+      // 완료 또는 실패가 아니면 계속 폴링
+      if (status.status !== 'ready' && status.status !== 'failed') {
+        setTimeout(poll, intervalMs)
+      } else {
+        console.log(`변환 완료: ${fileId}, 상태: ${status.status}`)
+      }
+    } catch (err) {
+      console.error('변환 상태 폴링 오류:', err)
+      // 일시적 오류면 계속 시도
+      if (attempts < maxAttempts) {
+        setTimeout(poll, intervalMs)
+      }
+    }
+  }
+
+  // 첫 폴링 시작
+  setTimeout(poll, intervalMs)
 }
 
 interface AssetState {
@@ -228,6 +334,12 @@ export const useAssetStore = create<AssetState>((set, get) => ({
             idx === currentIndex ? { ...p, fileId: metadata.id, status: 'complete', progress: 100 } : p
           ),
         }))
+
+        // 변환이 필요한 파일인지 확인하고 자동 변환 트리거
+        if (needsConversion(metadata.format) && metadata.storagePath) {
+          // 비동기로 변환 시작 (백그라운드에서 실행, 에러는 무시)
+          triggerConversionForFile(metadata.id, metadata.storagePath, metadata.format, metadata.name, get().refreshFiles)
+        }
       } catch (err) {
         const currentIndex = progressIndex - 1
         set((state) => ({

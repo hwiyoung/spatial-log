@@ -157,6 +157,62 @@ export default function ProjectDetail() {
       return
     }
 
+    // 변환이 필요한 파일 처리 (E57, OBJ 등)
+    const needsConversionFormats = ['e57', 'obj']
+    if (needsConversionFormats.includes(file.format)) {
+      if (file.conversionStatus === 'ready' && file.convertedPath) {
+        // 변환 완료된 파일 사용 - 컨버터 서비스에서 직접 로드
+        const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+        let convertedFileUrl: string
+        let fileExtHint: string
+
+        if (file.format === 'e57') {
+          const filename = file.convertedPath.split('/').pop() || ''
+          convertedFileUrl = `${converterUrl}/output/${filename}`
+          fileExtHint = 'ply'
+        } else {
+          const dirName = file.convertedPath.split('/').pop() || ''
+          const glbName = dirName.replace('_3dtiles', '') + '.glb'
+          convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
+          fileExtHint = 'glb'
+        }
+
+        // 이전 미리보기 정리
+        if (previewUrl) {
+          const blobUrlOnly = previewUrl.split('#')[0] || previewUrl
+          if (blobUrlOnly.startsWith('blob:')) URL.revokeObjectURL(blobUrlOnly)
+        }
+
+        setPreviewFile(file)
+        setIsLoadingPreview(true)
+        setActiveTab('viewer')
+
+        try {
+          const response = await fetch(convertedFileUrl)
+          if (!response.ok) throw new Error(`변환된 파일 로드 실패: ${response.status}`)
+          const blob = await response.blob()
+          const blobUrl = URL.createObjectURL(blob) + `#file.${fileExtHint}`
+          setPreviewUrl(blobUrl)
+        } catch (err) {
+          console.error('변환된 파일 로드 실패:', err)
+          alert('변환된 파일을 로드할 수 없습니다.')
+          setPreviewFile(null)
+        } finally {
+          setIsLoadingPreview(false)
+        }
+        return
+      } else if (file.conversionStatus === 'converting' || file.conversionStatus === 'pending') {
+        alert(`${file.format.toUpperCase()} 파일이 변환 중입니다. 잠시 후 다시 시도해주세요.`)
+        return
+      } else if (file.conversionStatus === 'failed') {
+        alert(`${file.format.toUpperCase()} 변환 실패: ${file.conversionError || '알 수 없는 오류'}`)
+        if (file.format === 'e57') return
+      } else if (file.format === 'e57') {
+        alert('E57 파일은 변환이 필요합니다. 변환 서비스가 실행 중이면 자동으로 변환됩니다.')
+        return
+      }
+    }
+
     // 이전 미리보기 정리
     if (previewUrl) {
       const blobUrlOnly = previewUrl.split('#')[0] || previewUrl

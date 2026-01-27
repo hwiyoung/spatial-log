@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useMemo } from 'react'
-import { UploadCloud, X, File, CheckCircle, AlertCircle, Loader2, Package, Link2 } from 'lucide-react'
+import { UploadCloud, X, File, CheckCircle, AlertCircle, Loader2, Package, Link2, RefreshCw } from 'lucide-react'
 import { formatFileSize } from '@/utils/storage'
+import { needsConversion, getConversionTypeForFormat, CONVERSION_TYPE_LABELS } from '@/services/conversionService'
 
 // UUID 생성 함수 (브라우저 호환성 폴백 포함)
 function generateUUID(): string {
@@ -19,6 +20,12 @@ function generateUUID(): string {
 const MODEL_EXTENSIONS = ['.obj', '.fbx', '.gltf', '.glb']
 const MATERIAL_EXTENSIONS = ['.mtl']
 const TEXTURE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp', '.dds', '.ktx', '.ktx2']
+
+// 파일 확장자에서 포맷 추출
+function getFileFormat(filename: string): string {
+  const ext = filename.toLowerCase().split('.').pop() || ''
+  return ext
+}
 
 // 파일 타입 분류
 function classifyFileType(filename: string): 'model' | 'material' | 'texture' | 'other' {
@@ -84,6 +91,10 @@ interface SelectedFile {
   groupId?: string
   fileType?: 'model' | 'material' | 'texture' | 'other'
   isGrouped?: boolean // 그룹에 속한 파일인지
+  // 변환 정보
+  requiresConversion?: boolean // 서버 변환이 필요한 파일
+  conversionType?: string // 변환 타입 (e.g., 'las_to_copc')
+  conversionLabel?: string // 변환 타입 라벨 (e.g., 'LAS → COPC')
 }
 
 export default function FileUpload({
@@ -213,6 +224,9 @@ export default function FileUpload({
       const validation = validateFile(group.modelFile)
       const ext = '.' + group.modelFile.name.split('.').pop()?.toLowerCase()
       const isZip = ext === '.zip'
+      const format = getFileFormat(group.modelFile.name)
+      const requiresConv = needsConversion(format)
+      const convType = requiresConv ? getConversionTypeForFormat(format) : null
 
       processed.push({
         file: group.modelFile,
@@ -223,6 +237,9 @@ export default function FileUpload({
         groupId: hasRelatedFiles ? group.groupId : undefined,
         fileType: 'model',
         isGrouped: hasRelatedFiles,
+        requiresConversion: requiresConv,
+        conversionType: convType || undefined,
+        conversionLabel: convType ? CONVERSION_TYPE_LABELS[convType] : undefined,
       })
 
       // 연관 MTL 파일들 (그룹에 속함, 개별 표시 안함)
@@ -259,6 +276,9 @@ export default function FileUpload({
       const validation = validateFile(file)
       const ext = '.' + file.name.split('.').pop()?.toLowerCase()
       const isZip = ext === '.zip'
+      const format = getFileFormat(file.name)
+      const requiresConv = needsConversion(format)
+      const convType = requiresConv ? getConversionTypeForFormat(format) : null
 
       const item: SelectedFile = {
         file,
@@ -267,6 +287,9 @@ export default function FileUpload({
         error: validation.error,
         isZip,
         fileType: 'other',
+        requiresConversion: requiresConv,
+        conversionType: convType || undefined,
+        conversionLabel: convType ? CONVERSION_TYPE_LABELS[convType] : undefined,
       }
 
       if (isZip && validation.valid) {
@@ -416,6 +439,7 @@ export default function FileUpload({
   const validCount = selectedFiles.filter((f) => f.status === 'valid').length
   const errorCount = selectedFiles.filter((f) => f.status === 'error').length
   const groupCount = fileGroups.length
+  const conversionCount = selectedFiles.filter((f) => f.requiresConversion && f.status === 'valid').length
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -462,6 +486,9 @@ export default function FileUpload({
           <p className="text-amber-500/80 text-xs mt-2">
             💡 OBJ 파일 업로드 시 MTL(재질) 파일과 텍스처 이미지도 함께 업로드하세요
           </p>
+          <p className="text-cyan-500/80 text-xs mt-1">
+            🔄 E57, LAS, PLY, OBJ, GLTF 파일은 업로드 후 자동으로 최적화 변환됩니다
+          </p>
         </div>
       </div>
 
@@ -489,6 +516,12 @@ export default function FileUpload({
                   {groupCount}개 그룹
                 </span>
               )}
+              {conversionCount > 0 && (
+                <span className="text-xs px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded flex items-center gap-1">
+                  <RefreshCw size={10} />
+                  {conversionCount}개 변환 필요
+                </span>
+              )}
             </div>
             <button
               onClick={clearAll}
@@ -508,12 +541,17 @@ export default function FileUpload({
                 key={item.id}
                 className={`px-4 py-2 hover:bg-slate-800/50 border-b border-slate-800/50 last:border-b-0 ${
                   item.isZip ? 'bg-blue-900/10' : ''
-                } ${item.isGrouped ? 'bg-purple-900/10' : ''}`}
+                } ${item.isGrouped ? 'bg-purple-900/10' : ''} ${
+                  item.requiresConversion && !item.isZip && !item.isGrouped ? 'bg-cyan-900/10' : ''
+                }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
-                    {item.status === 'valid' && !item.isZip && !item.isGrouped && (
+                    {item.status === 'valid' && !item.isZip && !item.isGrouped && !item.requiresConversion && (
                       <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+                    )}
+                    {item.status === 'valid' && item.requiresConversion && !item.isZip && !item.isGrouped && (
+                      <RefreshCw size={16} className="text-cyan-400 flex-shrink-0" />
                     )}
                     {item.status === 'valid' && item.isGrouped && (
                       <Link2 size={16} className="text-purple-400 flex-shrink-0" />
@@ -538,6 +576,12 @@ export default function FileUpload({
                         {hasRelated && (
                           <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">
                             연관 파일 그룹
+                          </span>
+                        )}
+                        {item.requiresConversion && item.conversionLabel && (
+                          <span className="text-xs px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded flex items-center gap-1">
+                            <RefreshCw size={10} />
+                            {item.conversionLabel}
                           </span>
                         )}
                       </div>
@@ -596,6 +640,11 @@ export default function FileUpload({
           {/* 업로드 버튼 */}
           {validCount > 0 && (
             <div className="px-4 py-3 bg-slate-800/50 border-t border-slate-800">
+              {conversionCount > 0 && (
+                <p className="text-xs text-cyan-400/80 mb-2 text-center">
+                  ⚡ {conversionCount}개 파일이 업로드 후 자동으로 최적화 변환됩니다
+                </p>
+              )}
               <button
                 onClick={handleUpload}
                 disabled={isUploading}

@@ -1,0 +1,30 @@
+# Spatial Converter Dependencies
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# 3D Tiles 변환 (OBJ, GLTF -> 3D Tiles)
+py3dtiles==7.0.0
+
+# 포인트 클라우드 처리
+laspy[laszip]==2.5.3
+numpy>=1.24.0,<2.0.0
+
+# 파일 처리
+aiofiles==23.2.1
+
+# HTTP 클라이언트 (Supabase API 호출)
+httpx==0.26.0
+
+# 유틸리티
+python-dotenv==1.0.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# 로깅
+structlog==24.1.0
+
+# Note: PDAL은 CLI로 사용 (subprocess)
+# pye57은 선택적 - PDAL이 E57 지원하면 불필요

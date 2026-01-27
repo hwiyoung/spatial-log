@@ -5,16 +5,11 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Viewer,
   Cesium3DTileset,
-  Camera,
-  CameraFlyTo,
 } from 'resium'
 import {
   Cesium3DTileset as CesiumTileset,
   Cesium3DTileStyle,
-  Cartesian3,
-  Color,
   HeadingPitchRange,
-  Ion,
   IonResource,
   Math as CesiumMath,
 } from 'cesium'
@@ -142,16 +137,8 @@ export default function TilesViewer({
             style={tilesetStyle}
             onReady={handleReady}
             maximumScreenSpaceError={16}
-            maximumMemoryUsage={512}
           />
         )}
-
-        {/* 카메라 초기 위치 (대한민국 중심) */}
-        <Camera
-          defaultView={{
-            destination: Cartesian3.fromDegrees(127.5, 36.5, 500000),
-          }}
-        />
       </Viewer>
 
       {/* 로딩 오버레이 */}

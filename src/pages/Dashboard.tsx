@@ -59,6 +59,68 @@ export default function Dashboard() {
       return
     }
 
+    // 변환이 필요한 파일 처리 (E57, OBJ 등)
+    const needsConversionFormats = ['e57', 'obj']
+    if (needsConversionFormats.includes(file.format)) {
+      if (file.conversionStatus === 'ready' && file.convertedPath) {
+        // 변환 완료된 파일 사용
+        const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+        let convertedFileUrl: string
+        let fileExtHint: string
+
+        if (file.format === 'e57') {
+          const filename = file.convertedPath.split('/').pop() || ''
+          convertedFileUrl = `${converterUrl}/output/${filename}`
+          fileExtHint = 'ply'
+        } else {
+          const dirName = file.convertedPath.split('/').pop() || ''
+          const glbName = dirName.replace('_3dtiles', '') + '.glb'
+          convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
+          fileExtHint = 'glb'
+        }
+
+        // 이전 미리보기 정리
+        if (previewUrlRef.current) {
+          const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current
+          if (blobUrlOnly.startsWith('blob:')) URL.revokeObjectURL(blobUrlOnly)
+        }
+
+        setSelectedFile(file)
+        setPreviewUrl(null)
+        previewUrlRef.current = null
+        setIsLoadingPreview(true)
+
+        try {
+          const response = await fetch(convertedFileUrl)
+          if (!response.ok) throw new Error(`변환된 파일 로드 실패: ${response.status}`)
+          const blob = await response.blob()
+          const blobUrl = URL.createObjectURL(blob) + `#file.${fileExtHint}`
+          setPreviewUrl(blobUrl)
+          previewUrlRef.current = blobUrl
+        } catch (err) {
+          console.error('변환된 파일 로드 실패:', err)
+          setPreviewUrl(null)
+          previewUrlRef.current = null
+        } finally {
+          setIsLoadingPreview(false)
+        }
+        return
+      } else if (file.conversionStatus === 'converting' || file.conversionStatus === 'pending') {
+        // 변환 중인 파일은 미리보기 불가
+        setSelectedFile(file)
+        setPreviewUrl(null)
+        previewUrlRef.current = null
+        return
+      } else if (file.format === 'e57') {
+        // E57은 변환 없이는 미리보기 불가
+        setSelectedFile(file)
+        setPreviewUrl(null)
+        previewUrlRef.current = null
+        return
+      }
+      // OBJ는 변환 없어도 원본 로드 시도 (아래에서 처리)
+    }
+
     // 이전 미리보기 URL 정리
     if (previewUrlRef.current) {
       const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current

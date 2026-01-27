@@ -1,16 +1,14 @@
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
-import { OrbitControls, Grid, Environment, PerspectiveCamera } from '@react-three/drei'
-import { Box as BoxIcon, AlertTriangle, Loader2, Settings, Activity } from 'lucide-react'
+import { OrbitControls, Grid, Environment, PerspectiveCamera, Html } from '@react-three/drei'
+import { Box as BoxIcon, AlertTriangle, Loader2, Settings, Activity, Copy, Check, MapPin } from 'lucide-react'
 import * as THREE from 'three'
 import ModelViewer from './ModelViewer'
 import { AnnotationMarkers3D } from './AnnotationMarker3D'
-import { SimpleLighting } from './LightingSystem'
 import { type LoadProgress, type LoadedModel, type RelatedFile } from '../../utils/modelLoader'
 import type { AnnotationData } from '@/services/api'
 import {
   type QualityLevel,
-  QUALITY_PRESETS,
   QUALITY_LABELS,
   loadQualitySettings,
   saveQualitySettings,
@@ -48,6 +46,8 @@ interface ThreeCanvasProps {
   onAnnotationClick?: (annotation: AnnotationData) => void
   // 품질 설정 관련
   showQualitySettings?: boolean
+  // 좌표 확인 모드
+  showCoordinateMode?: boolean
 }
 
 function GridFloor() {
@@ -113,23 +113,28 @@ function PerformanceMonitor({ onStats }: { onStats: (stats: PerformanceStats) =>
   return null
 }
 
-// 씬 전체 레이캐스팅 핸들러 (어노테이션 배치용)
+// 씬 전체 레이캐스팅 핸들러 (어노테이션 배치 및 좌표 확인용)
 interface SceneRaycasterProps {
   onPointClick?: (position: ClickPosition) => void
+  onCoordinateClick?: (position: ClickPosition) => void
   annotateMode: boolean
+  showCoordinates: boolean
 }
 
-function SceneRaycaster({ onPointClick, annotateMode }: SceneRaycasterProps) {
+function SceneRaycaster({ onPointClick, onCoordinateClick, annotateMode, showCoordinates }: SceneRaycasterProps) {
   const { camera, scene, raycaster, gl } = useThree()
   const fallbackPlaneRef = useRef<THREE.Mesh>(null)
 
   useEffect(() => {
-    // 포인트 클라우드 레이캐스팅 임계값 설정
-    raycaster.params.Points.threshold = 0.1
+    // 포인트 클라우드 레이캐스팅 임계값 설정 (클릭 감지 범위)
+    raycaster.params.Points.threshold = 0.15
   }, [raycaster])
 
   const handleClick = useCallback((event: MouseEvent) => {
-    if (!annotateMode || !onPointClick) return
+    // annotateMode이거나 showCoordinates일 때 클릭 처리
+    if (!annotateMode && !showCoordinates) return
+    if (annotateMode && !onPointClick) return
+    if (showCoordinates && !onCoordinateClick) return
 
     // 마우스 좌표를 정규화된 디바이스 좌표로 변환
     const rect = gl.domElement.getBoundingClientRect()
@@ -142,39 +147,53 @@ function SceneRaycaster({ onPointClick, annotateMode }: SceneRaycasterProps) {
     // 씬의 모든 객체에 대해 레이캐스팅 (재귀적)
     const intersects = raycaster.intersectObjects(scene.children, true)
 
-    // Grid와 fallback plane은 제외하고 실제 모델만 찾기
+    // Grid와 fallback plane, 클릭 마커는 제외하고 실제 모델만 찾기
     const modelIntersect = intersects.find((i) => {
-      // Grid helper와 fallback plane 제외
+      // Grid helper와 fallback plane, 클릭 마커 제외
       if (i.object === fallbackPlaneRef.current) return false
       if (i.object.type === 'GridHelper') return false
       if (i.object.name === 'fallbackPlane') return false
+      if (i.object.name === 'clickPositionMarker') return false
       // visible이 false인 객체 제외
       if (!i.object.visible) return false
       return true
     })
 
+    let clickedPosition: ClickPosition | null = null
+
     if (modelIntersect) {
       const point = modelIntersect.point
-      onPointClick({
-        x: Math.round(point.x * 100) / 100,
-        y: Math.round(point.y * 100) / 100,
-        z: Math.round(point.z * 100) / 100,
-      })
+      clickedPosition = {
+        x: Math.round(point.x * 1000) / 1000,
+        y: Math.round(point.y * 1000) / 1000,
+        z: Math.round(point.z * 1000) / 1000,
+      }
     } else if (fallbackPlaneRef.current) {
       // 모델이 없으면 바닥면에서 위치 가져오기
       const planeIntersects = raycaster.intersectObject(fallbackPlaneRef.current)
       if (planeIntersects.length > 0) {
         const point = planeIntersects[0]?.point
         if (point) {
-          onPointClick({
-            x: Math.round(point.x * 100) / 100,
-            y: Math.round(point.y * 100) / 100,
-            z: Math.round(point.z * 100) / 100,
-          })
+          clickedPosition = {
+            x: Math.round(point.x * 1000) / 1000,
+            y: Math.round(point.y * 1000) / 1000,
+            z: Math.round(point.z * 1000) / 1000,
+          }
         }
       }
     }
-  }, [annotateMode, onPointClick, camera, scene, raycaster, gl])
+
+    if (clickedPosition) {
+      // 좌표 확인 모드일 때
+      if (showCoordinates && onCoordinateClick) {
+        onCoordinateClick(clickedPosition)
+      }
+      // 어노테이션 모드일 때
+      if (annotateMode && onPointClick) {
+        onPointClick(clickedPosition)
+      }
+    }
+  }, [annotateMode, showCoordinates, onPointClick, onCoordinateClick, camera, scene, raycaster, gl])
 
   useEffect(() => {
     const canvas = gl.domElement
@@ -194,6 +213,76 @@ function SceneRaycaster({ onPointClick, annotateMode }: SceneRaycasterProps) {
       <planeGeometry args={[200, 200]} />
       <meshBasicMaterial transparent opacity={0} />
     </mesh>
+  )
+}
+
+// 클릭 위치 임시 마커 컴포넌트
+interface ClickPositionMarkerProps {
+  position: ClickPosition | null
+}
+
+function ClickPositionMarker({ position }: ClickPositionMarkerProps) {
+  const meshRef = useRef<THREE.Mesh>(null)
+
+  useFrame((state) => {
+    if (!meshRef.current || !position) return
+    // 펄스 애니메이션
+    const scale = 1 + Math.sin(state.clock.elapsedTime * 4) * 0.15
+    meshRef.current.scale.setScalar(scale)
+  })
+
+  if (!position) return null
+
+  return (
+    <group position={[position.x, position.y, position.z]}>
+      {/* 마커 구체 */}
+      <mesh ref={meshRef} name="clickPositionMarker">
+        <sphereGeometry args={[0.08, 16, 16]} />
+        <meshStandardMaterial
+          color="#3b82f6"
+          emissive="#3b82f6"
+          emissiveIntensity={0.5}
+          transparent
+          opacity={0.9}
+        />
+      </mesh>
+      {/* 외곽 링 */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} name="clickPositionMarker">
+        <ringGeometry args={[0.12, 0.15, 32]} />
+        <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 수직선 (바닥까지) */}
+      {position.y > 0.1 && (
+        <line>
+          <bufferGeometry>
+            <bufferAttribute
+              attach="attributes-position"
+              array={new Float32Array([0, 0, 0, 0, -position.y, 0])}
+              count={2}
+              itemSize={3}
+            />
+          </bufferGeometry>
+          <lineBasicMaterial color="#3b82f6" opacity={0.4} transparent />
+        </line>
+      )}
+      {/* 좌표 레이블 */}
+      <Html
+        position={[0, 0.25, 0]}
+        center
+        style={{ pointerEvents: 'none', userSelect: 'none' }}
+      >
+        <div
+          className="px-2 py-1 rounded text-xs whitespace-nowrap font-mono"
+          style={{
+            backgroundColor: 'rgba(59, 130, 246, 0.9)',
+            color: 'white',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          }}
+        >
+          ({position.x.toFixed(3)}, {position.y.toFixed(3)}, {position.z.toFixed(3)})
+        </div>
+      </Html>
+    </group>
   )
 }
 
@@ -263,6 +352,10 @@ interface SceneContentProps {
   onAnnotationClick?: (annotation: AnnotationData) => void
   // 성능 모니터링
   onStats?: (stats: PerformanceStats) => void
+  // 좌표 확인 모드
+  showCoordinates: boolean
+  clickedPosition: ClickPosition | null
+  onCoordinateClick?: (position: ClickPosition) => void
 }
 
 // 카메라 컨트롤러 (선택된 어노테이션으로 이동)
@@ -332,6 +425,9 @@ function SceneContent({
   selectedAnnotationId,
   onAnnotationClick,
   onStats,
+  showCoordinates,
+  clickedPosition,
+  onCoordinateClick,
 }: SceneContentProps) {
   const hasModel = !!(modelUrl || modelFile)
 
@@ -367,8 +463,13 @@ function SceneContent({
       {/* Grid */}
       <GridFloor />
 
-      {/* Scene raycaster for annotation placement */}
-      <SceneRaycaster onPointClick={onPointClick} annotateMode={annotateMode} />
+      {/* Scene raycaster for annotation placement and coordinate inspection */}
+      <SceneRaycaster
+        onPointClick={onPointClick}
+        onCoordinateClick={onCoordinateClick}
+        annotateMode={annotateMode}
+        showCoordinates={showCoordinates}
+      />
 
       {/* Model or Placeholder */}
       {hasModel ? (
@@ -384,6 +485,9 @@ function SceneContent({
       ) : (
         <PlaceholderBox />
       )}
+
+      {/* 클릭 위치 마커 (좌표 확인 모드) */}
+      {showCoordinates && <ClickPositionMarker position={clickedPosition} />}
 
       {/* 어노테이션 마커 */}
       {onAnnotationClick && (
@@ -414,6 +518,7 @@ export default function ThreeCanvas({
   selectedAnnotationId,
   onAnnotationClick,
   showQualitySettings = true,
+  showCoordinateMode = false,
 }: ThreeCanvasProps) {
   const [progress, setProgress] = useState<LoadProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -430,6 +535,37 @@ export default function ThreeCanvas({
   // 성능 모니터링
   const [showStats, setShowStats] = useState(false)
   const [perfStats, setPerfStats] = useState<PerformanceStats | null>(null)
+
+  // 좌표 확인 모드
+  const [showCoordinates, setShowCoordinates] = useState(showCoordinateMode)
+  const [clickedPosition, setClickedPosition] = useState<ClickPosition | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // 좌표 클릭 핸들러
+  const handleCoordinateClick = useCallback((position: ClickPosition) => {
+    setClickedPosition(position)
+    setCopied(false)
+  }, [])
+
+  // 좌표 복사 핸들러
+  const handleCopyCoordinates = useCallback(() => {
+    if (!clickedPosition) return
+    const coordText = `${clickedPosition.x}, ${clickedPosition.y}, ${clickedPosition.z}`
+    navigator.clipboard.writeText(coordText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [clickedPosition])
+
+  // 좌표 JSON 복사 핸들러
+  const handleCopyCoordinatesJson = useCallback(() => {
+    if (!clickedPosition) return
+    const coordJson = JSON.stringify(clickedPosition, null, 2)
+    navigator.clipboard.writeText(coordJson).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [clickedPosition])
 
   // 품질 변경 핸들러
   const handleQualityChange = useCallback((level: QualityLevel) => {
@@ -476,7 +612,7 @@ export default function ThreeCanvas({
   const hasModel = !!(modelUrl || modelFile)
 
   return (
-    <div ref={canvasContainerRef} className={`w-full h-full relative ${annotateMode ? 'cursor-crosshair' : ''}`}>
+    <div ref={canvasContainerRef} className={`w-full h-full relative ${annotateMode || showCoordinates ? 'cursor-crosshair' : ''}`}>
       {!isCanvasReady ? (
         <CanvasLoadingFallback />
       ) : (
@@ -526,6 +662,9 @@ export default function ThreeCanvas({
             selectedAnnotationId={selectedAnnotationId}
             onAnnotationClick={onAnnotationClick}
             onStats={showStats ? setPerfStats : undefined}
+            showCoordinates={showCoordinates}
+            clickedPosition={clickedPosition}
+            onCoordinateClick={handleCoordinateClick}
           />
         </Canvas>
       </Suspense>
@@ -592,6 +731,25 @@ export default function ThreeCanvas({
             <Activity size={14} />
             <span>FPS</span>
           </button>
+
+          {/* 좌표 확인 모드 토글 버튼 */}
+          <button
+            onClick={() => {
+              setShowCoordinates(!showCoordinates)
+              if (!showCoordinates) {
+                setClickedPosition(null)
+              }
+            }}
+            className={`flex items-center gap-2 px-3 py-1.5 backdrop-blur border rounded-lg text-xs shadow-lg transition-colors ${
+              showCoordinates
+                ? 'bg-blue-600/20 border-blue-600 text-blue-400 hover:bg-blue-600/30'
+                : 'bg-slate-900/90 border-slate-700 text-white hover:bg-slate-800/90'
+            }`}
+            title="좌표 확인 모드"
+          >
+            <MapPin size={14} />
+            <span>좌표</span>
+          </button>
         </div>
       )}
 
@@ -648,6 +806,83 @@ export default function ThreeCanvas({
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 좌표 확인 패널 */}
+      {showCoordinates && (
+        <div className="absolute bottom-4 right-4 bg-slate-900/95 backdrop-blur border border-blue-600/50 rounded-lg shadow-xl p-3 min-w-56">
+          <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-700">
+            <div className="flex items-center gap-2">
+              <MapPin size={14} className="text-blue-400" />
+              <span className="text-xs font-medium text-white">좌표 확인</span>
+            </div>
+            {clickedPosition && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleCopyCoordinates}
+                  className="p-1 hover:bg-slate-700 rounded transition-colors"
+                  title="좌표 복사 (x, y, z)"
+                >
+                  {copied ? (
+                    <Check size={12} className="text-green-400" />
+                  ) : (
+                    <Copy size={12} className="text-slate-400" />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {clickedPosition ? (
+            <div className="space-y-2">
+              {/* 개별 좌표 */}
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-red-400 font-medium">X</span>
+                  <span className="text-white font-mono">{clickedPosition.x.toFixed(4)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-green-400 font-medium">Y</span>
+                  <span className="text-white font-mono">{clickedPosition.y.toFixed(4)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-blue-400 font-medium">Z</span>
+                  <span className="text-white font-mono">{clickedPosition.z.toFixed(4)}</span>
+                </div>
+              </div>
+
+              {/* 복사 버튼들 */}
+              <div className="pt-2 border-t border-slate-700 flex gap-2">
+                <button
+                  onClick={handleCopyCoordinates}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 transition-colors"
+                >
+                  <Copy size={12} />
+                  <span>복사</span>
+                </button>
+                <button
+                  onClick={handleCopyCoordinatesJson}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 transition-colors"
+                >
+                  <Copy size={12} />
+                  <span>JSON</span>
+                </button>
+              </div>
+
+              {/* 복사 완료 메시지 */}
+              {copied && (
+                <div className="text-center text-xs text-green-400 animate-pulse">
+                  클립보드에 복사되었습니다!
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <p className="text-slate-400 text-xs">모델을 클릭하여</p>
+              <p className="text-slate-400 text-xs">좌표를 확인하세요</p>
+            </div>
+          )}
         </div>
       )}
 

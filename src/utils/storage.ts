@@ -20,7 +20,7 @@ export interface FileMetadata {
   name: string
   type: string // MIME type
   size: number
-  format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | 'image' | 'other'
+  format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
   folderId: string | null
   projectId: string | null
   createdAt: Date
