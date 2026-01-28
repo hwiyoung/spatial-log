@@ -13,24 +13,43 @@
 
 ## 지원 데이터
 
-| 포맷 | 지원 상태 | 비고 |
-|------|----------|------|
-| **GLTF/GLB** | ✅ 완전 지원 | 권장 포맷 |
-| **OBJ** | ✅ 완전 지원 | Z-up → Y-up 자동 변환 |
-| **FBX** | ✅ 완전 지원 | 스케일 자동 조정 |
-| **PLY** | ✅ 완전 지원 | 메시/포인트 클라우드 자동 감지 |
-| **LAS** | ✅ 완전 지원 | 포인트 클라우드, 높이 기반 색상 |
-| **E57** | ❌ 미지원 | 업로드 가능, 가시화 불가 → **CloudCompare로 PLY/LAS 변환 필수** |
-| **이미지** | ✅ 완전 지원 | JPEG, PNG, TIFF (EXIF GPS 추출) |
+| 포맷 | Three.js 미리보기 | Cesium 지리 가시화 | 비고 |
+|------|------------------|-------------------|------|
+| **GLTF/GLB** | ✅ 완전 지원 | ⚠️ 변환 필요 | 권장 포맷 |
+| **OBJ** | ✅ 완전 지원 | ✅ 자동 변환 | GLB + 3D Tiles로 자동 변환 |
+| **FBX** | ✅ 완전 지원 | ⚠️ 미지원 | 스케일 자동 조정 |
+| **PLY** | ✅ 완전 지원 | ⚠️ 미지원 | 메시/포인트 클라우드 자동 감지 |
+| **LAS** | ✅ 완전 지원 | ⚠️ 미지원 | 포인트 클라우드, 높이 기반 색상 |
+| **E57** | ✅ 자동 변환 | ⚠️ 좌표 의존 | 서버에서 PLY로 자동 변환 |
+| **이미지** | ✅ 완전 지원 | - | JPEG, PNG, TIFF (EXIF GPS 추출) |
 
-### E57 파일 참고사항
-E57 포맷은 압축된 바이너리 데이터(Huffman, CRC32)를 포함하여 **웹 브라우저에서 가시화가 불가능**합니다.
-현재 상태: 업로드는 가능하나 3D 미리보기 시 에러 발생 ("maximum call stack size exceeded")
+### 3D 데이터 변환 파이프라인
 
-**해결 방법**:
-1. [CloudCompare](https://www.cloudcompare.org/) 다운로드 (무료)
-2. E57 파일 열기 → File → Save As → **PLY** 또는 **LAS** 선택
-3. 변환된 파일 업로드
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   E57 파일   │ ──→ │  PDAL Pipeline   │ ──→ │   PLY (다운샘플) │
+└─────────────┘     │  - 좌표계 감지     │     │   + 높이 색상    │
+                    │  - 다운샘플링      │     └─────────────────┘
+                    │  - 색상 생성       │
+                    └──────────────────┘
+
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   OBJ 파일   │ ──→ │    obj2gltf      │ ──→ │   GLB + tileset │
+│  + MTL/텍스처 │     │  + gltf-transform │     │   (3D Tiles)    │
+└─────────────┘     └──────────────────┘     └─────────────────┘
+```
+
+변환 서비스는 Docker 컨테이너(`spatial-converter`)로 실행되며, 파일 업로드 시 자동으로 변환이 시작됩니다.
+
+### 좌표계 지원
+
+| 입력 좌표계 | 감지 방법 | 출력 |
+|------------|----------|------|
+| **WGS84 (EPSG:4326)** | 경위도 범위 자동 감지 | Cesium 지리 좌표로 직접 사용 |
+| **Korea TM (EPSG:5186/5187)** | 미터 단위 범위 감지 | WGS84로 근사 변환 |
+| **로컬 좌표계** | 기본값 | Three.js 원점 중심 렌더링 |
+
+**참고**: 현재 E57 파일의 좌표계 감지는 완벽하지 않습니다. WGS84 좌표가 파일에 올바르게 저장되어 있어야 Cesium에서 정확한 위치에 표시됩니다.
 
 ## 기술 스택
 
@@ -49,6 +68,12 @@ E57 포맷은 압축된 바이너리 데이터(Huffman, CRC32)를 포함하여 *
 - **Supabase**: 인증, 데이터베이스, 스토리지
 - **PostgreSQL + PostGIS**: 공간 데이터베이스
 - **Kong**: API Gateway
+
+### 3D 데이터 변환 서비스 (spatial-converter)
+- **PDAL**: E57, LAS, PLY 포인트 클라우드 처리
+- **obj2gltf**: OBJ → GLB 변환
+- **gltf-transform**: GLB 압축 및 최적화
+- **Python/FastAPI**: 변환 API 서버
 
 ## 시작하기
 
@@ -86,6 +111,7 @@ docker compose down -v
 | **앱** | http://localhost:5174 | 프론트엔드 애플리케이션 |
 | **Supabase API** | http://localhost:8100 | REST API / Auth |
 | **Supabase Studio** | http://localhost:3101 | 데이터베이스 관리 UI |
+| **변환 서비스** | http://localhost:8200 | 3D 데이터 변환 API |
 | **Email UI** | http://localhost:9005 | 테스트 이메일 확인 (Inbucket) |
 
 ### 로컬 실행 (Supabase 없이)
@@ -132,6 +158,7 @@ SERVICE_ROLE_KEY=your-service-role-key
 # 프론트엔드 환경변수 (네트워크 접속 시 IP 주소로 변경)
 VITE_SUPABASE_URL=http://localhost:8100
 VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_CONVERTER_URL=http://localhost:8200
 ```
 
 > **참고**: Cesium Ion 토큰은 더 이상 필요하지 않습니다. OpenStreetMap 타일을 사용합니다.
@@ -166,37 +193,47 @@ spatial-log/
 ├── public/                     # 정적 에셋
 ├── src/
 │   ├── components/
-│   │   ├── common/             # Button, Modal, Card, Input
+│   │   ├── common/             # Button, Modal, Card, Input, ConversionStatus
 │   │   ├── layout/             # Sidebar, Header, MainLayout
-│   │   ├── viewer/             # Viewer3D, ThreeCanvas, MapView
+│   │   ├── viewer/             # ThreeCanvas, ModelViewer, GeoViewer
 │   │   ├── dashboard/          # ProjectCard, AssetCard
 │   │   ├── project/            # AssetLinkModal
-│   │   └── annotation/         # AnnotationModal, AnnotationMapView, AnnotationMapView3D
+│   │   ├── annotation/         # AnnotationModal, AnnotationMapView
+│   │   └── admin/              # IntegrityChecker, DevConsole
 │   ├── pages/
 │   │   ├── Dashboard.tsx
 │   │   ├── Projects.tsx
 │   │   ├── ProjectDetail.tsx   # 프로젝트 상세 (에셋, 어노테이션, 3D 뷰어)
-│   │   ├── Assets.tsx
+│   │   ├── Assets.tsx          # 데이터 관리 + 변환 상태 표시
 │   │   └── Annotations.tsx
 │   ├── lib/
 │   │   ├── supabase.ts         # Supabase 클라이언트
 │   │   └── database.types.ts   # 데이터베이스 타입 정의
 │   ├── services/
-│   │   └── api.ts              # API 추상화 레이어
+│   │   ├── api.ts              # API 추상화 레이어
+│   │   └── conversionService.ts # 변환 서비스 API 클라이언트
 │   ├── hooks/                  # 커스텀 훅
-│   ├── stores/                 # Zustand 스토어
+│   ├── stores/
+│   │   └── assetStore.ts       # 파일/폴더 상태 관리 (변환 트리거 포함)
 │   ├── types/                  # TypeScript 타입 정의
 │   ├── utils/
 │   │   ├── storage.ts          # 로컬 스토리지 (IndexedDB)
 │   │   ├── exifParser.ts       # EXIF 메타데이터 파서
-│   │   └── modelLoader.ts      # 3D 모델 로더 (GLTF, OBJ, FBX, PLY, LAS, E57)
+│   │   ├── modelLoader.ts      # 3D 모델 로더 (자동 스케일링 포함)
+│   │   └── texturePreloader.ts # 텍스처 프리로딩 유틸리티
 │   ├── App.tsx
 │   └── main.tsx
+├── services/
+│   └── spatial-converter/      # 3D 데이터 변환 서비스
+│       ├── converter.py        # 변환 로직 (PDAL, obj2gltf)
+│       ├── server.py           # FastAPI 서버
+│       ├── Dockerfile          # 변환 서비스 컨테이너
+│       └── requirements.txt
 ├── supabase/
-│   ├── schema.sql              # 데이터베이스 스키마
+│   ├── schema.sql              # 데이터베이스 스키마 (변환 상태 컬럼 포함)
 │   └── kong.yml                # API Gateway 설정
-├── Dockerfile                  # Docker 설정 (dev/prod)
-├── docker-compose.yml          # Docker Compose (앱 + Supabase)
+├── Dockerfile                  # 프론트엔드 Docker 설정
+├── docker-compose.yml          # Docker Compose (앱 + Supabase + Converter)
 ├── nginx.conf                  # 프로덕션 Nginx 설정
 ├── package.json
 ├── tailwind.config.js
@@ -212,14 +249,25 @@ spatial-log/
 |--------|------|
 | `projects` | 프로젝트 정보 |
 | `folders` | 폴더 계층 구조 |
-| `files` | 파일 메타데이터 (GPS, EXIF, project_id 포함) |
+| `files` | 파일 메타데이터 (GPS, EXIF, 변환 상태, 공간 정보 포함) |
 | `annotations` | 3D 어노테이션 |
+| `integrity_logs` | 무결성 검사 로그 |
+
+### files 테이블 주요 컬럼
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `conversion_status` | VARCHAR | 'pending', 'converting', 'ready', 'failed' |
+| `conversion_progress` | INTEGER | 변환 진행률 (0-100) |
+| `converted_path` | TEXT | 변환된 파일 경로 |
+| `metadata` | JSONB | 공간 정보 (spatialInfo: epsg, bbox, center, ...) |
 
 ### 주요 기능
 - **PostGIS 확장**: 공간 쿼리 지원
 - **Row Level Security (RLS)**: 사용자별 데이터 격리
 - **자동 위치 계산**: GPS 좌표 → Geography 타입 자동 변환
 - **프로젝트-에셋 연결**: files.project_id 외래키
+- **변환 상태 추적**: 3D 데이터 변환 진행 상황 저장
 
 ## 개발 로드맵
 
@@ -247,9 +295,10 @@ spatial-log/
 - [x] CesiumJS 순수 API 통합 (지리공간 데이터, React 18 호환)
 - [x] 뷰어 모드 전환 (Grid/Map)
 - [x] 파일 포맷 지원 (GLTF, GLB, OBJ, FBX, PLY, LAS)
-- [ ] **E57 가시화 (파싱 에러 - 변환 필요)**
+- [x] **E57 서버 사이드 변환 (PLY)** - 브라우저 파싱 대신 PDAL 사용
 - [x] OBJ Z-up → Y-up 좌표계 자동 변환
 - [x] WebGL 컨텍스트 손실 복구 처리 (타임아웃 기반 에러 표시)
+- [x] WGS84 좌표 모델 자동 스케일링 (Three.js)
 
 ### Phase 5: 데이터 관리 ✅
 - [x] 파일 업로드 (드래그 앤 드롭)
@@ -287,62 +336,85 @@ spatial-log/
 - [x] RLS 정책 설정 (개발 환경에서는 비활성화)
 - [ ] 클라우드 Supabase 배포
 
+### Phase 9: 3D 데이터 변환 파이프라인 🔄
+- [x] 변환 서비스 Docker 컨테이너 구축 (PDAL + Node.js)
+- [x] E57 → PLY 변환 (PDAL, 다운샘플링, 높이 기반 색상)
+- [x] OBJ → GLB 변환 (obj2gltf + gltf-transform 압축)
+- [x] OBJ → 3D Tiles (tileset.json + ECEF transform)
+- [x] 좌표계 자동 감지 (WGS84, Korea TM, 로컬)
+- [x] 변환 상태 DB 저장 및 프론트엔드 표시
+- [x] 변환 완료 시 자동 미리보기 지원
+- [ ] GLTF/GLB → 3D Tiles 변환 (지리 좌표 포함)
+- [ ] PLY/LAS → 3D Tiles 포인트 클라우드
+- [ ] 대용량 파일 변환 최적화 (청크 처리)
+
 ## 알려진 제한사항 및 TODO
-
-### 🔴 해결 필요 (Critical)
-
-| 기능 | 증상 | 원인 분석 | TODO |
-|------|------|----------|------|
-| **E57 가시화** | "maximum call stack size exceeded" 에러 발생 | 샘플링 파서의 재귀/반복 로직 문제 또는 메모리 초과 | libE57 WebAssembly 포팅 검토 또는 서버사이드 변환 |
-| **OBJ 텍스처 로딩 성능** | OBJ+MTL+텍스처 미리보기 시 텍스처 가시화가 매우 느림 (5MB 파일 30초+) | Three.js MTLLoader의 텍스처 로딩이 렌더링 시점에 동기적으로 발생, blob URL 매핑 오버헤드 | 텍스처 프리로딩 비동기 처리, Worker 기반 로딩 검토 |
 
 ### 🟢 해결 완료 (Resolved)
 
 | 기능 | 증상 | 해결 방법 |
 |------|------|----------|
-| **어노테이션 맵 휠 줌** | 맵 콘텐츠가 아닌 패널 전체가 줌됨 | Leaflet 라이브러리 도입으로 해결 |
-| **Resium React 18 호환** | `recentlyCreatedOwnerStacks` 에러 | Resium 제거, CesiumJS 순수 API로 교체 |
-| **Cesium Ion 토큰 만료** | 401 Unauthorized 에러 | OpenStreetMap 타일로 교체 (토큰 불필요) |
-| **대시보드 미리보기 401** | Supabase Storage signed URL 에러 | Blob URL 직접 다운로드 방식으로 변경 |
-| **WebGL 컨텍스트 손실** | 정상 동작에도 에러 표시 | 타임아웃 기반 에러 표시, 모델 로드 성공 시 숨김 |
+| **E57 가시화** | "maximum call stack size exceeded" 에러 | 서버사이드 PDAL 변환 (E57 → PLY) |
+| **OBJ Cesium 가시화** | 지리 좌표에 모델 미표시 | 3D Tiles (tileset.json + ECEF transform) 생성 |
+| **WGS84 좌표 모델** | Three.js에서 매우 작게 렌더링 | 자동 스케일링 로직 추가 |
+| **어노테이션 맵 휠 줌** | 맵 콘텐츠가 아닌 패널 전체가 줌됨 | Leaflet 라이브러리 도입 |
+| **Resium React 18 호환** | `recentlyCreatedOwnerStacks` 에러 | CesiumJS 순수 API로 교체 |
+| **Cesium Ion 토큰 만료** | 401 Unauthorized 에러 | OpenStreetMap 타일 사용 |
+| **WebGL 컨텍스트 손실** | 정상 동작에도 에러 표시 | 타임아웃 기반 에러 표시 |
 
-### 🟡 제한사항 (Known Limitations)
+### 🟡 부분 해결 / 테스트 필요 (Partial)
+
+| 기능 | 현재 상태 | 테스트 필요 사항 |
+|------|----------|-----------------|
+| **E57 좌표 추출** | 좌표계 자동 감지 구현 | 다양한 E57 파일로 검증 필요 (일부 파일에서 좌표 오류) |
+| **OBJ Three.js 미리보기** | GLB 변환 + 자동 스케일링 | WGS84 좌표 OBJ 파일 테스트 필요 |
+| **OBJ Cesium 가시화** | tileset.json 생성 완료 | 3D Tiles 로딩 및 위치 검증 필요 |
+| **텍스처 프리로딩** | 프리로딩 유틸리티 구현 | OBJ+MTL+텍스처 로딩 성능 측정 필요 |
+
+### 🔴 미해결 (TODO)
+
+| 기능 | 설명 | 우선순위 |
+|------|------|---------|
+| **다른 포맷 지리 가시화** | GLTF, GLB, FBX, PLY, LAS의 Cesium 지원 | Medium |
+| **포인트 클라우드 3D Tiles** | PLY/LAS → 3D Tiles 변환 (pnts 형식) | Medium |
+| **E57 좌표 신뢰도** | 비표준 좌표계 E57 파일 처리 개선 | Low |
+| **대용량 파일 처리** | 500MB+ 파일 변환 최적화 | Low |
+
+### 🟠 제한사항 (Known Limitations)
 
 | 기능 | 제한사항 | 해결 방법 |
 |------|----------|----------|
-| E57 포맷 | 압축된 E57 파일은 웹에서 파싱 불가 | **CloudCompare로 PLY/LAS 변환 후 업로드** |
-| 파일 크기 | 1GB 이상 파일 업로드 불가 | 파일 분할 또는 docker-compose.yml FILE_SIZE_LIMIT 변경 |
-| OBJ 관련 파일 | OBJ+MTL+텍스처 업로드 시 각각 별도 DB 레코드로 저장됨 | 정상 동작, 관리 탭에서 실제보다 많은 파일 수 표시됨 |
-| 고아 파일 발생 | OBJ 삭제 시 연관 파일(MTL, 텍스처) DB 레코드가 남을 수 있음 | **Assets > 관리 탭 > 무결성 검사 > "모두 삭제" 클릭** |
-| 파일 수 불일치 | DB 레코드 수와 Storage 파일 수가 다를 수 있음 | 무결성 검사로 고아 레코드/파일 확인 및 정리 |
+| **E57 좌표계** | 파일에 올바른 WGS84 좌표가 저장되어 있어야 함 | 좌표계가 불명확한 경우 로컬 좌표로 처리 |
+| **파일 크기** | 1GB 이상 파일 업로드 불가 | docker-compose.yml FILE_SIZE_LIMIT 변경 |
+| **OBJ 관련 파일** | 각각 별도 DB 레코드로 저장 | 정상 동작, 자동 그룹핑 예정 |
+| **고아 파일** | OBJ 삭제 시 MTL/텍스처 레코드가 남을 수 있음 | **Assets > 관리 탭 > 무결성 검사** |
+| **변환 시간** | 대용량 E57 변환에 수 분 소요 | 진행률 표시로 UX 개선 |
 
 ### 향후 개선 방향
 
-1. **E57 지원 개선**
-   - 옵션 1: 서버사이드에서 PDAL/CloudCompare로 자동 변환
-   - 옵션 2: libE57Format을 WebAssembly로 컴파일하여 브라우저에서 직접 파싱
-   - 옵션 3: E57 업로드 시 변환 안내 UI 개선
+1. **지리 가시화 확대**
+   - GLTF/GLB/FBX에 좌표 메타데이터 추가 UI
+   - PLY/LAS → 3D Tiles 포인트 클라우드 (Cesium pnts)
+   - 좌표계 선택 UI (사용자가 직접 EPSG 지정)
 
-2. **OBJ 로딩 성능 개선**
-   - Web Worker 기반 텍스처 프리로딩
-   - 텍스처 캐싱 시스템 도입
-   - 저해상도 프록시 텍스처 사용 (LOD)
+2. **좌표계 처리 고도화**
+   - pyproj 기반 정확한 좌표 변환
+   - EPSG 코드 자동 감지 확장
+   - 좌표 검증 UI (지도에서 위치 확인)
 
-3. **파일 관리 개선**
-   - OBJ+MTL+텍스처를 단일 에셋으로 그룹화하여 표시
-   - 연관 파일 cascade 삭제 안정성 강화
-   - 자동 고아 파일 정리 스케줄러
+3. **성능 최적화**
+   - 텍스처 LOD (저해상도 프록시)
+   - 청크 기반 대용량 파일 변환
+   - Web Worker 백그라운드 처리
 
 4. **3D 어노테이션 완성**
-   - ThreeCanvas 전체 씬 레이캐스팅 (모델 표면 클릭)
-   - 포인트 클라우드 클릭 지원 (raycaster.params.Points.threshold)
-   - CameraController: 어노테이션 선택 시 카메라 자동 이동
-   - AnnotationMarker3D: 3D 공간 마커 렌더링
+   - 모델 표면 클릭으로 마커 생성
+   - 포인트 클라우드 클릭 지원
+   - 어노테이션 선택 시 카메라 이동
 
 5. **클라우드 배포**
-   - Supabase 클라우드 프로젝트 생성
-   - 환경변수 업데이트
-   - 스토리지 버킷 설정
+   - Supabase 클라우드 연동
+   - 변환 서비스 클라우드 배포 (AWS Lambda / Cloud Run)
 
 ## 유지보수
 

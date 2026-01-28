@@ -442,9 +442,8 @@ function SceneContent({
         makeDefault
         enableDamping
         dampingFactor={0.05}
-        minDistance={0.5}
-        maxDistance={100}
-        maxPolarAngle={Math.PI / 2.1}
+        minDistance={0.1}
+        maxDistance={500}
       />
 
       {/* Lighting */}

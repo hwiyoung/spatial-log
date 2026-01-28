@@ -194,6 +194,9 @@ interface AssetState {
   fetchFilesByProject: (projectId: string) => Promise<FileMetadata[]>
   linkToProject: (fileIds: string[], projectId: string) => Promise<void>
   unlinkFromProject: (fileIds: string[]) => Promise<void>
+
+  // 변환 액션
+  retryConversion: (fileId: string) => Promise<void>
 }
 
 export const useAssetStore = create<AssetState>((set, get) => ({
@@ -603,6 +606,43 @@ export const useAssetStore = create<AssetState>((set, get) => ({
       set({
         error: err instanceof Error ? err.message : '프로젝트 연결 해제 실패',
         isLoading: false,
+      })
+    }
+  },
+
+  // 변환 재시도
+  retryConversion: async (fileId: string) => {
+    const file = get().files.find((f) => f.id === fileId)
+    if (!file) {
+      set({ error: '파일을 찾을 수 없습니다.' })
+      return
+    }
+
+    if (!file.storagePath) {
+      set({ error: '파일 저장 경로가 없습니다.' })
+      return
+    }
+
+    if (!needsConversion(file.format)) {
+      set({ error: '변환이 필요하지 않은 파일입니다.' })
+      return
+    }
+
+    try {
+      // 변환 상태 초기화 및 재시도
+      await triggerConversionForFile(
+        fileId,
+        file.storagePath,
+        file.format,
+        file.name,
+        get().refreshFiles
+      )
+
+      // 파일 목록 새로고침하여 UI 업데이트
+      await get().refreshFiles()
+    } catch (err) {
+      set({
+        error: err instanceof Error ? err.message : '변환 재시도 실패',
       })
     }
   },

@@ -181,7 +181,7 @@ services:
     ports:
       - "8200:8200"
     volumes:
-      - ./data/storage:/var/lib/storage:ro
+      - ./data/storage:/var/lib/storage
       - ./data/converter-output:/app/output
     environment:
       - STORAGE_PATH=/var/lib/storage/stub/stub

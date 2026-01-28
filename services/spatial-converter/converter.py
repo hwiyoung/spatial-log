@@ -168,26 +168,62 @@ class SpatialConverter:
                 y_range = abs(maxy - miny)
                 z_range = abs(maxz - minz)
 
-                # 패턴 1: X/Y가 매우 작고 Z가 위도 범위 (좌표 축 뒤바뀜)
-                is_swapped_geo = (x_range < 1 and y_range < 1 and
-                                  20 <= minz <= 70 and 20 <= maxz <= 70)
+                # 유효성 검사: bounds가 0이거나 무한대면 좌표계 감지 불가
+                import math
+                bounds_valid = (
+                    x_range > 0.0001 and y_range > 0.0001 and  # 최소 범위
+                    not math.isinf(z_range) and
+                    not math.isinf(minx) and not math.isinf(maxx) and
+                    not math.isinf(miny) and not math.isinf(maxy) and
+                    not math.isinf(minz) and not math.isinf(maxz)
+                )
 
-                # 패턴 2: 표준 지리 좌표 (-180~180, -90~90)
-                is_standard_geo = (-180 <= minx <= 180 and -180 <= maxx <= 180 and
-                                   -90 <= miny <= 90 and -90 <= maxy <= 90 and
-                                   x_range < 10 and y_range < 10)  # 10도 이내 범위
+                if not bounds_valid:
+                    logger.warning("bounds_invalid_for_coordinate_detection",
+                                  x_range=x_range, y_range=y_range, z_range=z_range)
+                    is_swapped_geo = False
+                    is_standard_geo = False
+                    is_korea_tm = False
+                    is_projected = False
+                else:
+                    # 패턴 1: X/Y가 매우 작고 Z가 위도 범위 (좌표 축 뒤바뀜)
+                    is_swapped_geo = (x_range < 1 and y_range < 1 and
+                                      20 <= minz <= 70 and 20 <= maxz <= 70)
+
+                    # 패턴 2: 표준 지리 좌표 (-180~180, -90~90)
+                    is_standard_geo = (-180 <= minx <= 180 and -180 <= maxx <= 180 and
+                                       -90 <= miny <= 90 and -90 <= maxy <= 90 and
+                                       x_range < 10 and y_range < 10)  # 10도 이내 범위
+
+                    # 패턴 3: 한국 TM 좌표계 (EPSG:5186, 5187 등)
+                    # X: 약 100,000 ~ 600,000 (동서 방향, km 단위 × 1000)
+                    # Y: 약 100,000 ~ 700,000 (남북 방향)
+                    is_korea_tm = (100000 <= minx <= 700000 and 100000 <= maxx <= 700000 and
+                                   100000 <= miny <= 700000 and 100000 <= maxy <= 700000 and
+                                   z_range < 1000)  # 높이 1km 이내
+
+                    # 패턴 4: UTM 좌표계 (미터 단위)
+                    # X: 100,000 ~ 900,000
+                    # Y: 0 ~ 10,000,000
+                    is_projected = (10000 <= abs(minx) <= 10000000 and
+                                   10000 <= abs(miny) <= 10000000 and
+                                   z_range < 5000)  # 높이 5km 이내
 
                 is_geographic = is_swapped_geo or is_standard_geo
 
                 logger.info("coordinate_system_detected",
                            is_geographic=is_geographic,
                            is_swapped_geo=is_swapped_geo,
+                           is_korea_tm=is_korea_tm,
+                           is_projected=is_projected,
                            x_range=x_range, y_range=y_range, z_range=z_range,
                            bounds=bounds)
 
                 return {
                     "is_geographic": is_geographic,
                     "is_swapped": is_swapped_geo,
+                    "is_korea_tm": is_korea_tm,
+                    "is_projected": is_projected,
                     "point_count": summary.get("num_points", 0),
                     "bbox": (minx, miny, minz, maxx, maxy, maxz)
                 }
@@ -207,6 +243,244 @@ class SpatialConverter:
 
         return {"is_geographic": False, "point_count": 0, "bbox": None}
 
+    def _detect_color_info(self, source: Path, file_format: str = None) -> dict:
+        """색상 데이터 정보 감지
+
+        Returns:
+            dict with keys:
+            - has_color: True if RGB dimensions exist
+            - is_16bit: True if color values appear to be 16-bit (> 255)
+        """
+        temp_link = None
+        try:
+            ext = source.suffix.lower().lstrip('.')
+            if not ext and file_format:
+                ext = file_format
+            elif not ext:
+                ext = "e57"
+
+            if not source.suffix:
+                temp_link = self.temp_path / f"color_{source.stem}.{ext}"
+                if temp_link.exists():
+                    temp_link.unlink()
+                temp_link.symlink_to(source)
+                info_source = temp_link
+            else:
+                info_source = source
+
+            # 차원 정보 조회
+            result = subprocess.run(
+                ["pdal", "info", "--metadata", str(info_source)],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            if result.returncode == 0:
+                info = json.loads(result.stdout)
+                metadata = info.get("metadata", {})
+
+                # 차원 목록에서 RGB 확인
+                dims = []
+                if "dimensions" in metadata:
+                    dims = metadata["dimensions"]
+                elif "schema" in metadata:
+                    dims = [d.get("name", "") for d in metadata.get("schema", {}).get("dimensions", [])]
+
+                has_red = any("red" in str(d).lower() for d in dims)
+                has_green = any("green" in str(d).lower() for d in dims)
+                has_blue = any("blue" in str(d).lower() for d in dims)
+                has_color = has_red and has_green and has_blue
+
+                # 통계 정보로 16비트 여부 확인
+                is_16bit = False
+                if has_color:
+                    stats_result = subprocess.run(
+                        ["pdal", "info", "--stats", str(info_source)],
+                        capture_output=True,
+                        text=True,
+                        timeout=180
+                    )
+                    if stats_result.returncode == 0:
+                        stats_info = json.loads(stats_result.stdout)
+                        stats = stats_info.get("statistics", {}).get("statistic", [])
+                        for stat in stats:
+                            name = stat.get("name", "").lower()
+                            if name in ["red", "green", "blue"]:
+                                max_val = stat.get("maximum", 0)
+                                if max_val > 255:
+                                    is_16bit = True
+                                    break
+
+                logger.info("color_info_detected",
+                           has_color=has_color,
+                           is_16bit=is_16bit,
+                           dims=dims[:10] if dims else [])
+
+                return {"has_color": has_color, "is_16bit": is_16bit}
+            else:
+                logger.warning("color_detection_pdal_failed", stderr=result.stderr[:200] if result.stderr else "")
+        except Exception as e:
+            logger.warning("color_detection_failed", error=str(e))
+        finally:
+            if temp_link and temp_link.exists():
+                try:
+                    temp_link.unlink()
+                except Exception:
+                    pass
+
+        return {"has_color": False, "is_16bit": False}
+
+    def _extract_obj_spatial_info(self, source: Path) -> dict:
+        """OBJ 파일에서 공간 정보(좌표 범위) 추출
+
+        OBJ 파일의 정점(vertex) 좌표를 파싱하여:
+        - 바운딩 박스 계산
+        - 좌표계 유형 감지 (지리 좌표 vs 투영 좌표 vs 로컬)
+
+        Returns:
+            dict with keys:
+            - bbox: (minX, minY, minZ, maxX, maxY, maxZ)
+            - center: (centerX, centerY, centerZ)
+            - is_geographic: True if WGS84 lat/lon range
+            - is_korea_tm: True if Korea TM coordinate range
+            - epsg: Detected EPSG code (if any)
+            - vertex_count: Number of vertices
+        """
+        import math
+
+        minx = miny = minz = float('inf')
+        maxx = maxy = maxz = float('-inf')
+        vertex_count = 0
+
+        try:
+            with open(source, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('v '):
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            try:
+                                x = float(parts[1])
+                                y = float(parts[2])
+                                z = float(parts[3])
+
+                                minx = min(minx, x)
+                                miny = min(miny, y)
+                                minz = min(minz, z)
+                                maxx = max(maxx, x)
+                                maxy = max(maxy, y)
+                                maxz = max(maxz, z)
+                                vertex_count += 1
+                            except ValueError:
+                                continue
+
+            if vertex_count == 0:
+                logger.warning("obj_no_vertices", source=str(source))
+                return {"bbox": None, "vertex_count": 0}
+
+            # 좌표계 감지
+            x_range = maxx - minx
+            y_range = maxy - miny
+            z_range = maxz - minz
+
+            # 유효성 검사
+            if math.isinf(minx) or math.isinf(maxx):
+                return {"bbox": None, "vertex_count": vertex_count}
+
+            # 패턴 1: WGS84 지리 좌표 (-180~180, -90~90)
+            is_geographic = (
+                -180 <= minx <= 180 and -180 <= maxx <= 180 and
+                -90 <= miny <= 90 and -90 <= maxy <= 90 and
+                x_range < 10 and y_range < 10  # 10도 이내
+            )
+
+            # 패턴 2: 한국 TM 좌표 (EPSG:5186, 5187)
+            # X: 약 100,000 ~ 600,000, Y: 약 100,000 ~ 700,000
+            is_korea_tm = (
+                100000 <= minx <= 700000 and 100000 <= maxx <= 700000 and
+                100000 <= miny <= 700000 and 100000 <= maxy <= 700000 and
+                z_range < 1000
+            )
+
+            # 패턴 3: UTM/투영 좌표 (미터 단위)
+            is_projected = (
+                10000 <= abs(minx) <= 10000000 and
+                10000 <= abs(miny) <= 10000000 and
+                z_range < 5000
+            ) and not is_korea_tm
+
+            # EPSG 추정
+            epsg = None
+            if is_geographic:
+                epsg = 4326
+            elif is_korea_tm:
+                # 한국 중부 기준
+                epsg = 5186
+
+            # 중심점 계산
+            center_x = (minx + maxx) / 2
+            center_y = (miny + maxy) / 2
+            center_z = (minz + maxz) / 2
+
+            # 지리 좌표인 경우 위경도로 변환
+            center_lon = center_lat = None
+            if is_geographic:
+                center_lon = center_x
+                center_lat = center_y
+            elif is_korea_tm:
+                # 한국 TM → WGS84 변환 (근사치)
+                # EPSG:5186 (Korea 2000 / Central Belt) 기준
+                # 정확한 변환은 pyproj 필요하지만, 여기서는 근사 공식 사용
+                try:
+                    # 중심점 기준 대략적 변환
+                    # TM 좌표계 원점: 127.0E, 38.0N (가상 원점)
+                    center_lon = 127.0 + (center_x - 200000) / 89000
+                    center_lat = 38.0 + (center_y - 500000) / 111000
+                except Exception:
+                    pass
+
+            result = {
+                "bbox": {
+                    "minX": minx,
+                    "minY": miny,
+                    "minZ": minz,
+                    "maxX": maxx,
+                    "maxY": maxy,
+                    "maxZ": maxz
+                },
+                "center": {
+                    "x": center_x,
+                    "y": center_y,
+                    "z": center_z
+                },
+                "is_geographic": is_geographic,
+                "is_korea_tm": is_korea_tm,
+                "is_projected": is_projected,
+                "epsg": epsg,
+                "vertex_count": vertex_count
+            }
+
+            if center_lon is not None and center_lat is not None:
+                result["center"]["longitude"] = center_lon
+                result["center"]["latitude"] = center_lat
+                result["center"]["altitude"] = center_z
+
+            logger.info("obj_spatial_info_extracted",
+                       source=str(source),
+                       vertex_count=vertex_count,
+                       is_geographic=is_geographic,
+                       is_korea_tm=is_korea_tm,
+                       bbox_x=(minx, maxx),
+                       bbox_y=(miny, maxy),
+                       bbox_z=(minz, maxz))
+
+            return result
+
+        except Exception as e:
+            logger.warning("obj_spatial_info_extraction_failed", error=str(e))
+            return {"bbox": None, "vertex_count": 0}
+
     def _convert_e57_to_ply(
         self,
         source: Path,
@@ -220,7 +494,28 @@ class SpatialConverter:
         # 좌표계 감지 (E57 파일 포맷 명시)
         coord_info = self._detect_coordinate_system(source, file_format="e57")
         is_geographic = coord_info.get("is_geographic", False)
+        is_swapped_geo = coord_info.get("is_swapped", False)  # X/Y가 작고 Z가 위도인 경우
+        is_korea_tm = coord_info.get("is_korea_tm", False)
+        is_projected = coord_info.get("is_projected", False)
         point_count = coord_info.get("point_count", 0)
+
+        # bounds 유효성 검사 (Infinity, NaN 체크)
+        bbox = coord_info.get("bbox")
+        has_valid_bounds = False
+        if bbox:
+            import math
+            has_valid_bounds = all(
+                not math.isinf(v) and not math.isnan(v)
+                for v in bbox
+            )
+            if not has_valid_bounds:
+                logger.warning("invalid_bounds_detected", bbox=bbox)
+                bbox = None
+
+        # 색상 정보 감지
+        color_info = self._detect_color_info(source, file_format="e57")
+        has_color = color_info.get("has_color", False)
+        is_16bit_color = color_info.get("is_16bit", False)
 
         # 복셀 크기 결정
         if is_geographic:
@@ -228,14 +523,20 @@ class SpatialConverter:
             # 0.00001도 ≈ 약 1.1m (적도 기준)
             voxel_size = options.get("voxel_size", 0.00001)
             logger.info("using_geographic_voxel_size", voxel_size=voxel_size)
+        elif is_korea_tm or is_projected:
+            # 한국 TM 또는 UTM 좌표계: 미터 단위
+            # 0.05m = 5cm 간격
+            voxel_size = options.get("voxel_size", 0.05)
+            logger.info("using_projected_voxel_size", voxel_size=voxel_size, is_korea_tm=is_korea_tm)
         else:
-            # 투영 좌표계: 미터 단위
+            # 기타 좌표계: 미터 단위 가정
             # 0.05m = 5cm 간격
             voxel_size = options.get("voxel_size", 0.05)
 
         # 좌표계 변환 여부 (Z-up → Y-up, 기본: 활성화)
         # 지리 좌표계의 경우 좌표 변환을 비활성화 (이미 축이 뒤바뀌어 있을 수 있음)
-        transform_coords = options.get("transform_coords", not is_geographic)
+        # 한국 TM / 투영 좌표계는 일반적으로 Z-up이므로 Y-up 변환 필요
+        transform_coords = options.get("transform_coords", not is_geographic or is_korea_tm or is_projected)
 
         # PDAL 파이프라인 구성
         pipeline_stages = [
@@ -261,19 +562,41 @@ class SpatialConverter:
         elif is_geographic:
             # 지리 좌표계지만 포인트 수가 적으면 다운샘플링 생략
             logger.info("skipping_downsampling", reason="geographic_small_pointcount", point_count=point_count)
+        elif is_korea_tm or is_projected:
+            # 한국 TM / 투영 좌표계: 복셀 그리드 다운샘플링
+            pipeline_stages.append({
+                "type": "filters.voxeldownsize",
+                "cell": voxel_size,
+                "mode": "center"
+            })
+            logger.info("using_voxel_downsampling", voxel_size=voxel_size, coordinate_type="projected")
+        elif point_count > 500000:
+            # 좌표계 미확인 + 대용량: decimation 사용
+            step = max(1, int(point_count / 500000))
+            pipeline_stages.append({
+                "type": "filters.decimation",
+                "step": step
+            })
+            logger.info("using_decimation_sampling_fallback",
+                       original_count=point_count,
+                       target_count=500000,
+                       step=step)
         else:
-            # 투영 좌표계: 복셀 그리드 다운샘플링
+            # 기타: 복셀 그리드 다운샘플링
             pipeline_stages.append({
                 "type": "filters.voxeldownsize",
                 "cell": voxel_size,
                 "mode": "center"
             })
 
-        # 지리 좌표계 정규화 (3D 뷰어용)
-        # EPSG:4326 데이터는 X/Y/Z 스케일이 매우 다를 수 있음 (도 단위 vs 미터 등)
-        if is_geographic:
-            bbox = coord_info.get("bbox")
-            if bbox:
+        # 좌표 정규화 (3D 뷰어용)
+        # 지리 좌표계 또는 투영 좌표계 모두 정규화 필요
+        needs_normalization = is_geographic or is_korea_tm or is_projected
+        normalization_applied = False
+        z_min_normalized = -50
+        z_max_normalized = 50
+
+        if needs_normalization and has_valid_bounds and bbox:
                 minx, miny, minz, maxx, maxy, maxz = bbox
 
                 # 중심점 계산
@@ -287,7 +610,6 @@ class SpatialConverter:
                 z_range = max(abs(maxz - minz), 1e-10)
 
                 # 각 축을 독립적으로 정규화하여 -50 ~ 50 범위로 맞춤
-                # 이렇게 하면 X/Y/Z 스케일 차이가 있어도 균등하게 표시됨
                 scale_x = 100.0 / x_range
                 scale_y = 100.0 / y_range
                 scale_z = 100.0 / z_range
@@ -297,15 +619,22 @@ class SpatialConverter:
                            ranges=(x_range, y_range, z_range),
                            scales=(scale_x, scale_y, scale_z))
 
-                # 좌표 정규화: 각 축을 독립적으로 스케일링
+                # filters.transformation 사용 - 중심 이동 후 스케일링
+                # 4x4 변환 행렬: [scale_x, 0, 0, -cx*scale_x, 0, scale_y, 0, -cy*scale_y, 0, 0, scale_z, -cz*scale_z, 0, 0, 0, 1]
+                # 행렬 형식: row-major (행 우선)
+                transform_matrix = (
+                    f"{scale_x} 0 0 {-cx * scale_x} "
+                    f"0 {scale_y} 0 {-cy * scale_y} "
+                    f"0 0 {scale_z} {-cz * scale_z} "
+                    f"0 0 0 1"
+                )
                 pipeline_stages.append({
-                    "type": "filters.assign",
-                    "value": [
-                        f"X = (X - {cx}) * {scale_x}",
-                        f"Y = (Y - {cy}) * {scale_y}",
-                        f"Z = (Z - {cz}) * {scale_z}"
-                    ]
+                    "type": "filters.transformation",
+                    "matrix": transform_matrix
                 })
+                normalization_applied = True
+        elif not has_valid_bounds:
+                logger.warning("skipping_normalization", reason="invalid_bounds")
 
         # Z-up → Y-up 좌표계 변환 (Three.js는 Y-up 사용)
         # 변환 행렬: X'=X, Y'=Z, Z'=-Y (X축 기준 -90도 회전)
@@ -315,27 +644,143 @@ class SpatialConverter:
                 "matrix": "1 0 0 0  0 0 1 0  0 -1 0 0  0 0 0 1"
             })
 
-        # 색상 스케일링 (16비트 → 8비트, PLY 파일 호환성)
-        # PDAL 2.3에서는 writers.ply가 자동으로 8비트로 변환하지 않음
-        pipeline_stages.append({
-            "type": "filters.assign",
-            "value": [
-                "Red = Red / 256",
-                "Green = Green / 256",
-                "Blue = Blue / 256"
-            ]
-        })
+        # 색상 처리 및 출력 dims 결정
+        output_has_color = False
+
+        if has_color:
+            if is_16bit_color:
+                # 16비트 색상 → 8비트 스케일링
+                logger.info("applying_color_scaling", reason="16bit_to_8bit")
+                pipeline_stages.append({
+                    "type": "filters.assign",
+                    "value": [
+                        "Red = Red / 256",
+                        "Green = Green / 256",
+                        "Blue = Blue / 256"
+                    ]
+                })
+            else:
+                # 이미 8비트 색상 - 스케일링 불필요
+                logger.info("skipping_color_scaling", reason="already_8bit")
+            output_has_color = True
+        elif normalization_applied:
+            # 색상 없음 + 정규화 적용됨 - 높이 기반 색상 생성
+            logger.info("generating_height_color", reason="no_color_data_normalized")
+            # filters.assign으로 직접 RGB 값 생성 (PDAL은 존재하지 않는 차원도 생성 가능)
+            # Z 값을 0-255 범위로 매핑하여 색상 생성
+            # 정규화 후 Z 범위는 대략 -50 ~ 50
+            # Red: 높을수록 강함, Blue: 낮을수록 강함
+            pipeline_stages.append({
+                "type": "filters.assign",
+                "value": [
+                    "Red = (Z + 50) * 2 + 55",
+                    "Green = 180",
+                    "Blue = (50 - Z) * 2 + 55"
+                ]
+            })
+            output_has_color = True
+        else:
+            # 색상 없음 + 정규화 안됨 - 단색 출력
+            logger.info("generating_fallback_color", reason="no_color_no_normalization")
+            # filters.assign으로 직접 RGB 값 생성
+            pipeline_stages.append({
+                "type": "filters.assign",
+                "value": [
+                    "Red = 150",
+                    "Green = 180",
+                    "Blue = 210"
+                ]
+            })
+            output_has_color = True
 
         # 출력 (바이너리 형식으로 파일 크기 최소화)
+        output_dims = "X,Y,Z,Red,Green,Blue" if output_has_color else "X,Y,Z"
         pipeline_stages.append({
             "type": "writers.ply",
             "filename": str(output_path),
-            "storage_mode": "little endian"
+            "storage_mode": "little endian",
+            "dims": output_dims
         })
 
         pipeline = {"pipeline": pipeline_stages}
 
-        return self._run_pdal_pipeline(pipeline, output_path, progress_callback)
+        result = self._run_pdal_pipeline(pipeline, output_path, progress_callback)
+
+        # E57 공간 정보를 결과 메타데이터에 추가
+        logger.info("e57_spatial_info_check",
+                   result_success=result.success,
+                   has_valid_bounds=has_valid_bounds,
+                   has_bbox=bbox is not None,
+                   is_geographic=is_geographic,
+                   is_swapped_geo=is_swapped_geo,
+                   is_korea_tm=is_korea_tm)
+
+        if result.success and has_valid_bounds and bbox:
+            minx, miny, minz, maxx, maxy, maxz = bbox
+
+            # 중심점 계산
+            center_x = (minx + maxx) / 2
+            center_y = (miny + maxy) / 2
+            center_z = (minz + maxz) / 2
+
+            # 지리 좌표인 경우 위경도로 변환
+            center_lon = center_lat = None
+            if is_geographic:
+                if is_swapped_geo:
+                    # 좌표가 뒤바뀐 경우: X=lon, Z=lat (Y는 altitude 또는 다른 값)
+                    center_lon = center_x
+                    center_lat = center_z
+                    logger.info("using_swapped_geo_coords",
+                               center_lon=center_lon,
+                               center_lat=center_lat,
+                               original_center_y=center_y)
+                else:
+                    center_lon = center_x
+                    center_lat = center_y
+            elif is_korea_tm:
+                # 한국 TM → WGS84 변환 (근사치)
+                try:
+                    center_lon = 127.0 + (center_x - 200000) / 89000
+                    center_lat = 38.0 + (center_y - 500000) / 111000
+                except Exception:
+                    pass
+
+            spatial_info = {
+                "epsg": 4326 if is_geographic else (5186 if is_korea_tm else None),
+                "isGeographic": is_geographic,
+                "isKoreaTM": is_korea_tm,
+                "bbox": {
+                    "minX": minx,
+                    "minY": miny,
+                    "minZ": minz,
+                    "maxX": maxx,
+                    "maxY": maxy,
+                    "maxZ": maxz
+                },
+                "center": {
+                    "x": center_x,
+                    "y": center_y,
+                    "z": center_z
+                },
+                "pointCount": point_count
+            }
+
+            if center_lon is not None and center_lat is not None:
+                spatial_info["center"]["longitude"] = center_lon
+                spatial_info["center"]["latitude"] = center_lat
+                # altitude: swapped인 경우 Y가 altitude일 수 있음, 아니면 Z
+                spatial_info["center"]["altitude"] = center_y if is_swapped_geo else center_z
+
+            # 결과 메타데이터에 공간 정보 추가
+            result.metadata["spatialInfo"] = spatial_info
+            logger.info("e57_spatial_info_added",
+                       is_geographic=is_geographic,
+                       is_korea_tm=is_korea_tm,
+                       center_lon=center_lon,
+                       center_lat=center_lat,
+                       point_count=point_count)
+
+        return result
 
     def _convert_e57_to_las(
         self,
@@ -678,9 +1123,13 @@ class SpatialConverter:
         1. 관련 파일(MTL, 텍스처) 수집
         2. OBJ → GLB 변환 (obj2gltf 또는 gltfpack 사용)
         3. GLB → 3D Tiles tileset 생성
+        4. 공간 정보 추출 및 메타데이터에 포함
         """
         if progress_callback:
             progress_callback(5)
+
+        # OBJ에서 공간 정보 추출
+        spatial_info = self._extract_obj_spatial_info(source)
 
         # OBJ 관련 파일 준비 (MTL, 텍스처를 임시 디렉토리에 모음)
         work_dir = None
@@ -826,22 +1275,106 @@ class SpatialConverter:
 
         # GLB 변환 성공 시 → 3D Tiles 생성
         if converted:
-            return self._create_glb_tileset(temp_glb, output_dir, source.stem, progress_callback)
+            return self._create_glb_tileset(temp_glb, output_dir, source.stem, spatial_info, progress_callback)
 
         # 모든 변환 실패 시 OBJ 직접 처리
         logger.info("fallback_to_obj_tileset", msg="OBJ 직접 처리 모드")
-        return self._create_obj_tileset(source, output_dir, progress_callback)
+        return self._create_obj_tileset(source, output_dir, spatial_info, progress_callback)
 
     def _create_glb_tileset(
         self,
         glb_path: Path,
         output_dir: Path,
         name: str,
+        spatial_info: dict = None,
         progress_callback: Callable[[int], None] = None
     ) -> ConversionResult:
-        """GLB 파일용 tileset.json 생성"""
+        """GLB 파일용 tileset.json 생성 (지리 좌표 지원)"""
+        import math
+
         if progress_callback:
             progress_callback(80)
+
+        # 기본 bounding volume (box)
+        bounding_volume = {"box": [0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0, 100]}
+        root_transform = None
+
+        # 지리 좌표가 있으면 region과 transform 사용
+        if spatial_info and spatial_info.get("is_geographic") and spatial_info.get("center"):
+            center = spatial_info["center"]
+            bbox = spatial_info.get("bbox", {})
+
+            # 중심점 좌표 (경위도)
+            lon = center.get("longitude") or center.get("x", 127.0)
+            lat = center.get("latitude") or center.get("y", 37.0)
+            alt = center.get("altitude") or center.get("z", 0)
+
+            # bbox에서 크기 계산 (미터 단위로 변환)
+            if bbox:
+                # 경위도 범위를 미터로 변환 (1도 ≈ 111km at equator)
+                lon_range = abs(bbox.get("maxX", 0) - bbox.get("minX", 0))
+                lat_range = abs(bbox.get("maxY", 0) - bbox.get("minY", 0))
+                height_range = abs(bbox.get("maxZ", 0) - bbox.get("minZ", 0))
+
+                # 실제 미터 크기 계산
+                meters_per_degree_lon = 111000 * math.cos(math.radians(lat))
+                meters_per_degree_lat = 111000
+
+                width_m = lon_range * meters_per_degree_lon
+                depth_m = lat_range * meters_per_degree_lat
+                height_m = height_range
+
+                # region 좌표 계산 (라디안)
+                west = math.radians(bbox.get("minX", lon - 0.001))
+                south = math.radians(bbox.get("minY", lat - 0.001))
+                east = math.radians(bbox.get("maxX", lon + 0.001))
+                north = math.radians(bbox.get("maxY", lat + 0.001))
+                min_height = bbox.get("minZ", 0)
+                max_height = bbox.get("maxZ", 100)
+
+                bounding_volume = {
+                    "region": [west, south, east, north, min_height, max_height]
+                }
+
+                logger.info("tileset_region_created",
+                           lon=lon, lat=lat, alt=alt,
+                           width_m=width_m, depth_m=depth_m, height_m=height_m)
+
+            # ECEF 변환 행렬 계산 (중심점 기준)
+            # Cesium의 Transforms.eastNorthUpToFixedFrame과 동일
+            lon_rad = math.radians(lon)
+            lat_rad = math.radians(lat)
+
+            # WGS84 타원체 파라미터
+            a = 6378137.0  # 적도 반경
+            f = 1 / 298.257223563  # 편평률
+            e2 = 2 * f - f * f  # 이심률 제곱
+
+            sin_lat = math.sin(lat_rad)
+            cos_lat = math.cos(lat_rad)
+            sin_lon = math.sin(lon_rad)
+            cos_lon = math.cos(lon_rad)
+
+            # 곡률 반경
+            N = a / math.sqrt(1 - e2 * sin_lat * sin_lat)
+
+            # ECEF 좌표 (중심점)
+            x = (N + alt) * cos_lat * cos_lon
+            y = (N + alt) * cos_lat * sin_lon
+            z = (N * (1 - e2) + alt) * sin_lat
+
+            # East-North-Up 변환 행렬 (4x4, column-major)
+            # East = [-sin(lon), cos(lon), 0]
+            # North = [-sin(lat)*cos(lon), -sin(lat)*sin(lon), cos(lat)]
+            # Up = [cos(lat)*cos(lon), cos(lat)*sin(lon), sin(lat)]
+            root_transform = [
+                -sin_lon, -sin_lat * cos_lon, cos_lat * cos_lon, 0,
+                cos_lon, -sin_lat * sin_lon, cos_lat * sin_lon, 0,
+                0, cos_lat, sin_lat, 0,
+                x, y, z, 1
+            ]
+
+            logger.info("tileset_transform_created", ecef_x=x, ecef_y=y, ecef_z=z)
 
         # tileset.json 생성
         tileset = {
@@ -851,9 +1384,7 @@ class SpatialConverter:
             },
             "geometricError": 500,
             "root": {
-                "boundingVolume": {
-                    "box": [0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0, 100]
-                },
+                "boundingVolume": bounding_volume,
                 "geometricError": 100,
                 "refine": "ADD",
                 "content": {
@@ -862,6 +1393,10 @@ class SpatialConverter:
             }
         }
 
+        # transform 추가 (있는 경우)
+        if root_transform:
+            tileset["root"]["transform"] = root_transform
+
         tileset_path = output_dir / "tileset.json"
         with open(tileset_path, "w") as f:
             json.dump(tileset, f, indent=2)
@@ -869,20 +1404,34 @@ class SpatialConverter:
         if progress_callback:
             progress_callback(95)
 
+        # 메타데이터에 공간 정보 포함
+        metadata = {
+            "tileset_path": str(tileset_path),
+            "glb_path": str(glb_path),
+            "format": "3dtiles_glb"
+        }
+
+        if spatial_info and spatial_info.get("bbox"):
+            metadata["spatialInfo"] = {
+                "epsg": spatial_info.get("epsg"),
+                "isGeographic": spatial_info.get("is_geographic", False),
+                "isKoreaTM": spatial_info.get("is_korea_tm", False),
+                "bbox": spatial_info.get("bbox"),
+                "center": spatial_info.get("center"),
+                "vertexCount": spatial_info.get("vertex_count", 0)
+            }
+
         return ConversionResult(
             success=True,
             output_path=str(output_dir),
-            metadata={
-                "tileset_path": str(tileset_path),
-                "glb_path": str(glb_path),
-                "format": "3dtiles_glb"
-            }
+            metadata=metadata
         )
 
     def _create_obj_tileset(
         self,
         source: Path,
         output_dir: Path,
+        spatial_info: dict = None,
         progress_callback: Callable[[int], None] = None
     ) -> ConversionResult:
         """OBJ 파일용 단순 tileset 생성
@@ -939,13 +1488,26 @@ class SpatialConverter:
         if progress_callback:
             progress_callback(90)
 
+        # 메타데이터에 공간 정보 포함
+        metadata = {
+            "tileset_path": str(tileset_path),
+            "format": "obj_tileset"
+        }
+
+        if spatial_info and spatial_info.get("bbox"):
+            metadata["spatialInfo"] = {
+                "epsg": spatial_info.get("epsg"),
+                "isGeographic": spatial_info.get("is_geographic", False),
+                "isKoreaTM": spatial_info.get("is_korea_tm", False),
+                "bbox": spatial_info.get("bbox"),
+                "center": spatial_info.get("center"),
+                "vertexCount": spatial_info.get("vertex_count", 0)
+            }
+
         return ConversionResult(
             success=True,
             output_path=str(output_dir),
-            metadata={
-                "tileset_path": str(tileset_path),
-                "format": "obj_tileset"
-            }
+            metadata=metadata
         )
 
     def _run_pdal_pipeline(
@@ -961,7 +1523,12 @@ class SpatialConverter:
         # 파이프라인 JSON 파일 생성
         pipeline_file = self.temp_path / "pipeline.json"
         with open(pipeline_file, "w") as f:
-            json.dump(pipeline, f)
+            json.dump(pipeline, f, indent=2)
+
+        # 디버깅: 파이프라인 내용 로깅
+        logger.info("pdal_pipeline_generated",
+                   pipeline_file=str(pipeline_file),
+                   pipeline_content=json.dumps(pipeline, indent=2)[:2000])
 
         if progress_callback:
             progress_callback(30)
@@ -979,6 +1546,11 @@ class SpatialConverter:
                 progress_callback(80)
 
             if result.returncode != 0:
+                logger.error("pdal_pipeline_failed",
+                           returncode=result.returncode,
+                           stderr=result.stderr[:1000] if result.stderr else "",
+                           stdout=result.stdout[:1000] if result.stdout else "",
+                           pipeline_stages=[s.get("type") for s in pipeline.get("pipeline", [])])
                 return ConversionResult(
                     success=False,
                     error=f"PDAL 실행 실패: {result.stderr}"

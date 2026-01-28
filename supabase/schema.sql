@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS public.files (
   conversion_progress INTEGER DEFAULT 0,
   converted_path TEXT,           -- 변환된 파일 경로 (COPC, 3D Tiles 등)
   conversion_error TEXT,
+  -- 메타데이터 (공간 정보 등)
+  metadata JSONB,                -- { spatialInfo: { epsg, bbox, center, ... } }
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -120,6 +122,7 @@ DO $$ BEGIN
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_progress INTEGER DEFAULT 0;
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS converted_path TEXT;
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_error TEXT;
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS metadata JSONB;
 EXCEPTION
   WHEN duplicate_column THEN null;
 END $$;

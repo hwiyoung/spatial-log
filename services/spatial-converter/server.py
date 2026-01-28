@@ -99,6 +99,19 @@ class HealthResponse(BaseModel):
     pdal_version: str
 
 
+class DeleteRequest(BaseModel):
+    """파일 삭제 요청"""
+    storage_paths: list[str] = Field(..., description="삭제할 Storage 경로 목록")
+
+
+class DeleteResponse(BaseModel):
+    """파일 삭제 응답"""
+    success: bool
+    deleted: list[str]
+    failed: list[dict]
+    message: str
+
+
 # === API Endpoints ===
 
 @app.get("/health", response_model=HealthResponse)
@@ -115,6 +128,61 @@ async def health_check():
         status="healthy",
         version="1.0.0",
         pdal_version=pdal_version
+    )
+
+
+@app.post("/delete", response_model=DeleteResponse)
+async def delete_storage_files(request: DeleteRequest):
+    """Storage 파일 물리적 삭제
+
+    Supabase Storage API가 파일 백엔드 모드에서 물리적 파일을 삭제하지 않는 문제 해결용
+    """
+    import shutil
+
+    deleted = []
+    failed = []
+
+    for storage_path in request.storage_paths:
+        try:
+            # 보안: storage path 검증 (상위 디렉토리 탐색 방지)
+            if '..' in storage_path or storage_path.startswith('/'):
+                failed.append({"path": storage_path, "error": "잘못된 경로"})
+                continue
+
+            # 전체 경로 구성
+            full_path = Path(STORAGE_PATH) / "spatial-files" / storage_path
+
+            # 경로가 STORAGE_PATH 내부인지 확인
+            try:
+                full_path.resolve().relative_to(Path(STORAGE_PATH).resolve())
+            except ValueError:
+                failed.append({"path": storage_path, "error": "허용되지 않은 경로"})
+                continue
+
+            if full_path.exists():
+                if full_path.is_dir():
+                    # 디렉토리인 경우 전체 삭제
+                    shutil.rmtree(full_path)
+                    logger.info("deleted_directory", path=str(full_path))
+                else:
+                    # 파일인 경우
+                    full_path.unlink()
+                    logger.info("deleted_file", path=str(full_path))
+                deleted.append(storage_path)
+            else:
+                # 파일이 없어도 성공으로 처리 (이미 삭제됨)
+                deleted.append(storage_path)
+                logger.info("file_not_found_skipped", path=str(full_path))
+
+        except Exception as e:
+            logger.error("delete_failed", path=storage_path, error=str(e))
+            failed.append({"path": storage_path, "error": str(e)})
+
+    return DeleteResponse(
+        success=len(failed) == 0,
+        deleted=deleted,
+        failed=failed,
+        message=f"{len(deleted)}개 삭제 완료" + (f", {len(failed)}개 실패" if failed else "")
     )
 
 
@@ -320,13 +388,19 @@ async def run_conversion(
             active_conversions[job_id].progress = 100
             active_conversions[job_id].output_path = result.output_path
 
-            await update_file_conversion_status(file_id, "ready", 100, result.output_path)
+            # 공간 정보 포함하여 DB 업데이트
+            spatial_info = result.metadata.get("spatialInfo") if result.metadata else None
+            await update_file_conversion_status(
+                file_id, "ready", 100, result.output_path,
+                metadata=result.metadata
+            )
 
             logger.info(
                 "conversion_completed",
                 job_id=job_id,
                 file_id=file_id,
-                output_path=result.output_path
+                output_path=result.output_path,
+                has_spatial_info=spatial_info is not None
             )
         else:
             # 실패
@@ -367,7 +441,8 @@ async def update_file_conversion_status(
     status: str,
     progress: int,
     output_path: Optional[str] = None,
-    error: Optional[str] = None
+    error: Optional[str] = None,
+    metadata: Optional[dict] = None
 ):
     """Supabase DB 파일 변환 상태 업데이트"""
     if not SUPABASE_SERVICE_KEY:
@@ -385,6 +460,18 @@ async def update_file_conversion_status(
             if error:
                 update_data["conversion_error"] = error
 
+            # 공간 정보가 있으면 metadata 컬럼에 저장
+            if metadata and metadata.get("spatialInfo"):
+                # 기존 metadata가 있으면 병합, 없으면 새로 생성
+                update_data["metadata"] = {
+                    "spatialInfo": metadata["spatialInfo"]
+                }
+                logger.info(
+                    "saving_spatial_info",
+                    file_id=file_id,
+                    spatial_info=metadata["spatialInfo"]
+                )
+
             response = await client.patch(
                 f"{SUPABASE_URL}/rest/v1/files?id=eq.{file_id}",
                 json=update_data,
@@ -400,7 +487,8 @@ async def update_file_conversion_status(
                 logger.warning(
                     "db_update_failed",
                     file_id=file_id,
-                    status_code=response.status_code
+                    status_code=response.status_code,
+                    response_text=response.text[:200] if response.text else ""
                 )
     except Exception as e:
         logger.warning("db_update_error", file_id=file_id, error=str(e))

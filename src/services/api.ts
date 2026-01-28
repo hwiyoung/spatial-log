@@ -15,6 +15,34 @@ type ProjectUpdate = UpdateTables<'projects'>
 type AnnotationInsert = InsertTables<'annotations'>
 type AnnotationUpdate = UpdateTables<'annotations'>
 
+// 공간 좌표 정보
+export interface SpatialInfo {
+  // 좌표계 정보
+  epsg?: number  // EPSG 코드 (4326, 5186 등)
+  isGeographic?: boolean  // 지리 좌표계 여부 (lat/lon)
+  isKoreaTM?: boolean     // 한국 TM 좌표계 여부
+  // Bounding Box (원본 좌표계 기준)
+  bbox?: {
+    minX: number
+    minY: number
+    minZ: number
+    maxX: number
+    maxY: number
+    maxZ: number
+  }
+  // 중심점
+  center?: {
+    x?: number       // 원본 좌표계 X
+    y?: number       // 원본 좌표계 Y
+    z?: number       // 원본 좌표계 Z
+    longitude?: number  // WGS84 경도 (지리 좌표 or 변환된 좌표)
+    latitude?: number   // WGS84 위도 (지리 좌표 or 변환된 좌표)
+    altitude?: number   // 고도
+  }
+  // 포인트 개수 (포인트 클라우드/정점)
+  pointCount?: number
+}
+
 // 통합 파일 메타데이터 타입
 export interface FileMetadata {
   id: string
@@ -37,6 +65,8 @@ export interface FileMetadata {
     dateTime?: Date
   }
   tags?: string[]
+  // 3D 데이터 공간 정보
+  spatialInfo?: SpatialInfo
   // 3D 데이터 변환 상태
   conversionStatus?: 'pending' | 'converting' | 'ready' | 'failed' | null
   conversionProgress?: number
@@ -117,6 +147,15 @@ function mapFileRowToMetadata(row: FileRow): FileMetadata {
         }
       : undefined,
     tags: row.tags ?? undefined,
+    // 공간 정보 (metadata.spatialInfo)
+    spatialInfo: row.metadata?.spatialInfo ? {
+      epsg: row.metadata.spatialInfo.epsg,
+      isGeographic: row.metadata.spatialInfo.isGeographic,
+      isKoreaTM: row.metadata.spatialInfo.isKoreaTM,
+      bbox: row.metadata.spatialInfo.bbox,
+      center: row.metadata.spatialInfo.center,
+      pointCount: row.metadata.spatialInfo.vertexCount,
+    } : undefined,
     // 변환 상태
     conversionStatus: row.conversion_status as FileMetadata['conversionStatus'] ?? undefined,
     conversionProgress: row.conversion_progress ?? undefined,
@@ -372,11 +411,13 @@ export async function getFiles(folderId?: string | null, options?: { includeRela
 
 /**
  * 특정 파일의 연관 파일들 조회 (MTL, 텍스처 등)
+ * 1차: parent:{id} 태그로 검색
+ * 2차: 태그 없으면 파일명 기반으로 검색 (개별 업로드된 파일 지원)
  */
 export async function getRelatedFiles(parentFileId: string): Promise<FileMetadata[]> {
   if (!isSupabaseConfigured()) {
     const allFiles = await localStorage.getAllFileMetadata()
-    return allFiles
+    const taggedFiles = allFiles
       .filter(f => f.tags?.includes(`parent:${parentFileId}`))
       .map(f => ({
         ...f,
@@ -384,20 +425,121 @@ export async function getRelatedFiles(parentFileId: string): Promise<FileMetadat
         storagePath: undefined,
         thumbnailUrl: f.thumbnail,
       }))
+
+    if (taggedFiles.length > 0) {
+      return taggedFiles
+    }
+
+    // 태그 없으면 이름 기반 검색
+    const parentFile = allFiles.find(f => f.id === parentFileId)
+    if (parentFile) {
+      return findRelatedFilesByName(parentFile, allFiles.map(f => ({
+        ...f,
+        projectId: f.projectId ?? null,
+        storagePath: undefined,
+        thumbnailUrl: f.thumbnail,
+      })))
+    }
+
+    return []
   }
 
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
+
+  // 1차: 태그 기반 검색
+  const { data: taggedData, error: taggedError } = await supabase
     .from('files')
     .select('*')
     .contains('tags', [`parent:${parentFileId}`])
     .order('created_at', { ascending: false })
 
-  if (error) {
-    throw new Error(`연관 파일 조회 실패: ${error.message}`)
+  if (taggedError) {
+    throw new Error(`연관 파일 조회 실패: ${taggedError.message}`)
   }
 
-  return ((data || []) as FileRow[]).map(mapFileRowToMetadata)
+  if (taggedData && taggedData.length > 0) {
+    return (taggedData as FileRow[]).map(mapFileRowToMetadata)
+  }
+
+  // 2차: 태그 없으면 이름 기반 검색
+  const { data: parentData } = await supabase
+    .from('files')
+    .select('*')
+    .eq('id', parentFileId)
+    .single()
+
+  if (!parentData) {
+    return []
+  }
+
+  const parentFile = mapFileRowToMetadata(parentData as FileRow)
+
+  // MTL, 텍스처 파일 패턴 검색
+  const { data: allData } = await supabase
+    .from('files')
+    .select('*')
+    .neq('id', parentFileId)
+    .order('created_at', { ascending: false })
+
+  if (!allData) {
+    return []
+  }
+
+  const allFiles = (allData as FileRow[]).map(mapFileRowToMetadata)
+  return findRelatedFilesByName(parentFile, allFiles)
+}
+
+/**
+ * 파일명 기반으로 연관 파일 검색 (OBJ + MTL + 텍스처)
+ */
+function findRelatedFilesByName(parentFile: FileMetadata, allFiles: FileMetadata[]): FileMetadata[] {
+  // OBJ 파일이 아니면 빈 배열 반환
+  if (parentFile.format !== 'obj') {
+    return []
+  }
+
+  const baseName = parentFile.name.toLowerCase().replace(/\.obj$/i, '')
+  const related: FileMetadata[] = []
+
+  // MTL 및 텍스처 확장자
+  const mtlExtensions = ['.mtl']
+  const textureExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp', '.dds', '.ktx', '.ktx2']
+
+  for (const file of allFiles) {
+    const fileName = file.name.toLowerCase()
+    const ext = '.' + fileName.split('.').pop()
+
+    // MTL 파일: 같은 기본 이름 또는 OBJ에서 참조 가능한 이름
+    if (mtlExtensions.includes(ext)) {
+      const mtlBaseName = fileName.replace(/\.mtl$/i, '')
+      // 이름이 같거나 유사하면 연관 파일로 추가
+      if (mtlBaseName === baseName || baseName.includes(mtlBaseName) || mtlBaseName.includes(baseName)) {
+        related.push(file)
+        continue
+      }
+    }
+
+    // 텍스처 파일: 같은 업로드 시간대 또는 이름 유사성으로 판단
+    if (textureExtensions.includes(ext)) {
+      const texBaseName = fileName.replace(/\.[^.]+$/, '')
+
+      // 업로드 시간이 비슷하면 (5분 이내) 연관 파일로 추가
+      const timeDiff = Math.abs(new Date(file.createdAt).getTime() - new Date(parentFile.createdAt).getTime())
+      const fiveMinutes = 5 * 60 * 1000
+
+      if (timeDiff < fiveMinutes) {
+        related.push(file)
+        continue
+      }
+
+      // 이름 유사성 확인
+      if (texBaseName.includes(baseName) || baseName.includes(texBaseName)) {
+        related.push(file)
+      }
+    }
+  }
+
+  return related
 }
 
 /**
@@ -514,10 +656,38 @@ export interface BatchDeleteResult {
   failed: { id: string; error: string }[]
 }
 
+// 변환 서비스 URL (파일 삭제에도 사용)
+const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+
+/**
+ * spatial-converter를 통한 물리적 파일 삭제
+ * Supabase Storage API가 파일 백엔드에서 물리 파일을 안 지우는 문제 해결
+ */
+async function deletePhysicalFiles(storagePaths: string[]): Promise<void> {
+  if (storagePaths.length === 0) return
+
+  try {
+    const response = await fetch(`${CONVERTER_URL}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storage_paths: storagePaths }),
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      console.log('물리 파일 삭제 결과:', result)
+    } else {
+      console.warn('물리 파일 삭제 API 실패:', response.status)
+    }
+  } catch (err) {
+    console.warn('물리 파일 삭제 요청 실패 (converter 서비스 확인 필요):', err)
+  }
+}
+
 /**
  * 트랜잭션 기반 파일 삭제 (안정성 개선)
  * 1. 연관 파일 먼저 삭제 (MTL, 텍스처 등)
- * 2. Storage 파일 삭제
+ * 2. Storage 파일 삭제 (Supabase API + 물리적 삭제)
  * 3. DB 레코드 삭제
  */
 export async function deleteFileWithTransaction(id: string): Promise<DeleteResult> {
@@ -541,6 +711,9 @@ export async function deleteFileWithTransaction(id: string): Promise<DeleteResul
 
   const fileData = data as FileRow
 
+  // 삭제할 물리 파일 경로 수집
+  const physicalPathsToDelete: string[] = []
+
   // 2. 연관 파일 삭제 (MTL, 텍스처 등 - parent:{id} 태그가 있는 파일들)
   try {
     const { data: relatedFiles } = await supabase
@@ -553,6 +726,7 @@ export async function deleteFileWithTransaction(id: string): Promise<DeleteResul
       const relatedPaths = relatedFiles.map((f: { storage_path: string }) => f.storage_path).filter(Boolean)
       if (relatedPaths.length > 0) {
         await supabase.storage.from(STORAGE_BUCKET).remove(relatedPaths)
+        physicalPathsToDelete.push(...relatedPaths)
       }
 
       // 연관 파일들의 DB 레코드 삭제
@@ -565,7 +739,7 @@ export async function deleteFileWithTransaction(id: string): Promise<DeleteResul
     // 연관 파일 삭제 실패해도 메인 파일은 삭제 진행
   }
 
-  // 3. Storage 삭제 시도
+  // 3. Storage 삭제 시도 (Supabase API)
   try {
     const pathsToDelete = [fileData.storage_path]
     if (fileData.thumbnail_path) {
@@ -576,12 +750,17 @@ export async function deleteFileWithTransaction(id: string): Promise<DeleteResul
       }
     }
     await supabase.storage.from(STORAGE_BUCKET).remove(pathsToDelete)
+    physicalPathsToDelete.push(...pathsToDelete)
   } catch (storageError) {
-    console.warn('Storage 삭제 실패 (나중에 정리 필요):', storageError)
-    // Storage 삭제 실패는 기록만 하고 계속 진행
+    console.warn('Supabase Storage 삭제 실패:', storageError)
+    // Storage 삭제 실패해도 물리 파일 삭제 시도
+    physicalPathsToDelete.push(fileData.storage_path)
   }
 
-  // 4. DB 레코드 삭제
+  // 4. 물리적 파일 삭제 (spatial-converter를 통해)
+  await deletePhysicalFiles(physicalPathsToDelete)
+
+  // 5. DB 레코드 삭제
   const { error: deleteError } = await supabase
     .from('files')
     .delete()

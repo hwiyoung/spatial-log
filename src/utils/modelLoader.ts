@@ -4,6 +4,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
+import { preloadTextures, findPreloadedTexture } from './texturePreloader'
 
 // 연관 파일 정보 타입
 export interface RelatedFile {
@@ -86,14 +87,49 @@ export async function loadGLTF(
 ): Promise<LoadedModel> {
   const loader = new GLTFLoader()
 
+  console.log('=== loadGLTF ===')
+  console.log('URL:', url.substring(0, 100) + (url.length > 100 ? '...' : ''))
+
   return new Promise((resolve, reject) => {
     loader.load(
       url,
       (gltf: GLTF) => {
+        console.log('GLTF loaded successfully')
+        console.log('Scene children:', gltf.scene.children.length)
+
         // 모델 중심 맞추기
         const box = new THREE.Box3().setFromObject(gltf.scene)
+        const size = box.getSize(new THREE.Vector3())
         const center = box.getCenter(new THREE.Vector3())
+
+        console.log('Model size (before scale):', size.x, size.y, size.z)
+        console.log('Model center:', center.x, center.y, center.z)
+
+        // 모델 크기가 0인 경우 경고
+        if (size.x === 0 && size.y === 0 && size.z === 0) {
+          console.warn('Model has zero size!')
+        }
+
         gltf.scene.position.sub(center)
+
+        // 자동 스케일링: 모델이 너무 작거나 클 경우 적절한 크기로 조정
+        // WGS84 좌표계(경위도) 모델은 매우 작은 값을 가질 수 있음
+        const maxDim = Math.max(size.x, size.y, size.z)
+        const targetSize = 5 // 목표 크기 (카메라 기본 위치에서 잘 보이는 크기)
+
+        if (maxDim > 0) {
+          if (maxDim < 0.1 || maxDim > 100) {
+            // 매우 작거나 큰 모델 스케일 조정
+            const scale = targetSize / maxDim
+            gltf.scene.scale.setScalar(scale)
+            console.log(`GLTF 자동 스케일링: ${maxDim.toFixed(6)} → ${targetSize} (scale: ${scale.toFixed(4)})`)
+          } else if (maxDim > 10) {
+            // 적당히 큰 모델 (10-100 범위)
+            const scale = targetSize / maxDim
+            gltf.scene.scale.setScalar(scale)
+            console.log(`GLTF 적당히 큰 모델 스케일링: scale=${scale.toFixed(4)}`)
+          }
+        }
 
         // URL에서 query string 제거 후 확장자 확인
         const urlWithoutQuery = url.split('?')[0] || url
@@ -104,12 +140,15 @@ export async function loadGLTF(
         })
       },
       createProgressCallback(onProgress),
-      (error) => reject(new Error(`GLTF 로드 실패: ${error}`))
+      (error) => {
+        console.error('GLTF load failed:', error)
+        reject(new Error(`GLTF 로드 실패: ${error}`))
+      }
     )
   })
 }
 
-// OBJ 로더 (MTL/텍스처 지원)
+// OBJ 로더 (MTL/텍스처 지원 - 텍스처 프리로딩으로 성능 개선)
 export async function loadOBJ(
   url: string,
   onProgress?: (progress: LoadProgress) => void,
@@ -117,57 +156,94 @@ export async function loadOBJ(
 ): Promise<LoadedModel> {
   const objLoader = new OBJLoader()
 
-  // 텍스처 URL 매핑 (파일명 -> blob URL)
-  const textureUrls = new Map<string, string>()
-  // MTL 파일에서 파싱한 텍스처 참조 목록
-  const mtlTextureRefs: string[] = []
+  // 프리로드된 텍스처 맵
+  let preloadedTextures = new Map<string, THREE.Texture>()
   let materials: MTLLoader.MaterialCreator | null = null
 
   if (relatedFiles && relatedFiles.length > 0) {
-    // 텍스처 파일들의 blob URL 생성
-    for (const file of relatedFiles) {
-      if (file.type === 'texture') {
-        const blobUrl = URL.createObjectURL(file.blob)
-        // 파일 이름만 추출 (경로 제거)
-        const fileName = file.name.split('/').pop()?.toLowerCase() || file.name.toLowerCase()
-        textureUrls.set(fileName, blobUrl)
-        // 원본 케이스도 저장
-        textureUrls.set(file.name.split('/').pop() || file.name, blobUrl)
-      }
+    // Step 1: 텍스처 파일들을 병렬로 프리로드 (진행률 0-50%)
+    const textureFiles = relatedFiles.filter(f => f.type === 'texture')
+
+    if (textureFiles.length > 0) {
+      onProgress?.({ loaded: 0, total: 100, percent: 0 })
+
+      preloadedTextures = await preloadTextures(
+        textureFiles.map(f => ({ name: f.name, blob: f.blob })),
+        (progress) => {
+          // 텍스처 로딩은 전체 진행률의 0-50%
+          const percent = Math.round(progress.percent * 0.5)
+          onProgress?.({ loaded: percent, total: 100, percent })
+        }
+      )
+
+      onProgress?.({ loaded: 50, total: 100, percent: 50 })
     }
 
-    // MTL 파일 로드 및 파싱
+    // Step 2: MTL 파일 파싱 및 프리로드된 텍스처 연결
     const mtlFile = relatedFiles.find(f => f.type === 'material' && f.name.toLowerCase().endsWith('.mtl'))
     if (mtlFile) {
       try {
         const mtlText = await mtlFile.blob.text()
 
-        // MTL 파일에서 텍스처 참조 추출 (map_Kd, map_Ka, map_Ks 등)
-        const textureRefRegex = /^\s*map_(?:Kd|Ka|Ks|Ns|d|bump|Bump|disp|Disp|refl)\s+(.+)$/gmi
-        let match
-        while ((match = textureRefRegex.exec(mtlText)) !== null) {
-          const texPath = match[1]?.trim()
-          if (texPath) {
-            const texFileName = texPath.split(/[/\\]/).pop() || texPath
-            mtlTextureRefs.push(texFileName)
-          }
-        }
-
-        // 커스텀 LoadingManager로 텍스처 로딩 가로채기
+        // 커스텀 LoadingManager - 프리로드된 텍스처가 있으면 빈 URL 반환 (로드 스킵)
         const loadingManager = new THREE.LoadingManager()
         loadingManager.setURLModifier((originalUrl: string) => {
-          // 텍스처 파일명 추출
-          const fileName = originalUrl.split(/[/\\]/).pop()?.toLowerCase() || ''
-          const blobUrl = findTextureUrl(fileName, textureUrls)
-          if (blobUrl) {
-            return blobUrl
+          const fileName = originalUrl.split(/[/\\]/).pop() || ''
+          // 프리로드된 텍스처가 있으면 placeholder 반환 (실제 로드 방지)
+          if (findPreloadedTexture(fileName, preloadedTextures)) {
+            return 'data:,' // 빈 데이터 URL (로드 스킵용)
           }
           return originalUrl
         })
 
         const mtlLoader = new MTLLoader(loadingManager)
         materials = mtlLoader.parse(mtlText, '')
-        // preload() 제거 - 텍스처는 렌더링 시 lazy 로드됨
+
+        // 프리로드된 텍스처를 머티리얼에 직접 주입
+        for (const [matName, mat] of Object.entries(materials.materials)) {
+          if (mat instanceof THREE.MeshPhongMaterial || mat instanceof THREE.MeshStandardMaterial) {
+            // MTL에서 해당 머티리얼의 텍스처 이름 찾기
+            const matRegex = new RegExp(`newmtl\\s+${escapeRegExp(matName)}[\\s\\S]*?(?=newmtl|$)`, 'i')
+            const matMatch = mtlText.match(matRegex)
+
+            if (matMatch) {
+              const matBlock = matMatch[0]
+
+              // map_Kd (diffuse)
+              const diffuseMatch = matBlock.match(/map_Kd\s+(.+)/i)
+              if (diffuseMatch) {
+                const texName = diffuseMatch[1]?.trim() || ''
+                const texture = findPreloadedTexture(texName, preloadedTextures)
+                if (texture) {
+                  mat.map = texture
+                  mat.needsUpdate = true
+                }
+              }
+
+              // map_Bump / bump (normal/bump map)
+              const bumpMatch = matBlock.match(/(?:map_bump|bump)\s+(.+)/i)
+              if (bumpMatch) {
+                const texName = bumpMatch[1]?.trim() || ''
+                const texture = findPreloadedTexture(texName, preloadedTextures)
+                if (texture) {
+                  mat.bumpMap = texture
+                  mat.needsUpdate = true
+                }
+              }
+
+              // map_Ks (specular)
+              const specMatch = matBlock.match(/map_Ks\s+(.+)/i)
+              if (specMatch && mat instanceof THREE.MeshPhongMaterial) {
+                const texName = specMatch[1]?.trim() || ''
+                const texture = findPreloadedTexture(texName, preloadedTextures)
+                if (texture) {
+                  mat.specularMap = texture
+                  mat.needsUpdate = true
+                }
+              }
+            }
+          }
+        }
       } catch (err) {
         console.warn('MTL 로드 실패:', err)
       }
@@ -179,12 +255,12 @@ export async function loadOBJ(
     objLoader.setMaterials(materials)
   }
 
+  // Step 3: OBJ 로드 (진행률 50-100%)
   return new Promise((resolve, reject) => {
     objLoader.load(
       url,
       (object) => {
         // OBJ 파일은 종종 Z-up 좌표계를 사용하므로 Y-up으로 변환
-        // X축을 기준으로 -90도 회전
         object.rotation.x = -Math.PI / 2
 
         // 회전 후 bounding box 재계산하여 중심 맞추기
@@ -193,6 +269,28 @@ export async function loadOBJ(
         const center = box.getCenter(new THREE.Vector3())
         object.position.sub(center)
 
+        // 자동 스케일링: 모델이 너무 작거나 클 경우 적절한 크기로 조정
+        // 4326 좌표계(위경도)처럼 매우 작은 값의 모델도 지원
+        const size = box.getSize(new THREE.Vector3())
+        const maxDim = Math.max(size.x, size.y, size.z)
+        const minDim = Math.min(size.x, size.y, size.z)
+
+        // 목표 크기: 5 단위 (카메라 기본 위치에서 잘 보이는 크기)
+        const targetSize = 5
+
+        if (maxDim > 0) {
+          // 매우 작은 모델 (예: 4326 위경도 좌표) 또는 매우 큰 모델 스케일 조정
+          if (maxDim < 0.1 || maxDim > 100) {
+            const scale = targetSize / maxDim
+            object.scale.setScalar(scale)
+            console.log(`OBJ 자동 스케일링: ${maxDim.toFixed(6)} → ${targetSize} (scale: ${scale.toFixed(4)})`)
+          } else if (maxDim > 10) {
+            // 적당히 큰 모델 (10-100 범위)
+            const scale = targetSize / maxDim
+            object.scale.setScalar(scale)
+          }
+        }
+
         // 기본 머티리얼 적용 (머티리얼이 없는 경우에만)
         object.traverse((child) => {
           if (child instanceof THREE.Mesh && !child.material) {
@@ -200,49 +298,29 @@ export async function loadOBJ(
           }
         })
 
+        onProgress?.({ loaded: 100, total: 100, percent: 100 })
+
         resolve({
           type: 'group',
           object,
           format: 'obj',
         })
       },
-      createProgressCallback(onProgress),
+      (event) => {
+        if (event.lengthComputable) {
+          // OBJ 로딩은 전체 진행률의 50-100%
+          const objPercent = Math.round((event.loaded / event.total) * 50)
+          onProgress?.({ loaded: 50 + objPercent, total: 100, percent: 50 + objPercent })
+        }
+      },
       (error) => reject(new Error(`OBJ 로드 실패: ${error}`))
     )
   })
 }
 
-// 텍스처 이름으로 blob URL 찾기
-function findTextureUrl(texName: string, textureUrls: Map<string, string>): string | null {
-  const lowerName = texName.toLowerCase()
-
-  // 정확한 매칭
-  if (textureUrls.has(lowerName)) {
-    return textureUrls.get(lowerName) || null
-  }
-
-  // 원본 케이스 매칭
-  if (textureUrls.has(texName)) {
-    return textureUrls.get(texName) || null
-  }
-
-  // 확장자 제거 후 비교
-  const nameWithoutExt = lowerName.split('.').slice(0, -1).join('.')
-  for (const [key, value] of textureUrls) {
-    const keyWithoutExt = key.toLowerCase().split('.').slice(0, -1).join('.')
-    if (keyWithoutExt === nameWithoutExt) {
-      return value
-    }
-  }
-
-  // 부분 매칭 (텍스처 이름이 파일명에 포함된 경우)
-  for (const [key, value] of textureUrls) {
-    if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
-      return value
-    }
-  }
-
-  return null
+// 정규식 특수문자 이스케이프
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // FBX 로더
@@ -474,292 +552,21 @@ export async function loadLAS(
   }
 }
 
-// E57 로더 (포인트 클라우드)
-// E57은 ASTM E2807 표준 포맷으로 XML 메타데이터 + 압축 바이너리 데이터 구조
-// 완전한 파싱은 어렵지만, 샘플링을 통해 대략적인 가시화 시도
+// E57 로더 - 브라우저에서 직접 파싱 불가
+// E57은 ASTM E2807 표준 포맷으로 압축된 바이너리 데이터 구조
+// 서버사이드 변환 서비스를 통해 PLY/LAS로 변환 후 사용해야 함
 export async function loadE57(
-  url: string,
-  onProgress?: (progress: LoadProgress) => void
+  _url: string,
+  _onProgress?: (progress: LoadProgress) => void
 ): Promise<LoadedModel> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`E57 파일 로드 실패: ${response.statusText}`)
-  }
-
-  const arrayBuffer = await response.arrayBuffer()
-  const dataView = new DataView(arrayBuffer)
-  const fileSize = arrayBuffer.byteLength
-
-  // E57 파일 시그니처 확인 (ASTM-E57)
-  const signature = String.fromCharCode(
-    dataView.getUint8(0),
-    dataView.getUint8(1),
-    dataView.getUint8(2),
-    dataView.getUint8(3),
-    dataView.getUint8(4),
-    dataView.getUint8(5),
-    dataView.getUint8(6),
-    dataView.getUint8(7)
+  // E57 파일은 브라우저에서 직접 파싱할 수 없음
+  // 변환 서비스를 통해 PLY로 변환 후 미리보기 가능
+  throw new Error(
+    'E57_CONVERSION_REQUIRED: E57 파일은 변환이 필요합니다.\n\n' +
+    '업로드 후 자동으로 PLY 형식으로 변환이 시작됩니다.\n' +
+    '변환이 완료되면 미리보기가 가능합니다.\n\n' +
+    '변환 상태는 파일 목록에서 확인할 수 있습니다.'
   )
-
-  if (!signature.startsWith('ASTM-E57')) {
-    throw new Error('유효하지 않은 E57 파일입니다.')
-  }
-
-  if (onProgress) {
-    onProgress({ loaded: 10, total: 100, percent: 10 })
-  }
-
-  // XML 섹션 파싱하여 스케일/오프셋 정보 추출 시도
-  const xmlOffset = Number(dataView.getBigUint64(24, true))
-  const xmlLength = Number(dataView.getBigUint64(32, true))
-
-  const scaleX = 0.001, scaleY = 0.001, scaleZ = 0.001
-
-  try {
-    const xmlBytes = new Uint8Array(arrayBuffer, xmlOffset, Math.min(xmlLength, fileSize - xmlOffset))
-    const xmlString = new TextDecoder('utf-8').decode(xmlBytes)
-
-    // 스케일 추출 시도
-    const scaleMatch = xmlString.match(/cartesianBounds.*?xMinimum.*?>([-\d.e+]+)/is)
-    if (scaleMatch) {
-      // 좌표 범위 추출 (향후 좌표 보정에 사용 가능)
-      void scaleMatch[1]
-    }
-  } catch {
-    // XML 파싱 실패 시 기본값 사용
-  }
-
-  if (onProgress) {
-    onProgress({ loaded: 20, total: 100, percent: 20 })
-  }
-
-  // 바이너리 데이터에서 유효한 포인트 패턴 탐색
-  // E57 데이터는 다양한 형식(float32, float64, scaled int32)으로 저장될 수 있음
-  const positions: number[] = []
-  const colors: number[] = []
-
-  let minX = Infinity, minY = Infinity, minZ = Infinity
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
-
-  // 여러 오프셋과 형식으로 포인트 데이터 탐색 시도
-  const searchStart = 48 // 헤더 이후
-  const searchEnd = Math.min(xmlOffset, fileSize)
-  const maxPoints = 500000 // 최대 포인트 수
-
-  // 방법 1: Float64 (double) 형식 탐색 (24바이트 = XYZ double)
-  let foundPoints = tryParseFloat64Points(dataView, searchStart, searchEnd, maxPoints, onProgress)
-
-  // 방법 2: Float32 형식이 더 많으면 사용
-  if (foundPoints.positions.length < 1000) {
-    foundPoints = tryParseFloat32Points(dataView, searchStart, searchEnd, maxPoints, onProgress)
-  }
-
-  // 방법 3: Scaled Int32 형식 시도
-  if (foundPoints.positions.length < 1000) {
-    foundPoints = tryParseScaledInt32Points(dataView, searchStart, searchEnd, maxPoints, scaleX, scaleY, scaleZ, onProgress)
-  }
-
-  if (foundPoints.positions.length < 100) {
-    throw new Error(
-      'E57 파일에서 포인트 데이터를 추출할 수 없습니다.\n\n' +
-      '이 파일은 압축되었거나 지원하지 않는 형식입니다.\n' +
-      '해결 방법: CloudCompare로 PLY/LAS로 변환하세요\n' +
-      'https://www.cloudcompare.org/'
-    )
-  }
-
-  // 결과 사용
-  positions.push(...foundPoints.positions)
-  minX = foundPoints.minX; minY = foundPoints.minY; minZ = foundPoints.minZ
-  maxX = foundPoints.maxX; maxY = foundPoints.maxY; maxZ = foundPoints.maxZ
-
-  // 중심 맞추기
-  const centerX = (minX + maxX) / 2
-  const centerY = (minY + maxY) / 2
-  const centerZ = (minZ + maxZ) / 2
-
-  for (let i = 0; i < positions.length; i += 3) {
-    positions[i] = (positions[i] ?? 0) - centerX
-    positions[i + 1] = (positions[i + 1] ?? 0) - centerY
-    positions[i + 2] = (positions[i + 2] ?? 0) - centerZ
-  }
-
-  // 높이 기반 색상
-  const heightRange = maxZ - minZ || 1
-  for (let i = 0; i < positions.length / 3; i++) {
-    const z = (positions[i * 3 + 2] ?? 0) + centerZ - minZ
-    const normalizedHeight = Math.max(0, Math.min(1, z / heightRange))
-
-    // 높이에 따른 그라데이션 (파랑 → 청록 → 녹색 → 노랑 → 빨강)
-    if (normalizedHeight < 0.25) {
-      colors.push(0, normalizedHeight * 4, 1)
-    } else if (normalizedHeight < 0.5) {
-      colors.push(0, 1, 1 - (normalizedHeight - 0.25) * 4)
-    } else if (normalizedHeight < 0.75) {
-      colors.push((normalizedHeight - 0.5) * 4, 1, 0)
-    } else {
-      colors.push(1, 1 - (normalizedHeight - 0.75) * 4, 0)
-    }
-  }
-
-  if (onProgress) {
-    onProgress({ loaded: 100, total: 100, percent: 100 })
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-
-  const material = new THREE.PointsMaterial({
-    size: 0.02,
-    vertexColors: true,
-    sizeAttenuation: true,
-  })
-
-  const points = new THREE.Points(geometry, material)
-
-  // 스케일 조정
-  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ)
-  if (size > 10) {
-    const scale = 5 / size
-    points.scale.setScalar(scale)
-  }
-
-  console.log(`E57: ${positions.length / 3}개 포인트 로드됨`)
-
-  return {
-    type: 'points',
-    object: points,
-    format: 'e57',
-  }
-}
-
-// Float64 (double) 포인트 탐색
-function tryParseFloat64Points(
-  dataView: DataView,
-  start: number,
-  end: number,
-  maxPoints: number,
-  onProgress?: (progress: LoadProgress) => void
-): { positions: number[], minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number } {
-  const positions: number[] = []
-  let minX = Infinity, minY = Infinity, minZ = Infinity
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
-
-  const stride = 24 // 3 * float64
-  const sampleRate = Math.max(1, Math.floor((end - start) / stride / maxPoints))
-
-  for (let offset = start; offset + 24 <= end && positions.length / 3 < maxPoints; offset += stride * sampleRate) {
-    try {
-      const x = dataView.getFloat64(offset, true)
-      const y = dataView.getFloat64(offset + 8, true)
-      const z = dataView.getFloat64(offset + 16, true)
-
-      // 유효한 좌표 범위 확인 (일반적인 측량 데이터 범위)
-      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
-      if (Math.abs(x) > 1e9 || Math.abs(y) > 1e9 || Math.abs(z) > 1e9) continue
-      if (x === 0 && y === 0 && z === 0) continue
-
-      positions.push(x, y, z)
-      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z)
-      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z)
-
-      if (onProgress && positions.length % 50000 === 0) {
-        onProgress({ loaded: 20 + (positions.length / maxPoints) * 60, total: 100, percent: 20 + Math.round((positions.length / maxPoints) * 60) })
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return { positions, minX, minY, minZ, maxX, maxY, maxZ }
-}
-
-// Float32 포인트 탐색
-function tryParseFloat32Points(
-  dataView: DataView,
-  start: number,
-  end: number,
-  maxPoints: number,
-  onProgress?: (progress: LoadProgress) => void
-): { positions: number[], minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number } {
-  const positions: number[] = []
-  let minX = Infinity, minY = Infinity, minZ = Infinity
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
-
-  const stride = 12 // 3 * float32
-  const sampleRate = Math.max(1, Math.floor((end - start) / stride / maxPoints))
-
-  for (let offset = start; offset + 12 <= end && positions.length / 3 < maxPoints; offset += stride * sampleRate) {
-    try {
-      const x = dataView.getFloat32(offset, true)
-      const y = dataView.getFloat32(offset + 4, true)
-      const z = dataView.getFloat32(offset + 8, true)
-
-      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
-      if (Math.abs(x) > 1e9 || Math.abs(y) > 1e9 || Math.abs(z) > 1e9) continue
-      if (x === 0 && y === 0 && z === 0) continue
-
-      positions.push(x, y, z)
-      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z)
-      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z)
-
-      if (onProgress && positions.length % 50000 === 0) {
-        onProgress({ loaded: 20 + (positions.length / maxPoints) * 60, total: 100, percent: 20 + Math.round((positions.length / maxPoints) * 60) })
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return { positions, minX, minY, minZ, maxX, maxY, maxZ }
-}
-
-// Scaled Int32 포인트 탐색
-function tryParseScaledInt32Points(
-  dataView: DataView,
-  start: number,
-  end: number,
-  maxPoints: number,
-  scaleX: number,
-  scaleY: number,
-  scaleZ: number,
-  onProgress?: (progress: LoadProgress) => void
-): { positions: number[], minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number } {
-  const positions: number[] = []
-  let minX = Infinity, minY = Infinity, minZ = Infinity
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
-
-  const stride = 12 // 3 * int32
-  const sampleRate = Math.max(1, Math.floor((end - start) / stride / maxPoints))
-
-  for (let offset = start; offset + 12 <= end && positions.length / 3 < maxPoints; offset += stride * sampleRate) {
-    try {
-      const ix = dataView.getInt32(offset, true)
-      const iy = dataView.getInt32(offset + 4, true)
-      const iz = dataView.getInt32(offset + 8, true)
-
-      const x = ix * scaleX
-      const y = iy * scaleY
-      const z = iz * scaleZ
-
-      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue
-      if (Math.abs(x) > 1e9 || Math.abs(y) > 1e9 || Math.abs(z) > 1e9) continue
-
-      positions.push(x, y, z)
-      minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z)
-      maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); maxZ = Math.max(maxZ, z)
-
-      if (onProgress && positions.length % 50000 === 0) {
-        onProgress({ loaded: 20 + (positions.length / maxPoints) * 60, total: 100, percent: 20 + Math.round((positions.length / maxPoints) * 60) })
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return { positions, minX, minY, minZ, maxX, maxY, maxZ }
 }
 
 // 통합 로더

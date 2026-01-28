@@ -40,6 +40,31 @@ export type Database = {
           conversion_progress: number | null
           converted_path: string | null
           conversion_error: string | null
+          // 메타데이터 (공간 정보 등)
+          metadata: {
+            spatialInfo?: {
+              epsg?: number
+              isGeographic?: boolean
+              isKoreaTM?: boolean
+              bbox?: {
+                minX: number
+                minY: number
+                minZ: number
+                maxX: number
+                maxY: number
+                maxZ: number
+              }
+              center?: {
+                x: number
+                y: number
+                z: number
+                longitude?: number
+                latitude?: number
+                altitude?: number
+              }
+              vertexCount?: number
+            }
+          } | null
           created_at: string
           updated_at: string
         }
@@ -68,6 +93,7 @@ export type Database = {
           conversion_progress?: number | null
           converted_path?: string | null
           conversion_error?: string | null
+          metadata?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -96,6 +122,7 @@ export type Database = {
           conversion_progress?: number | null
           converted_path?: string | null
           conversion_error?: string | null
+          metadata?: Json | null
           created_at?: string
           updated_at?: string
         }
