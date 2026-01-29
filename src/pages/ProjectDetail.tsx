@@ -16,14 +16,19 @@ import {
   Eye,
   X,
   ArrowLeftCircle,
+  PenTool,
+  MapPin,
 } from 'lucide-react'
 import { useProjectStore } from '@/stores/projectStore'
 import { useAssetStore } from '@/stores/assetStore'
 import { useAnnotationStore } from '@/stores/annotationStore'
 import { ProjectModal } from '@/components/project'
 import { AssetLinkModal } from '@/components/project'
-import ThreeCanvas from '@/components/viewer/ThreeCanvas'
+import ThreeCanvas, { type ClickPosition } from '@/components/viewer/ThreeCanvas'
+import { GeoViewer } from '@/components/viewer'
+import AnnotationModal from '@/components/annotation/AnnotationModal'
 import type { ProjectData, FileMetadata, AnnotationData } from '@/services/api'
+import { getFileMetadata } from '@/services/api'
 import { formatFileSize } from '@/utils/storage'
 
 type Tab = 'assets' | 'annotations' | 'viewer'
@@ -59,6 +64,17 @@ export default function ProjectDetail() {
   const [previewFile, setPreviewFile] = useState<FileMetadata | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+
+  // 3D 어노테이션 모드 상태
+  const [annotateMode, setAnnotateMode] = useState(false)
+  const [clickedPosition, setClickedPosition] = useState<ClickPosition | null>(null)
+  const [isAnnotationModalOpen, setIsAnnotationModalOpen] = useState(false)
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+
+  // 지리좌표 가시화 상태 (Cesium)
+  const [geoViewerFile, setGeoViewerFile] = useState<FileMetadata | null>(null)
+  const [geoViewerUrl, setGeoViewerUrl] = useState<string | null>(null)
+  const [geoViewerDataType, setGeoViewerDataType] = useState<'ply' | '3dtiles' | 'glb'>('glb')
 
   // 데이터 로드
   useEffect(() => {
@@ -149,12 +165,91 @@ export default function ProjectDetail() {
     return FolderOpen
   }
 
+  // 지리좌표 기반 가시화 (Cesium)
+  const handleGeoView = useCallback(async (file: FileMetadata) => {
+    if (file.conversionStatus !== 'ready' || !file.convertedPath) {
+      alert('지리 좌표 가시화는 변환이 완료된 파일만 지원합니다.')
+      return
+    }
+
+    const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+
+    let dataUrl: string
+    let dataType: 'ply' | '3dtiles' | 'glb'
+
+    if (file.format === 'e57') {
+      const filename = file.convertedPath.split('/').pop() || ''
+      dataUrl = `${converterUrl}/output/${filename}`
+      dataType = 'ply'
+    } else if (['obj', 'gltf', 'glb'].includes(file.format)) {
+      // OBJ/GLTF → GLB Entity로 직접 로드 (3D Tiles보다 간단하고 텍스처 유지 쉬움)
+      const dirName = file.convertedPath.split('/').pop() || ''
+      const baseName = dirName.replace('_3dtiles', '')
+      dataUrl = `${converterUrl}/output/${dirName}/${baseName}.glb`
+      dataType = 'glb'
+    } else {
+      alert('지리 좌표 가시화를 지원하지 않는 파일 형식입니다.')
+      return
+    }
+
+    console.log('GeoView:', { file: file.name, dataUrl, dataType, spatialInfo: file.spatialInfo })
+
+    setGeoViewerFile(file)
+    setGeoViewerUrl(dataUrl)
+    setGeoViewerDataType(dataType)
+  }, [])
+
+  // 지리좌표 가시화 닫기
+  const closeGeoViewer = useCallback(() => {
+    setGeoViewerFile(null)
+    setGeoViewerUrl(null)
+  }, [])
+
   // 3D 미리보기
   const handlePreview = useCallback(async (file: FileMetadata) => {
+    console.log('[handlePreview] 파일:', file.name, '포맷:', file.format)
+    console.log('[handlePreview] 변환상태:', file.conversionStatus, '변환경로:', file.convertedPath)
+
     const is3DFormat = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)
     if (!is3DFormat) {
       alert('3D 미리보기는 GLTF, GLB, OBJ, FBX, PLY, LAS 파일만 지원합니다.')
       return
+    }
+
+    // 최신 파일 메타데이터 조회
+    let currentFile = file
+    try {
+      const freshMetadata = await getFileMetadata(file.id)
+      if (freshMetadata) {
+        currentFile = freshMetadata
+      }
+    } catch (err) {
+      console.warn('파일 메타데이터 조회 실패, 캐시된 데이터 사용:', err)
+    }
+
+    // 지리좌표 데이터 자동 감지 → Cesium으로 라우팅
+    const hasGeoConversion = currentFile.conversionStatus === 'ready' &&
+      currentFile.convertedPath &&
+      ['e57', 'obj'].includes(currentFile.format)
+
+    if (hasGeoConversion) {
+      // 지리좌표 감지: isGeographic 플래그 또는 bbox 값으로 판단
+      const isGeographicData = currentFile.spatialInfo?.isGeographic === true
+
+      // bbox가 WGS84 범위인지 확인 (경도: -180~180, 위도: -90~90)
+      const bbox = currentFile.spatialInfo?.bbox
+      const isWGS84FromBbox = bbox && (
+        (Math.abs(bbox.minX) <= 180 && Math.abs(bbox.maxX) <= 180) &&
+        (Math.abs(bbox.minY) <= 90 && Math.abs(bbox.maxY) <= 90) &&
+        // X/Y 범위가 매우 작음 (도 단위 = 작은 영역)
+        (Math.abs(bbox.maxX - bbox.minX) < 1 && Math.abs(bbox.maxY - bbox.minY) < 1)
+      )
+
+      if (isGeographicData || isWGS84FromBbox) {
+        console.log('지리좌표 데이터 감지 → Cesium 뷰어로 라우팅:', currentFile.name, { isGeographicData, isWGS84FromBbox, bbox })
+        handleGeoView(currentFile)
+        return
+      }
     }
 
     // 변환이 필요한 파일 처리 (E57, OBJ 등)
@@ -176,6 +271,7 @@ export default function ProjectDetail() {
           convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
           fileExtHint = 'glb'
         }
+        console.log('[handlePreview] 변환된 파일 URL:', convertedFileUrl)
 
         // 이전 미리보기 정리
         if (previewUrl) {
@@ -241,7 +337,7 @@ export default function ProjectDetail() {
     } finally {
       setIsLoadingPreview(false)
     }
-  }, [getFileBlob, previewUrl])
+  }, [getFileBlob, previewUrl, handleGeoView])
 
   // 미리보기 닫기
   const closePreview = useCallback(() => {
@@ -253,7 +349,35 @@ export default function ProjectDetail() {
     }
     setPreviewFile(null)
     setPreviewUrl(null)
+    setAnnotateMode(false)
+    setSelectedAnnotationId(null)
   }, [previewUrl])
+
+  // 3D 클릭으로 어노테이션 생성
+  const handlePointClick = useCallback((position: ClickPosition) => {
+    setClickedPosition(position)
+    setIsAnnotationModalOpen(true)
+  }, [])
+
+  // 어노테이션 생성 제출
+  const handleAnnotationSubmit = async (
+    data: Omit<AnnotationData, 'id' | 'createdAt' | 'updatedAt'>
+  ) => {
+    const { createAnnotation } = useAnnotationStore.getState()
+    await createAnnotation(data)
+    // 어노테이션 목록 새로고침
+    if (projectId) {
+      const annotationsData = await fetchAnnotationsByProject(projectId)
+      setAnnotations(annotationsData)
+    }
+    setClickedPosition(null)
+    setAnnotateMode(false)
+  }
+
+  // 어노테이션 클릭 (3D 마커 클릭)
+  const handleAnnotationClick = useCallback((annotation: AnnotationData) => {
+    setSelectedAnnotationId(annotation.id)
+  }, [])
 
   if (isLoading) {
     return (
@@ -491,17 +615,35 @@ export default function ProjectDetail() {
               </div>
             ) : (
               <div className="space-y-2">
-                {annotations.map((annotation) => (
+                {annotations.map((annotation) => {
+                  const has3DPosition = annotation.position !== null
+                  return (
                   <div
                     key={annotation.id}
-                    className="p-4 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors"
+                    onClick={() => {
+                      if (has3DPosition && previewFile) {
+                        setSelectedAnnotationId(annotation.id)
+                        setActiveTab('viewer')
+                      }
+                    }}
+                    className={`p-4 bg-slate-800/50 rounded-lg hover:bg-slate-800 transition-colors ${
+                      has3DPosition && previewFile ? 'cursor-pointer' : ''
+                    } ${selectedAnnotationId === annotation.id ? 'ring-2 ring-blue-500' : ''}`}
                   >
                     <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-medium text-white">{annotation.title}</h3>
-                        {annotation.description && (
-                          <p className="text-sm text-slate-400 mt-1">{annotation.description}</p>
+                      <div className="flex items-start gap-2">
+                        {has3DPosition && (
+                          <MapPin size={16} className="text-blue-400 mt-1 flex-shrink-0" />
                         )}
+                        <div>
+                          <h3 className="font-medium text-white">{annotation.title}</h3>
+                          {annotation.description && (
+                            <p className="text-sm text-slate-400 mt-1">{annotation.description}</p>
+                          )}
+                          {has3DPosition && previewFile && (
+                            <p className="text-xs text-blue-400 mt-1">클릭하여 3D 위치 보기</p>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span
@@ -533,7 +675,8 @@ export default function ProjectDetail() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -565,17 +708,48 @@ export default function ProjectDetail() {
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      closePreview()
-                      setActiveTab('assets')
-                    }}
-                    className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                    title="닫기"
-                  >
-                    <X size={20} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {/* 어노테이션 모드 토글 버튼 */}
+                    <button
+                      onClick={() => setAnnotateMode(!annotateMode)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                        annotateMode
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}
+                      title={annotateMode ? '어노테이션 모드 해제' : '어노테이션 모드 활성화'}
+                    >
+                      <PenTool size={16} />
+                      <span className="text-sm">어노테이션</span>
+                    </button>
+                    {/* 어노테이션 개수 표시 */}
+                    {annotations.length > 0 && (
+                      <span className="flex items-center gap-1 px-2 py-1 bg-slate-700 rounded text-xs text-slate-300">
+                        <MapPin size={12} />
+                        {annotations.filter(a => a.position).length}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => {
+                        closePreview()
+                        setActiveTab('assets')
+                      }}
+                      className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                      title="닫기"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
                 </div>
+                {/* 어노테이션 모드 안내 */}
+                {annotateMode && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-600/20 border-b border-blue-600/30">
+                    <PenTool size={14} className="text-blue-400" />
+                    <span className="text-sm text-blue-300">
+                      모델을 클릭하여 어노테이션을 추가하세요
+                    </span>
+                  </div>
+                )}
                 {/* 3D 뷰어 */}
                 <div className="flex-1 min-h-[500px] relative">
                   {isLoadingPreview ? (
@@ -586,7 +760,15 @@ export default function ProjectDetail() {
                       </div>
                     </div>
                   ) : previewUrl ? (
-                    <ThreeCanvas modelUrl={previewUrl} modelFormat={previewFile.format} />
+                    <ThreeCanvas
+                      modelUrl={previewUrl}
+                      modelFormat={previewFile.format}
+                      annotateMode={annotateMode}
+                      onPointClick={handlePointClick}
+                      annotations={annotations}
+                      selectedAnnotationId={selectedAnnotationId}
+                      onAnnotationClick={handleAnnotationClick}
+                    />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center text-slate-500">
                       <span>파일을 로드할 수 없습니다</span>
@@ -621,6 +803,30 @@ export default function ProjectDetail() {
         projectId={project.id}
         onLinked={handleAssetLinked}
       />
+
+      {/* 3D 어노테이션 생성 모달 */}
+      <AnnotationModal
+        isOpen={isAnnotationModalOpen}
+        onClose={() => {
+          setIsAnnotationModalOpen(false)
+          setClickedPosition(null)
+        }}
+        onSubmit={handleAnnotationSubmit}
+        title="3D 어노테이션 추가"
+        projectId={project.id}
+        initialPosition={clickedPosition}
+      />
+
+      {/* 지리좌표 기반 가시화 (Cesium) */}
+      {geoViewerFile && geoViewerUrl && (
+        <GeoViewer
+          dataUrl={geoViewerUrl}
+          dataType={geoViewerDataType}
+          spatialInfo={geoViewerFile.spatialInfo}
+          fileName={geoViewerFile.name}
+          onClose={closeGeoViewer}
+        />
+      )}
 
       {/* 삭제 확인 모달 */}
       {deleteConfirm && (

@@ -7,21 +7,17 @@ import {
   Viewer as CesiumViewer,
   Cartesian3,
   Color,
-  OpenStreetMapImageryProvider,
   Cesium3DTileset,
   HeadingPitchRange,
   Math as CesiumMath,
-  IonResource,
-  Resource,
-  PointPrimitiveCollection,
-  PointPrimitive,
-  BoundingSphere,
   Transforms,
-  Matrix4,
   HeadingPitchRoll,
+  Ion,
+  createWorldImageryAsync,
 } from 'cesium'
-import { AlertTriangle, Loader2, Globe, Box, Map } from 'lucide-react'
+import { AlertTriangle, Loader2, Globe, Box, Map, RotateCw } from 'lucide-react'
 import type { SpatialInfo } from '@/services/api'
+import type { Entity } from 'cesium'
 
 interface GeoViewerProps {
   // 데이터 URL (PLY, 3D Tiles tileset.json 등)
@@ -45,9 +41,11 @@ export default function GeoViewer({
 }: GeoViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CesiumViewer | null>(null)
+  const entityRef = useRef<Entity | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadingStatus, setLoadingStatus] = useState('지도 초기화 중...')
   const [error, setError] = useState<string | null>(null)
+  const [heading, setHeading] = useState(0) // 모델 방향 (도 단위)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -59,29 +57,35 @@ export default function GeoViewer({
       try {
         setLoadingStatus('Cesium 초기화 중...')
 
-        // OpenStreetMap 이미저리 프로바이더
-        const osmProvider = new OpenStreetMapImageryProvider({
-          url: 'https://tile.openstreetmap.org/',
-        })
+        // Cesium Ion 토큰 설정 (환경변수에서 가져오거나 비활성화)
+        const ionToken = import.meta.env.VITE_CESIUM_ION_TOKEN
+        if (ionToken) {
+          Ion.defaultAccessToken = ionToken
+        }
 
-        // Cesium Viewer 생성
+        // Cesium Viewer 생성 (Ion 토큰 없으면 기본 이미지 사용)
         viewer = new CesiumViewer(containerRef.current!, {
           timeline: false,
           animation: false,
           homeButton: true,
           sceneModePicker: true,
-          baseLayerPicker: false,
+          baseLayerPicker: false, // Ion 없이는 비활성화
           navigationHelpButton: false,
           fullscreenButton: false,
           geocoder: false,
           infoBox: true,
           selectionIndicator: true,
-          baseLayer: false,
+          imageryProvider: ionToken ? undefined : false, // Ion 없으면 이미지 비활성화
+          terrainProvider: undefined, // 지형 비활성화 (성능)
         })
 
-        // OSM 레이어 추가
-        viewer.imageryLayers.addImageryProvider(osmProvider)
         viewerRef.current = viewer
+
+        // Ion 토큰 없으면 지구 표면 색상 설정
+        if (!ionToken) {
+          viewer.scene.globe.baseColor = Color.fromCssColorString('#2d4a5e')
+        }
+        viewer.scene.backgroundColor = Color.fromCssColorString('#0f0f1a')
 
         // 초기 카메라 위치 (대한민국 중심 또는 데이터 중심)
         // center에 longitude/latitude가 없으면 기본 위치 사용
@@ -105,7 +109,8 @@ export default function GeoViewer({
         if (dataType === '3dtiles') {
           await load3DTiles(viewer, dataUrl, spatialInfo)
         } else if (dataType === 'glb') {
-          await loadGLB(viewer, dataUrl, spatialInfo)
+          const entity = await loadGLB(viewer, dataUrl, spatialInfo, 0)
+          entityRef.current = entity
         } else if (dataType === 'ply') {
           // PLY는 현재 직접 지원하지 않음, 3D Tiles로 변환 필요
           setError('PLY 파일의 지리 가시화는 3D Tiles 변환 후 지원됩니다.')
@@ -130,8 +135,37 @@ export default function GeoViewer({
         viewer.destroy()
       }
       viewerRef.current = null
+      entityRef.current = null
     }
   }, [dataUrl, dataType, spatialInfo])
+
+  // heading 변경 시 Entity orientation 업데이트
+  useEffect(() => {
+    const entity = entityRef.current
+    const viewer = viewerRef.current
+    if (!entity || !viewer || dataType !== 'glb') return
+
+    // 위치 정보 가져오기
+    const hasGeoCenter = spatialInfo?.center?.longitude !== undefined && spatialInfo?.center?.latitude !== undefined
+    const longitude = hasGeoCenter ? spatialInfo!.center!.longitude! : 127.0
+    const latitude = hasGeoCenter ? spatialInfo!.center!.latitude! : 36.5
+    let altitude = 0
+    if (spatialInfo?.bbox) {
+      const modelHeightM = Math.abs(spatialInfo.bbox.maxZ - spatialInfo.bbox.minZ)
+      altitude = modelHeightM / 2
+    }
+
+    const position = Cartesian3.fromDegrees(longitude, latitude, altitude)
+    const headingRad = CesiumMath.toRadians(heading)
+    const orientation = Transforms.headingPitchRollQuaternion(
+      position,
+      new HeadingPitchRoll(headingRad, 0, 0)
+    )
+
+    // Entity orientation 업데이트
+    entity.orientation = orientation as any
+    console.log('Heading updated:', heading, 'degrees')
+  }, [heading, dataType, spatialInfo])
 
   return (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
@@ -168,6 +202,23 @@ export default function GeoViewer({
               <div className="flex items-center gap-2 text-xs text-yellow-400">
                 <AlertTriangle size={14} />
                 <span>지리 좌표 정보 없음 (기본 위치에 표시)</span>
+              </div>
+            )}
+            {/* 방향 조정 슬라이더 (GLB만 지원) */}
+            {dataType === 'glb' && !isLoading && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-lg">
+                <RotateCw size={14} className="text-slate-400" />
+                <span className="text-xs text-slate-400 w-12">방향</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="5"
+                  value={heading}
+                  onChange={(e) => setHeading(Number(e.target.value))}
+                  className="w-24 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <span className="text-xs text-slate-300 w-10 text-right">{heading}°</span>
               </div>
             )}
             {onClose && (
@@ -220,34 +271,97 @@ async function load3DTiles(
   spatialInfo?: SpatialInfo
 ) {
   try {
-    console.log('Loading 3D Tiles from:', url)
-    console.log('Spatial info:', spatialInfo)
+    console.log('=== Loading 3D Tiles ===')
+    console.log('URL:', url)
+    console.log('Spatial info:', JSON.stringify(spatialInfo, null, 2))
 
-    // 3D Tileset 로드
+    // tileset.json 내용 확인
+    try {
+      const tilesetResponse = await fetch(url)
+      const tilesetJson = await tilesetResponse.json()
+      console.log('tileset.json content:', JSON.stringify(tilesetJson, null, 2))
+      console.log('Has root transform:', !!tilesetJson.root?.transform)
+      console.log('Bounding volume:', tilesetJson.root?.boundingVolume)
+    } catch (e) {
+      console.warn('Could not fetch tileset.json for debugging:', e)
+    }
+
+    // 3D Tileset 로드 (fromUrl은 이미 ready 상태의 tileset을 반환)
     const tileset = await Cesium3DTileset.fromUrl(url)
+
+    // 타일 로드 에러 캡처
+    tileset.tileFailed.addEventListener((event: { url: string; message: string }) => {
+      console.error('Tile failed to load:', event.url, event.message)
+    })
+
+    tileset.tileLoad.addEventListener((tile: { content?: { url?: string } }) => {
+      console.log('Tile loaded:', tile.content?.url)
+    })
+
     viewer.scene.primitives.add(tileset)
 
-    // tileset.json에 transform이 있으면 Cesium이 자동으로 적용
-    // spatialInfo가 있으면 카메라 위치로만 사용
-    const hasGeoCenter = spatialInfo?.center?.longitude !== undefined && spatialInfo?.center?.latitude !== undefined
-    const longitude = hasGeoCenter ? spatialInfo!.center!.longitude! : 127.0
-    const latitude = hasGeoCenter ? spatialInfo!.center!.latitude! : 36.5
-    const altitude = spatialInfo?.center?.altitude ?? 100
+    console.log('Tileset loaded and ready')
+    console.log('Tileset bounding sphere center:', tileset.boundingSphere.center)
+    console.log('Tileset bounding sphere radius:', tileset.boundingSphere.radius)
+    console.log('Tileset root transform:', tileset.root?.transform)
+    console.log('Tileset root boundingVolume:', tileset.root?.boundingVolume)
 
-    console.log('Camera target:', { longitude, latitude, altitude, hasGeoCenter })
+    // 바운딩 스피어 반지름이 유효한지 확인
+    const radius = tileset.boundingSphere.radius
+    if (radius <= 0 || !isFinite(radius)) {
+      console.warn('Invalid bounding sphere radius, using default zoom')
+      // 좌표 정보가 있으면 해당 위치로 이동
+      if (spatialInfo?.center?.longitude && spatialInfo?.center?.latitude) {
+        viewer.camera.flyTo({
+          destination: Cartesian3.fromDegrees(
+            spatialInfo.center.longitude,
+            spatialInfo.center.latitude,
+            500 // 500m 고도
+          ),
+          duration: 2,
+        })
+      }
+      return tileset
+    }
 
-    // 타일셋 바운딩 볼륨 확인 및 자동 줌
-    tileset.readyEvent.addEventListener(() => {
-      console.log('Tileset ready')
-      console.log('Tileset bounding sphere:', tileset.boundingSphere)
-      console.log('Tileset root transform:', tileset.root?.transform)
+    // 줌 거리 계산 - 모델 크기에 비례하되 최소/최대 제한
+    // 작은 모델(20m)의 경우 너무 멀리 떨어지지 않도록
+    let zoomDistance = radius * 3
+    zoomDistance = Math.max(zoomDistance, 200) // 최소 200m (더 여유있게)
+    zoomDistance = Math.min(zoomDistance, 10000) // 최대 10km
 
-      // 타일셋의 실제 바운딩 영역으로 자동 줌
-      viewer.zoomTo(tileset, new HeadingPitchRange(
+    console.log('Calculated zoom distance:', zoomDistance)
+
+    // 타일셋의 실제 바운딩 영역으로 자동 줌
+    try {
+      await viewer.zoomTo(tileset, new HeadingPitchRange(
         CesiumMath.toRadians(0),
-        CesiumMath.toRadians(-45),
-        tileset.boundingSphere.radius * 3
+        CesiumMath.toRadians(-30), // 더 위에서 내려다봄
+        zoomDistance
       ))
+      console.log('Camera zoomed to tileset successfully')
+    } catch (zoomError) {
+      console.error('zoomTo failed:', zoomError)
+      // 직접 카메라 이동 시도
+      if (spatialInfo?.center?.longitude && spatialInfo?.center?.latitude) {
+        console.log('Falling back to direct camera flyTo')
+        viewer.camera.flyTo({
+          destination: Cartesian3.fromDegrees(
+            spatialInfo.center.longitude,
+            spatialInfo.center.latitude,
+            zoomDistance
+          ),
+          duration: 2,
+        })
+      }
+    }
+
+    // 카메라 현재 위치 로그
+    const cameraPos = viewer.camera.positionCartographic
+    console.log('Camera position (cartographic):', {
+      longitude: CesiumMath.toDegrees(cameraPos.longitude),
+      latitude: CesiumMath.toDegrees(cameraPos.latitude),
+      height: cameraPos.height
     })
 
     return tileset
@@ -259,41 +373,60 @@ async function load3DTiles(
 
 /**
  * GLB 모델 로드 (Entity API 사용)
+ *
+ * WGS84 변환된 GLB 모델:
+ * - 좌표가 로컬 미터 단위로 변환됨 (중심점 기준)
+ * - gltf-transform center로 센터링됨 (원점 중심)
+ * - 스케일 1.0으로 사용 (이미 미터 단위)
  */
 async function loadGLB(
   viewer: CesiumViewer,
   url: string,
-  spatialInfo?: SpatialInfo
+  spatialInfo?: SpatialInfo,
+  headingDeg: number = 0  // 방향 (도 단위)
 ) {
   try {
     console.log('=== Loading GLB ===')
     console.log('URL:', url)
     console.log('Spatial info:', JSON.stringify(spatialInfo, null, 2))
+    console.log('Heading:', headingDeg, 'degrees')
 
     // 위치 결정 (center.longitude/latitude가 있으면 사용, 없으면 기본값)
     const hasGeoCenter = spatialInfo?.center?.longitude !== undefined && spatialInfo?.center?.latitude !== undefined
     const longitude = hasGeoCenter ? spatialInfo!.center!.longitude! : 127.0
     const latitude = hasGeoCenter ? spatialInfo!.center!.latitude! : 36.5
-    // 고도: 지표면 위에 모델 배치 (기본 10m, 너무 높으면 안보임)
-    const altitude = spatialInfo?.center?.altitude ?? 10
 
-    console.log('GLB positioning at:', { longitude, latitude, altitude, hasGeoCenter })
+    // 고도 계산
+    // WGS84 변환된 GLB는 센터링되어 있으므로, 건물 높이의 절반만큼 올려서 바닥이 지면에 닿도록
+    let altitude = 0
+    let modelHeightM = 0
+
+    if (spatialInfo?.bbox) {
+      // bbox.maxZ - bbox.minZ = 높이 (이미 미터 단위)
+      modelHeightM = Math.abs(spatialInfo.bbox.maxZ - spatialInfo.bbox.minZ)
+      altitude = modelHeightM / 2  // 센터링된 모델의 바닥이 지면에 닿도록
+    }
+
+    console.log('GLB positioning at:', { longitude, latitude, altitude, modelHeightM, hasGeoCenter })
 
     const position = Cartesian3.fromDegrees(longitude, latitude, altitude)
 
-    const heading = CesiumMath.toRadians(0)
+    const headingRad = CesiumMath.toRadians(headingDeg)
     const pitch = 0
     const roll = 0
     const orientation = Transforms.headingPitchRollQuaternion(
       position,
-      new HeadingPitchRoll(heading, pitch, roll)
+      new HeadingPitchRoll(headingRad, pitch, roll)
     )
 
     // 모델 스케일 계산
-    // 변환된 GLB는 이미 정규화된 좌표를 가지므로 스케일 조정이 필요할 수 있음
     let modelScale = 1.0
 
-    if (spatialInfo?.bbox) {
+    if (spatialInfo?.isGeographic && spatialInfo?.bbox) {
+      // WGS84 변환된 GLB: 이미 미터 단위로 변환됨, 스케일 1.0 사용
+      modelScale = 1.0
+      console.log('WGS84 converted GLB: scale=1.0 (already in meters)')
+    } else if (spatialInfo?.bbox) {
       const bboxWidth = Math.abs(spatialInfo.bbox.maxX - spatialInfo.bbox.minX)
       const bboxHeight = Math.abs(spatialInfo.bbox.maxY - spatialInfo.bbox.minY)
       const bboxDepth = Math.abs(spatialInfo.bbox.maxZ - spatialInfo.bbox.minZ)
@@ -301,16 +434,10 @@ async function loadGLB(
 
       console.log('BBox dimensions:', { bboxWidth, bboxHeight, bboxDepth, maxDim })
 
-      // GLB는 obj2gltf에서 Y-up으로 변환됨
-      // Korea TM 좌표계 (bbox가 큰 미터 단위)인 경우 스케일 조정
-      if (spatialInfo.isKoreaTM || (!spatialInfo.isGeographic && maxDim > 1000)) {
-        // 모델 크기를 적당한 크기로 스케일링 (100m 정도로)
-        modelScale = 100 / maxDim
-        console.log('Korea TM scale applied:', modelScale)
-      } else if (maxDim > 100) {
-        // 일반적인 큰 모델
-        modelScale = 50 / maxDim
-        console.log('Large model scale applied:', modelScale)
+      // Korea TM 좌표계 (bbox가 큰 미터 단위)인 경우
+      if (spatialInfo.isKoreaTM || maxDim > 1000) {
+        modelScale = 1.0  // 미터 단위 그대로 사용
+        console.log('Korea TM or large model: scale=1.0')
       } else if (maxDim < 1) {
         // 매우 작은 모델 (정규화된 경우)
         modelScale = 50
@@ -318,7 +445,7 @@ async function loadGLB(
       }
     } else {
       // bbox가 없으면 기본 스케일 사용
-      modelScale = 10
+      modelScale = 1.0
       console.log('Default scale applied (no bbox):', modelScale)
     }
 

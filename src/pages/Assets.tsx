@@ -272,6 +272,43 @@ export default function Assets() {
     }
   }, [getFileBlob])
 
+  // 지리좌표 기반 가시화 (Cesium)
+  const handleGeoView = useCallback(async (file: FileMetadata) => {
+    // 변환 완료된 파일만 지원
+    if (file.conversionStatus !== 'ready' || !file.convertedPath) {
+      alert('지리 좌표 가시화는 변환이 완료된 파일만 지원합니다.')
+      return
+    }
+
+    const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+
+    let dataUrl: string
+    let dataType: 'ply' | '3dtiles' | 'glb'
+
+    if (file.format === 'e57') {
+      // E57 → PLY (현재 PLY는 Cesium에서 직접 지원하지 않음)
+      const filename = file.convertedPath.split('/').pop() || ''
+      dataUrl = `${converterUrl}/output/${filename}`
+      dataType = 'ply'
+    } else if (['obj', 'gltf', 'glb'].includes(file.format)) {
+      // OBJ/GLTF → GLB Entity로 직접 로드 (3D Tiles보다 간단하고 텍스처 유지 쉬움)
+      const dirName = file.convertedPath.split('/').pop() || ''
+      // GLB 파일명: 원본 파일명.glb (예: samyang_3dtiles 폴더 내 samyang.glb)
+      const baseName = dirName.replace('_3dtiles', '')
+      dataUrl = `${converterUrl}/output/${dirName}/${baseName}.glb`
+      dataType = 'glb'
+    } else {
+      alert('지리 좌표 가시화를 지원하지 않는 파일 형식입니다.')
+      return
+    }
+
+    console.log('GeoView:', { file: file.name, dataUrl, dataType, spatialInfo: file.spatialInfo })
+
+    setGeoViewerFile(file)
+    setGeoViewerUrl(dataUrl)
+    setGeoViewerDataType(dataType)
+  }, [])
+
   // 3D 파일 미리보기
   const handlePreview = useCallback(async (file: FileMetadata) => {
     // 3D 파일 포맷인지 확인
@@ -279,6 +316,42 @@ export default function Assets() {
     if (!is3DFormat) {
       alert('3D 미리보기는 GLTF, GLB, OBJ, FBX, PLY, LAS 파일만 지원합니다.')
       return
+    }
+
+    // 최신 파일 메타데이터 조회
+    let currentFile = file
+    try {
+      const freshMetadata = await getFileMetadata(file.id)
+      if (freshMetadata) {
+        currentFile = freshMetadata
+      }
+    } catch (err) {
+      console.warn('파일 메타데이터 조회 실패, 캐시된 데이터 사용:', err)
+    }
+
+    // 지리좌표 데이터 자동 감지 → Cesium으로 라우팅
+    const hasGeoConversion = currentFile.conversionStatus === 'ready' &&
+      currentFile.convertedPath &&
+      ['e57', 'obj'].includes(currentFile.format)
+
+    if (hasGeoConversion) {
+      // 지리좌표 감지: isGeographic 플래그 또는 bbox 값으로 판단
+      const isGeographicData = currentFile.spatialInfo?.isGeographic === true
+
+      // bbox가 WGS84 범위인지 확인 (경도: -180~180, 위도: -90~90)
+      const bbox = currentFile.spatialInfo?.bbox
+      const isWGS84FromBbox = bbox && (
+        (Math.abs(bbox.minX) <= 180 && Math.abs(bbox.maxX) <= 180) &&
+        (Math.abs(bbox.minY) <= 90 && Math.abs(bbox.maxY) <= 90) &&
+        // X/Y 범위가 매우 작음 (도 단위 = 작은 영역)
+        (Math.abs(bbox.maxX - bbox.minX) < 1 && Math.abs(bbox.maxY - bbox.minY) < 1)
+      )
+
+      if (isGeographicData || isWGS84FromBbox) {
+        console.log('지리좌표 데이터 감지 → Cesium 뷰어로 라우팅:', currentFile.name, { isGeographicData, isWGS84FromBbox, bbox })
+        handleGeoView(currentFile)
+        return
+      }
     }
 
     // E57은 브라우저에서 직접 로드 불가 - 반드시 변환 필요
@@ -503,7 +576,7 @@ export default function Assets() {
     } finally {
       setIsLoadingPreview(false)
     }
-  }, [getFileBlob, getRelatedFileBlobs, previewUrl])
+  }, [getFileBlob, getRelatedFileBlobs, previewUrl, handleGeoView])
 
   // 미리보기 닫기
   const closePreview = useCallback(() => {
@@ -519,43 +592,6 @@ export default function Assets() {
     setPreviewActualFormat(null)
     setPreviewRelatedFiles([])
   }, [previewUrl])
-
-  // 지리좌표 기반 가시화 (Cesium)
-  const handleGeoView = useCallback(async (file: FileMetadata) => {
-    // 변환 완료된 파일만 지원
-    if (file.conversionStatus !== 'ready' || !file.convertedPath) {
-      alert('지리 좌표 가시화는 변환이 완료된 파일만 지원합니다.')
-      return
-    }
-
-    const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
-
-    let dataUrl: string
-    let dataType: 'ply' | '3dtiles' | 'glb'
-
-    if (file.format === 'e57') {
-      // E57 → PLY (현재 PLY는 Cesium에서 직접 지원하지 않음)
-      // 포인트 클라우드는 Cesium에서 별도 처리 필요
-      const filename = file.convertedPath.split('/').pop() || ''
-      dataUrl = `${converterUrl}/output/${filename}`
-      dataType = 'ply'
-    } else if (['obj', 'gltf', 'glb'].includes(file.format)) {
-      // OBJ/GLTF → 3D Tiles 로드 (tileset.json 사용)
-      // tileset.json에 region과 transform이 포함되어 지리 좌표 지원
-      const dirName = file.convertedPath.split('/').pop() || ''
-      dataUrl = `${converterUrl}/output/${dirName}/tileset.json`
-      dataType = '3dtiles'
-    } else {
-      alert('지리 좌표 가시화를 지원하지 않는 파일 형식입니다.')
-      return
-    }
-
-    console.log('GeoView:', { file: file.name, dataUrl, dataType, spatialInfo: file.spatialInfo })
-
-    setGeoViewerFile(file)
-    setGeoViewerUrl(dataUrl)
-    setGeoViewerDataType(dataType)
-  }, [])
 
   // 지리좌표 가시화 닫기
   const closeGeoViewer = useCallback(() => {

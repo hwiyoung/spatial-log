@@ -80,6 +80,7 @@ function createProgressCallback(
   }
 }
 
+
 // GLTF/GLB 로더
 export async function loadGLTF(
   url: string,
@@ -110,26 +111,28 @@ export async function loadGLTF(
           console.warn('Model has zero size!')
         }
 
-        gltf.scene.position.sub(center)
-
-        // 자동 스케일링: 모델이 너무 작거나 클 경우 적절한 크기로 조정
-        // WGS84 좌표계(경위도) 모델은 매우 작은 값을 가질 수 있음
-        const maxDim = Math.max(size.x, size.y, size.z)
         const targetSize = 5 // 목표 크기 (카메라 기본 위치에서 잘 보이는 크기)
 
+        // 균일 스케일링 - 모든 모델에 동일하게 적용
+        const maxDim = Math.max(size.x, size.y, size.z)
+        let scale = 1
+
         if (maxDim > 0) {
-          if (maxDim < 0.1 || maxDim > 100) {
-            // 매우 작거나 큰 모델 스케일 조정
-            const scale = targetSize / maxDim
-            gltf.scene.scale.setScalar(scale)
-            console.log(`GLTF 자동 스케일링: ${maxDim.toFixed(6)} → ${targetSize} (scale: ${scale.toFixed(4)})`)
-          } else if (maxDim > 10) {
-            // 적당히 큰 모델 (10-100 범위)
-            const scale = targetSize / maxDim
-            gltf.scene.scale.setScalar(scale)
-            console.log(`GLTF 적당히 큰 모델 스케일링: scale=${scale.toFixed(4)}`)
-          }
+          scale = targetSize / maxDim
+          console.log(`GLTF 스케일링: maxDim=${maxDim.toFixed(6)} → ${targetSize} (scale: ${scale.toFixed(6)})`)
         }
+
+        // 스케일 적용
+        gltf.scene.scale.setScalar(scale)
+
+        // 스케일 적용 후 bounding box 재계산하여 정확한 센터링
+        gltf.scene.updateMatrixWorld(true)
+        const scaledBox = new THREE.Box3().setFromObject(gltf.scene)
+        const scaledCenter = scaledBox.getCenter(new THREE.Vector3())
+
+        gltf.scene.position.sub(scaledCenter)
+
+        console.log(`최종 위치: (${gltf.scene.position.x.toFixed(4)}, ${gltf.scene.position.y.toFixed(4)}, ${gltf.scene.position.z.toFixed(4)})`)
 
         // URL에서 query string 제거 후 확장자 확인
         const urlWithoutQuery = url.split('?')[0] || url
@@ -260,34 +263,80 @@ export async function loadOBJ(
     objLoader.load(
       url,
       (object) => {
-        // OBJ 파일은 종종 Z-up 좌표계를 사용하므로 Y-up으로 변환
-        object.rotation.x = -Math.PI / 2
+        // 먼저 원본 좌표 상태에서 WGS84 감지 (회전 전)
+        const originalBox = new THREE.Box3().setFromObject(object)
+        const originalSize = originalBox.getSize(new THREE.Vector3())
+        const originalCenter = originalBox.getCenter(new THREE.Vector3())
 
-        // 회전 후 bounding box 재계산하여 중심 맞추기
-        object.updateMatrixWorld(true)
-        const box = new THREE.Box3().setFromObject(object)
-        const center = box.getCenter(new THREE.Vector3())
-        object.position.sub(center)
+        console.log('OBJ 원본 크기:', originalSize.x, originalSize.y, originalSize.z)
+        console.log('OBJ 원본 중심:', originalCenter.x, originalCenter.y, originalCenter.z)
 
-        // 자동 스케일링: 모델이 너무 작거나 클 경우 적절한 크기로 조정
-        // 4326 좌표계(위경도)처럼 매우 작은 값의 모델도 지원
-        const size = box.getSize(new THREE.Vector3())
-        const maxDim = Math.max(size.x, size.y, size.z)
-        const minDim = Math.min(size.x, size.y, size.z)
+        // OBJ는 보통 Z-up이므로 WGS84일 경우: X=경도, Y=위도, Z=높이
+        // 감지 조건을 OBJ 좌표계에 맞게 조정
+        const isOBJWGS84 =
+          Math.abs(originalCenter.x) > 1 && Math.abs(originalCenter.x) < 180 && // 경도 범위
+          Math.abs(originalCenter.y) < 90 && // 위도 범위
+          (originalSize.x < 0.01 || originalSize.y < 0.01) && // X/Y(경위도)가 작음
+          originalSize.z > 1 && originalSize.z > originalSize.x * 100 && originalSize.z > originalSize.y * 100 // Z(높이)가 큼
 
-        // 목표 크기: 5 단위 (카메라 기본 위치에서 잘 보이는 크기)
         const targetSize = 5
 
-        if (maxDim > 0) {
-          // 매우 작은 모델 (예: 4326 위경도 좌표) 또는 매우 큰 모델 스케일 조정
-          if (maxDim < 0.1 || maxDim > 100) {
-            const scale = targetSize / maxDim
-            object.scale.setScalar(scale)
-            console.log(`OBJ 자동 스케일링: ${maxDim.toFixed(6)} → ${targetSize} (scale: ${scale.toFixed(4)})`)
-          } else if (maxDim > 10) {
-            // 적당히 큰 모델 (10-100 범위)
-            const scale = targetSize / maxDim
-            object.scale.setScalar(scale)
+        if (isOBJWGS84) {
+          console.log('OBJ WGS84 좌표계 감지됨! 축별 독립 스케일링 적용')
+
+          // WGS84 OBJ: X=경도, Y=위도, Z=높이
+          const degreeToMeter = 111000
+
+          const realSizeX = originalSize.x * degreeToMeter
+          const realSizeY = originalSize.y * degreeToMeter
+          const realSizeZ = originalSize.z // 이미 미터
+
+          console.log(`실제 크기 (미터): X=${realSizeX.toFixed(2)}, Y=${realSizeY.toFixed(2)}, Z=${realSizeZ.toFixed(2)}`)
+
+          const maxRealDim = Math.max(realSizeX, realSizeY, realSizeZ)
+          const baseScale = targetSize / maxRealDim
+
+          // 축별 스케일 (회전 전 적용)
+          const scaleX = baseScale * degreeToMeter
+          const scaleY = baseScale * degreeToMeter
+          const scaleZ = baseScale
+
+          object.scale.set(scaleX, scaleY, scaleZ)
+
+          // 중심 이동 (스케일 적용 후)
+          object.position.set(
+            -originalCenter.x * scaleX,
+            -originalCenter.y * scaleY,
+            -originalCenter.z * scaleZ
+          )
+
+          // Z-up to Y-up 회전
+          object.rotation.x = -Math.PI / 2
+
+          console.log(`OBJ WGS84 스케일링: X=${scaleX.toFixed(2)}, Y=${scaleY.toFixed(2)}, Z=${scaleZ.toFixed(2)}`)
+        } else {
+          // 일반 모델: 기존 로직
+          // OBJ 파일은 종종 Z-up 좌표계를 사용하므로 Y-up으로 변환
+          object.rotation.x = -Math.PI / 2
+
+          // 회전 후 bounding box 재계산하여 중심 맞추기
+          object.updateMatrixWorld(true)
+          const box = new THREE.Box3().setFromObject(object)
+          const center = box.getCenter(new THREE.Vector3())
+          object.position.sub(center)
+
+          const size = box.getSize(new THREE.Vector3())
+          const maxDim = Math.max(size.x, size.y, size.z)
+
+          if (maxDim > 0) {
+            if (maxDim < 0.1 || maxDim > 100) {
+              const scale = targetSize / maxDim
+              object.scale.setScalar(scale)
+              console.log(`OBJ 자동 스케일링: ${maxDim.toFixed(6)} → ${targetSize} (scale: ${scale.toFixed(4)})`)
+            } else if (maxDim > 10) {
+              const scale = targetSize / maxDim
+              object.scale.setScalar(scale)
+            }
           }
         }
 

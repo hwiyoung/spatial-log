@@ -481,6 +481,101 @@ class SpatialConverter:
             logger.warning("obj_spatial_info_extraction_failed", error=str(e))
             return {"bbox": None, "vertex_count": 0}
 
+    def _transform_obj_wgs84_to_local(
+        self,
+        source: Path,
+        output: Path,
+        spatial_info: dict
+    ) -> tuple[bool, dict]:
+        """WGS84 좌표계 OBJ를 로컬 미터 좌표계로 변환
+
+        WGS84 좌표(도 단위)를 중심점 기준 로컬 미터 좌표로 변환합니다.
+        - X(경도), Y(위도) → 미터 단위로 변환
+        - Z(높이) → 그대로 유지 (이미 미터)
+
+        Returns:
+            (success, transform_info) 튜플
+            transform_info: 변환에 사용된 정보 (center_lon, center_lat, scale 등)
+        """
+        import math
+
+        if not spatial_info.get('is_geographic'):
+            logger.info("obj_not_geographic_skipping_transform")
+            return False, {}
+
+        center = spatial_info.get('center', {})
+        center_lon = center.get('longitude') or center.get('x', 127.0)
+        center_lat = center.get('latitude') or center.get('y', 37.0)
+
+        # WGS84 상수
+        EARTH_RADIUS = 6378137.0  # WGS84 장반경 (미터)
+
+        # 위도에 따른 경도 1도당 미터 수
+        lat_rad = math.radians(center_lat)
+        meters_per_deg_lon = math.cos(lat_rad) * math.pi * EARTH_RADIUS / 180
+        meters_per_deg_lat = math.pi * EARTH_RADIUS / 180  # 약 111,320m
+
+        logger.info("transforming_obj_wgs84_to_local",
+                   center_lon=center_lon,
+                   center_lat=center_lat,
+                   meters_per_deg_lon=f"{meters_per_deg_lon:.2f}",
+                   meters_per_deg_lat=f"{meters_per_deg_lat:.2f}")
+
+        try:
+            transformed_lines = []
+            vertex_count = 0
+
+            with open(source, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith('v '):
+                        parts = stripped.split()
+                        if len(parts) >= 4:
+                            try:
+                                # OBJ: X=경도, Y=위도, Z=높이
+                                lon = float(parts[1])
+                                lat = float(parts[2])
+                                z = float(parts[3])
+
+                                # 중심점 기준 로컬 미터 좌표로 변환
+                                local_x = (lon - center_lon) * meters_per_deg_lon
+                                local_y = (lat - center_lat) * meters_per_deg_lat
+                                local_z = z  # 이미 미터 단위
+
+                                # 변환된 정점 라인 생성
+                                new_line = f"v {local_x:.6f} {local_y:.6f} {local_z:.6f}"
+                                if len(parts) > 4:
+                                    # 추가 데이터 (색상 등) 보존
+                                    new_line += ' ' + ' '.join(parts[4:])
+                                transformed_lines.append(new_line + '\n')
+                                vertex_count += 1
+                            except ValueError:
+                                transformed_lines.append(line)
+                        else:
+                            transformed_lines.append(line)
+                    else:
+                        transformed_lines.append(line)
+
+            # 변환된 OBJ 파일 저장
+            with open(output, 'w', encoding='utf-8') as f:
+                f.writelines(transformed_lines)
+
+            logger.info("obj_wgs84_transform_complete",
+                       vertex_count=vertex_count,
+                       output=str(output))
+
+            return True, {
+                'center_lon': center_lon,
+                'center_lat': center_lat,
+                'meters_per_deg_lon': meters_per_deg_lon,
+                'meters_per_deg_lat': meters_per_deg_lat,
+                'vertex_count': vertex_count
+            }
+
+        except Exception as e:
+            logger.error("obj_wgs84_transform_failed", error=str(e))
+            return False, {}
+
     def _convert_e57_to_ply(
         self,
         source: Path,
@@ -1061,18 +1156,12 @@ class SpatialConverter:
         logger.info("texture_references_found", texture_names=texture_names)
 
         # 스토리지에서 텍스처 파일 찾기
-        # Supabase 스토리지 형식: "timestamp________{suffix}.{ext}"
-        # 예: 삼양비지네스폼10.jpg → 1769489283335________10.jpg
+        # Supabase 스토리지 형식: "timestamp_originalname.ext"
+        # 예: samyang.jpg → 1769688123384_samyang.jpg
         for tex_name in texture_names:
             tex_found = False
             tex_ext = Path(tex_name).suffix.lower()
             tex_stem = Path(tex_name).stem
-
-            # 텍스처 이름에서 숫자 접미사 추출 (예: "삼양비지네스폼10" → "10")
-            # 숫자로 끝나는 경우 해당 숫자를 추출
-            import re
-            number_match = re.search(r'(\d+)$', tex_stem)
-            tex_number_suffix = number_match.group(1) if number_match else None
 
             for user_dir in storage_user_dir.iterdir():
                 if not user_dir.is_dir():
@@ -1083,18 +1172,17 @@ class SpatialConverter:
                         continue
 
                     # 매칭 조건:
-                    # 1. 정확히 일치: ________{tex_name}
-                    # 2. 숫자 접미사 매칭: ________{number}.{ext}
-                    # 3. 확장자만 있는 경우 (첫 번째 텍스처): ________.{ext}
-                    item_name = item.name
+                    # 1. 정확히 일치: timestamp_texname.ext (예: 1769688123384_samyang.jpg)
+                    # 2. 텍스처명이 포함됨: *_texname.ext
+                    item_name = item.name.lower()
+                    tex_name_lower = tex_name.lower()
                     matched = False
 
-                    if item_name.endswith(f'________{tex_name}'):
+                    # timestamp_originalname.ext 형식 매칭
+                    if item_name.endswith(f'_{tex_name_lower}'):
                         matched = True
-                    elif tex_number_suffix and item_name.endswith(f'________{tex_number_suffix}{tex_ext}'):
-                        matched = True
-                    elif not tex_number_suffix and item_name.endswith(f'________{tex_ext}'):
-                        # 숫자 없는 기본 텍스처 (예: 삼양비지네스폼.jpg)
+                    # 텍스처명이 디렉토리명에 포함된 경우
+                    elif tex_name_lower in item_name:
                         matched = True
 
                     if matched:
@@ -1133,12 +1221,29 @@ class SpatialConverter:
 
         # OBJ 관련 파일 준비 (MTL, 텍스처를 임시 디렉토리에 모음)
         work_dir = None
+        transform_info = {}
         try:
             prepared_obj, work_dir = self._prepare_obj_files(source, options)
             logger.info("obj_files_prepared", work_dir=str(work_dir))
         except Exception as e:
             logger.warning("obj_prepare_failed", error=str(e))
             prepared_obj = source  # 실패 시 원본 사용
+
+        if progress_callback:
+            progress_callback(10)
+
+        # WGS84 좌표계인 경우 로컬 미터 좌표로 변환 (obj2gltf 전에 수행)
+        if spatial_info.get('is_geographic'):
+            logger.info("wgs84_detected_transforming_coordinates")
+            transformed_obj = (work_dir or output_dir) / (source.stem + "_transformed.obj")
+            success, transform_info = self._transform_obj_wgs84_to_local(
+                prepared_obj, transformed_obj, spatial_info
+            )
+            if success:
+                prepared_obj = transformed_obj
+                logger.info("using_transformed_obj", path=str(prepared_obj))
+            else:
+                logger.warning("wgs84_transform_failed_using_original")
 
         if progress_callback:
             progress_callback(15)
@@ -1187,9 +1292,10 @@ class SpatialConverter:
                     resize_input = temp_resized if (resize_result.returncode == 0 and temp_resized.exists()) else temp_uncompressed
 
                     # Step 2: 텍스처를 WebP로 압축
+                    temp_compressed = output_dir / (source.stem + "_compressed.glb")
                     compress_result = subprocess.run(
                         ["npx", "gltf-transform", "webp",
-                         str(resize_input), str(temp_glb)
+                         str(resize_input), str(temp_compressed)
                         ],
                         capture_output=True,
                         text=True,
@@ -1200,21 +1306,51 @@ class SpatialConverter:
                     if temp_resized.exists():
                         temp_resized.unlink()
 
-                    if compress_result.returncode == 0 and temp_glb.exists():
+                    compress_input = temp_compressed if (compress_result.returncode == 0 and temp_compressed.exists()) else resize_input
+
+                    # Step 3: 모델을 원점에 중심 정렬 (Cesium 3D Tiles용)
+                    # WGS84 좌표가 그대로 있으면 tileset transform과 충돌
+                    logger.info("centering_model_for_3dtiles")
+                    temp_centered = output_dir / (source.stem + "_centered.glb")
+                    center_result = subprocess.run(
+                        ["npx", "gltf-transform", "center",
+                         str(compress_input), str(temp_centered)
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=300
+                    )
+
+                    # 압축된 중간 파일 정리
+                    if temp_compressed.exists() and temp_compressed != temp_centered:
+                        temp_compressed.unlink()
+
+                    if center_result.returncode == 0 and temp_centered.exists():
+                        # 센터링된 파일을 최종 GLB로 사용
+                        # (WGS84 스케일링은 obj2gltf 전에 OBJ 좌표 변환으로 처리됨)
+                        temp_centered.rename(temp_glb)
+
                         converted = True
-                        compressed_size = temp_glb.stat().st_size
+                        final_size = temp_glb.stat().st_size
                         # 압축되지 않은 임시 파일 삭제
-                        temp_uncompressed.unlink()
-                        logger.info("gltf_transform_compression_success",
+                        if temp_uncompressed.exists():
+                            temp_uncompressed.unlink()
+                        logger.info("gltf_transform_pipeline_success",
                                    original_mb=f"{original_size/1024/1024:.1f}",
-                                   compressed_mb=f"{compressed_size/1024/1024:.1f}")
+                                   final_mb=f"{final_size/1024/1024:.1f}",
+                                   centered=True,
+                                   wgs84_pretransformed=spatial_info.get('is_geographic', False))
                     else:
-                        logger.warning("gltf_transform_compression_failed",
-                                      stderr=compress_result.stderr,
-                                      stdout=compress_result.stdout)
-                        # 압축 실패 시 비압축 파일 사용
-                        temp_uncompressed.rename(temp_glb)
+                        logger.warning("gltf_transform_center_failed",
+                                      stderr=center_result.stderr,
+                                      stdout=center_result.stdout)
+                        # 센터링 실패 시 압축된 파일 사용 (센터링 없이)
+                        if compress_input.exists() and compress_input != temp_glb:
+                            compress_input.rename(temp_glb)
+                        elif temp_uncompressed.exists():
+                            temp_uncompressed.rename(temp_glb)
                         converted = True
+                        logger.warning("using_uncentered_glb", msg="3D Tiles에서 위치가 맞지 않을 수 있음")
                 except Exception as e:
                     logger.warning("gltf_transform_compression_error", error=str(e))
                     # 압축 실패 시 비압축 파일 사용
@@ -1242,8 +1378,9 @@ class SpatialConverter:
                 # -cc: 정점 압축 (quantization)
                 # -tc: 텍스처 좌표 압축
                 # -si: 단순화 비율 (0.5 = 50% 폴리곤)
+                temp_gltfpack = output_dir / (source.stem + "_gltfpack.glb")
                 result = subprocess.run(
-                    ["gltfpack", "-i", str(prepared_obj), "-o", str(temp_glb),
+                    ["gltfpack", "-i", str(prepared_obj), "-o", str(temp_gltfpack),
                      "-cc", "-tc", "-si", "0.5"],
                     capture_output=True,
                     text=True,
@@ -1251,9 +1388,37 @@ class SpatialConverter:
                     cwd=str(prepared_obj.parent)
                 )
 
-                if result.returncode == 0 and temp_glb.exists():
-                    converted = True
-                    logger.info("gltfpack_success", output=str(temp_glb))
+                if result.returncode == 0 and temp_gltfpack.exists():
+                    # gltfpack 성공 후 센터링 적용
+                    logger.info("centering_gltfpack_model")
+                    temp_centered = output_dir / (source.stem + "_gltfpack_centered.glb")
+                    center_result = subprocess.run(
+                        ["npx", "gltf-transform", "center",
+                         str(temp_gltfpack), str(temp_centered)
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=300
+                    )
+
+                    # 중간 파일 정리
+                    if temp_gltfpack.exists():
+                        temp_gltfpack.unlink()
+
+                    if center_result.returncode == 0 and temp_centered.exists():
+                        # 센터링된 파일을 최종 GLB로 사용
+                        # (WGS84 스케일링은 gltfpack 전에 OBJ 좌표 변환으로 처리됨)
+                        temp_centered.rename(temp_glb)
+                        converted = True
+                        logger.info("gltfpack_success_centered", output=str(temp_glb))
+                    else:
+                        # 센터링 실패 시 원본 사용
+                        if temp_gltfpack.exists():
+                            temp_gltfpack.rename(temp_glb)
+                        elif temp_centered.exists():
+                            temp_centered.rename(temp_glb)
+                        converted = True
+                        logger.warning("gltfpack_center_failed", msg="센터링 없이 사용")
                 else:
                     logger.warning("gltfpack_failed", stderr=result.stderr)
 
@@ -1272,6 +1437,9 @@ class SpatialConverter:
                 logger.info("work_dir_cleaned", path=str(work_dir))
             except Exception as e:
                 logger.warning("work_dir_cleanup_failed", error=str(e))
+
+        if progress_callback:
+            progress_callback(70)
 
         # GLB 변환 성공 시 → 3D Tiles 생성
         if converted:
@@ -1299,7 +1467,9 @@ class SpatialConverter:
         bounding_volume = {"box": [0, 0, 0, 100, 0, 0, 0, 100, 0, 0, 0, 100]}
         root_transform = None
 
-        # 지리 좌표가 있으면 region과 transform 사용
+        # 지리 좌표가 있으면 box와 transform 사용
+        # 주의: GLB는 gltf-transform center로 원점에 센터링되어 있음
+        # 따라서 region 대신 box 바운딩 볼륨 사용 (로컬 좌표계 기준)
         if spatial_info and spatial_info.get("is_geographic") and spatial_info.get("center"):
             center = spatial_info["center"]
             bbox = spatial_info.get("bbox", {})
@@ -1307,7 +1477,11 @@ class SpatialConverter:
             # 중심점 좌표 (경위도)
             lon = center.get("longitude") or center.get("x", 127.0)
             lat = center.get("latitude") or center.get("y", 37.0)
-            alt = center.get("altitude") or center.get("z", 0)
+            # 고도는 0으로 설정 (지면 기준)
+            # 모델은 gltf-transform center로 Z 중심이 0에 있으므로
+            # 건물 높이의 절반만큼 올려서 바닥이 지면에 닿도록 함
+            height_range = abs(bbox.get("maxZ", 0) - bbox.get("minZ", 0)) if bbox else 0
+            alt = height_range / 2  # 건물 중심을 건물 높이/2 위치에 배치 → 바닥이 지면에
 
             # bbox에서 크기 계산 (미터 단위로 변환)
             if bbox:
@@ -1324,21 +1498,26 @@ class SpatialConverter:
                 depth_m = lat_range * meters_per_degree_lat
                 height_m = height_range
 
-                # region 좌표 계산 (라디안)
-                west = math.radians(bbox.get("minX", lon - 0.001))
-                south = math.radians(bbox.get("minY", lat - 0.001))
-                east = math.radians(bbox.get("maxX", lon + 0.001))
-                north = math.radians(bbox.get("maxY", lat + 0.001))
-                min_height = bbox.get("minZ", 0)
-                max_height = bbox.get("maxZ", 100)
+                # 센터링된 모델용 box 바운딩 볼륨
+                # box: [centerX, centerY, centerZ, xHalf, 0, 0, 0, yHalf, 0, 0, 0, zHalf]
+                # 센터링되어 있으므로 center는 (0,0,0)
+                half_width = max(width_m / 2, 10)  # 최소 10m
+                half_depth = max(depth_m / 2, 10)
+                half_height = max(height_m / 2, 10)
 
                 bounding_volume = {
-                    "region": [west, south, east, north, min_height, max_height]
+                    "box": [
+                        0, 0, 0,  # center (센터링된 모델)
+                        half_width, 0, 0,  # x-axis half-length
+                        0, half_depth, 0,  # y-axis half-length
+                        0, 0, half_height  # z-axis half-length
+                    ]
                 }
 
-                logger.info("tileset_region_created",
+                logger.info("tileset_box_created",
                            lon=lon, lat=lat, alt=alt,
-                           width_m=width_m, depth_m=depth_m, height_m=height_m)
+                           width_m=width_m, depth_m=depth_m, height_m=height_m,
+                           half_width=half_width, half_depth=half_depth, half_height=half_height)
 
             # ECEF 변환 행렬 계산 (중심점 기준)
             # Cesium의 Transforms.eastNorthUpToFixedFrame과 동일
@@ -1363,15 +1542,45 @@ class SpatialConverter:
             y = (N + alt) * cos_lat * sin_lon
             z = (N * (1 - e2) + alt) * sin_lat
 
-            # East-North-Up 변환 행렬 (4x4, column-major)
-            # East = [-sin(lon), cos(lon), 0]
-            # North = [-sin(lat)*cos(lon), -sin(lat)*sin(lon), cos(lat)]
-            # Up = [cos(lat)*cos(lon), cos(lat)*sin(lon), sin(lat)]
+            # GLB 모델 좌표계 → ECEF 변환 행렬
+            #
+            # GLB (obj2gltf --inputUpAxis Z 변환 후):
+            #   X = East, Y = Up, Z = South (Y-up 좌표계)
+            #
+            # ENU (East-North-Up) 좌표계:
+            #   X = East, Y = North, Z = Up
+            #
+            # GLB → ENU 회전 행렬 (모델 좌표 → 로컬 ENU):
+            #   ENU_X = model_X (East)
+            #   ENU_Y = -model_Z (model_Z=South → ENU_Y=North)
+            #   ENU_Z = model_Y (model_Y=Up → ENU_Z=Up)
+            #
+            # 이 회전을 ENU→ECEF 변환에 결합
+            #
+            # ENU→ECEF 기저 벡터:
+            #   East  = [-sin(lon), cos(lon), 0]
+            #   North = [-sin(lat)*cos(lon), -sin(lat)*sin(lon), cos(lat)]
+            #   Up    = [cos(lat)*cos(lon), cos(lat)*sin(lon), sin(lat)]
+            #
+            # 결합 변환 (GLB → ECEF):
+            #   ECEF = East * model_X + North * (-model_Z) + Up * model_Y
+            #        = East * model_X - North * model_Z + Up * model_Y
+            #
+            # Column-major 4x4 행렬:
+            #   col0 = East (model_X 계수)
+            #   col1 = Up (model_Y 계수)
+            #   col2 = -North (model_Z 계수, South 방향이므로 부호 반전)
+            #   col3 = translation
+
+            east = [-sin_lon, cos_lon, 0]
+            north = [-sin_lat * cos_lon, -sin_lat * sin_lon, cos_lat]
+            up = [cos_lat * cos_lon, cos_lat * sin_lon, sin_lat]
+
             root_transform = [
-                -sin_lon, -sin_lat * cos_lon, cos_lat * cos_lon, 0,
-                cos_lon, -sin_lat * sin_lon, cos_lat * sin_lon, 0,
-                0, cos_lat, sin_lat, 0,
-                x, y, z, 1
+                east[0], east[1], east[2], 0,       # column 0: model_X → East
+                up[0], up[1], up[2], 0,             # column 1: model_Y → Up
+                -north[0], -north[1], -north[2], 0, # column 2: model_Z (South) → -North
+                x, y, z, 1                          # column 3: translation
             ]
 
             logger.info("tileset_transform_created", ecef_x=x, ecef_y=y, ecef_z=z)
