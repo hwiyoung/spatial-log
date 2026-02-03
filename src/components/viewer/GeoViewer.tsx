@@ -13,9 +13,8 @@ import {
   Transforms,
   HeadingPitchRoll,
   Ion,
-  createWorldImageryAsync,
 } from 'cesium'
-import { AlertTriangle, Loader2, Globe, Box, Map, RotateCw } from 'lucide-react'
+import { AlertTriangle, Loader2, Globe, Map, RotateCw } from 'lucide-react'
 import type { SpatialInfo } from '@/services/api'
 import type { Entity } from 'cesium'
 
@@ -75,7 +74,7 @@ export default function GeoViewer({
           geocoder: false,
           infoBox: true,
           selectionIndicator: true,
-          imageryProvider: ionToken ? undefined : false, // Ion 없으면 이미지 비활성화
+          baseLayer: ionToken ? undefined : false, // Ion 없으면 이미지 비활성화
           terrainProvider: undefined, // 지형 비활성화 (성능)
         })
 
@@ -304,7 +303,7 @@ async function load3DTiles(
     console.log('Tileset bounding sphere center:', tileset.boundingSphere.center)
     console.log('Tileset bounding sphere radius:', tileset.boundingSphere.radius)
     console.log('Tileset root transform:', tileset.root?.transform)
-    console.log('Tileset root boundingVolume:', tileset.root?.boundingVolume)
+    console.log('Tileset root boundingVolume:', (tileset.root as any)?.boundingVolume)
 
     // 바운딩 스피어 반지름이 유효한지 확인
     const radius = tileset.boundingSphere.radius

@@ -121,6 +121,64 @@ docker compose down -v
 | **변환 서비스** | http://localhost:8200 | 3D 데이터 변환 API |
 | **Email UI** | http://localhost:9005 | 테스트 이메일 확인 (Inbucket) |
 
+## 개발/운영 환경 분리
+
+단일 서버에서 개발 환경과 운영(데모) 환경을 동시에 실행할 수 있습니다.
+
+### 환경 구성
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    단일 서버                         │
+├─────────────────────┬───────────────────────────────┤
+│     개발 환경       │        운영(데모) 환경         │
+├─────────────────────┼───────────────────────────────┤
+│ Frontend: 5174      │ Frontend: 8090                │
+│ API: 8100           │ API: 8101                     │
+│ Converter: 8200     │ Converter: 8201               │
+│ Studio: 3101        │ (비노출)                       │
+│ 데이터: /data/      │ 데이터: /data/prod/           │
+└─────────────────────┴───────────────────────────────┘
+```
+
+### 운영 환경 실행
+
+```bash
+# 1. 운영 환경 변수 파일 생성
+cp .env.prod.example .env.prod
+# .env.prod 파일을 편집하여 SITE_URL 등 설정
+
+# 2. 운영 환경 시작
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# 3. 상태 확인
+docker compose -f docker-compose.prod.yml ps
+```
+
+### 환경별 접속 URL
+
+| 환경 | 프론트엔드 | API | 변환 서비스 |
+|------|-----------|-----|------------|
+| **개발** | http://서버IP:5174 | http://서버IP:8100 | http://서버IP:8200 |
+| **운영** | http://서버IP:8090 | http://서버IP:8101 | http://서버IP:8201 |
+
+### 코드 수정 시 동작
+
+- **개발 환경**: Vite 핫 리로드로 즉시 반영
+- **운영 환경**: Docker 이미지로 고정, 재빌드 전까지 변경 없음
+
+```bash
+# 운영 환경 업데이트 (재빌드)
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+### 데이터 분리
+
+- 개발: `/data/db/`, `/data/storage/`, `/data/converter-output/`
+- 운영: `/data/prod/db/`, `/data/prod/storage/`, `/data/prod/converter-output/`
+
+두 환경의 데이터베이스와 파일 저장소는 완전히 분리되어 있습니다.
+
 ### 로컬 실행 (Supabase 없이)
 
 Supabase 없이 로컬 스토리지(IndexedDB) 모드로 실행할 수 있습니다:
