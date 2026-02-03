@@ -1,0 +1,170 @@
+# Production Docker Compose Configuration
+# 운영 환경: main 브랜치에서 자동 배포됨
+# 사용법: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+    ports:
+      - "8090:80"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - kong
+    restart: unless-stopped
+
+  # Supabase Services
+  db:
+    image: supabase/postgres:15.6.1.143
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: 3600
+    volumes:
+      - ./data/prod/db:/var/lib/postgresql/data
+      - ./supabase/schema.sql:/docker-entrypoint-initdb.d/zzz-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  auth:
+    image: supabase/gotrue:v2.164.0
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${SITE_URL}:8101
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: "*"
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_ADMIN_EMAIL: admin@localhost
+      GOTRUE_SMTP_HOST: localhost
+      GOTRUE_SMTP_PORT: 25
+      GOTRUE_SMTP_SENDER_NAME: Spatial Log
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  storage:
+    image: supabase/storage-api:v1.11.13
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      FILE_SIZE_LIMIT: 1073741824
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:8080
+    volumes:
+      - ./data/prod/storage:/var/lib/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    restart: unless-stopped
+
+  imgproxy:
+    image: darthsim/imgproxy:v3.24
+    environment:
+      IMGPROXY_BIND: ":8080"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: "true"
+    volumes:
+      - ./data/prod/storage:/var/lib/storage
+    restart: unless-stopped
+
+  kong:
+    image: kong:2.8.1
+    ports:
+      - "8101:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+    depends_on:
+      - auth
+      - rest
+      - storage
+    restart: unless-stopped
+
+  meta:
+    image: supabase/postgres-meta:v0.84.2
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 3D 데이터 변환 서비스
+  spatial-converter:
+    build:
+      context: ./services/spatial-converter
+      dockerfile: Dockerfile
+    ports:
+      - "8201:8200"
+    volumes:
+      - ./data/prod/storage:/var/lib/storage
+      - ./data/prod/converter-output:/app/output
+    environment:
+      - STORAGE_PATH=/var/lib/storage/stub/stub
+      - SUPABASE_URL=http://kong:8000
+      - SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
+      - DEV_MODE=false
+    depends_on:
+      - storage
+      - kong
+    restart: unless-stopped
+
+# 운영 환경 데이터 (개발 환경과 분리)
+# - ./data/prod/db/: PostgreSQL 데이터
+# - ./data/prod/storage/: 업로드된 파일
+# - ./data/prod/converter-output/: 변환된 파일

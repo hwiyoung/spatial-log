@@ -1,0 +1,63 @@
+# Development Deployment Workflow
+# develop 브랜치에 푸시될 때 개발 서버에 자동 배포
+
+name: Deploy to Development
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    name: Deploy to Development Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd ${{ secrets.PROJECT_PATH || '/home/${{ secrets.SERVER_USER }}/spatial-log' }}
+
+            # 최신 코드 가져오기
+            git fetch origin develop
+            git checkout develop
+            git pull origin develop
+
+            # 개발 환경 빌드 및 배포
+            docker compose down
+            docker compose build --no-cache
+            docker compose up -d
+
+            # 오래된 이미지 정리
+            docker image prune -f
+
+            echo "Development deployment completed at $(date)"
+
+      - name: Verify Deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # 서비스 상태 확인
+            docker compose -f ${{ secrets.PROJECT_PATH || '/home/${{ secrets.SERVER_USER }}/spatial-log' }}/docker-compose.yml ps
+
+            # 헬스 체크
+            sleep 10
+            curl -f http://localhost:5174 || echo "Warning: Frontend health check failed"
+            curl -f http://localhost:8100/health || echo "Warning: API health check failed"
+            curl -f http://localhost:8200/health || echo "Warning: Converter health check failed"
+
+# ===========================================
+# GitHub Secrets 설정 필요 (deploy-prod.yml과 동일):
+# ===========================================
+# SERVER_HOST: 서버 IP 또는 도메인
+# SERVER_USER: SSH 사용자명
+# SERVER_SSH_KEY: SSH 개인키
+# PROJECT_PATH: (선택) 프로젝트 경로
