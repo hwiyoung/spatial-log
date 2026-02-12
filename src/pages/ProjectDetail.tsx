@@ -172,7 +172,7 @@ export default function ProjectDetail() {
       return
     }
 
-    const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+    const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
 
     let dataUrl: string
     let dataType: 'ply' | '3dtiles' | 'glb'
@@ -257,7 +257,7 @@ export default function ProjectDetail() {
     if (needsConversionFormats.includes(file.format)) {
       if (file.conversionStatus === 'ready' && file.convertedPath) {
         // 변환 완료된 파일 사용 - 컨버터 서비스에서 직접 로드
-        const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+        const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
         let convertedFileUrl: string
         let fileExtHint: string
 

@@ -18,6 +18,11 @@
 | 업로드 제한 | 500MB/1GB → **5GB** (프론트엔드 + 백엔드) |
 | 운영환경 DB 연결 | Dockerfile `ARG VITE_*` + docker-compose.prod.yml `build.args` 추가 |
 | 운영환경 SPA 라우팅 | nginx.conf `try_files` 수정 (403 Forbidden 해결) |
+| **운영환경 API 프록시** | nginx에 `/rest/v1/`, `/auth/v1/`, `/storage/v1/`, `/converter/` 프록시 추가 |
+| **동적 URL** | `supabase.ts` - `VITE_SUPABASE_URL` 미설정 시 `window.location.origin` 사용 |
+| **Converter 동적 URL** | `VITE_CONVERTER_URL` 미설정 시 `window.location.origin/converter` 사용 |
+| **캐시 방지** | `index.html`에 `no-cache` 헤더 추가 (배포 후 즉시 반영) |
+| **.env.prod 간소화** | `VITE_SUPABASE_URL`, `VITE_CONVERTER_URL` 제거 (nginx 프록시로 대체) |
 
 ### 검증 완료 (2026-02-03)
 
@@ -98,7 +103,7 @@
 | E57 좌표계 | 파일에 올바른 WGS84 좌표 필요 | 좌표계 선택 UI 추가 예정 |
 | 파일 크기 | 5GB 이상 업로드 불가 | 프론트엔드(`FileUpload.tsx`) + 백엔드(`FILE_SIZE_LIMIT`) 양쪽 변경 |
 | OBJ 관련 파일 | OBJ+MTL+텍스처 동시 업로드 필요 | UI 가이드 추가 예정 |
-| 운영환경 배포 | `VITE_*` 변수가 빌드 시 주입되어야 함 | `.env.prod` 변경 후 반드시 `--build` 재빌드 필요 |
+| 운영환경 배포 | `VITE_SUPABASE_ANON_KEY`, `VITE_CESIUM_ION_TOKEN`이 빌드 시 필요 | `.env.prod` 변경 후 반드시 `--build` 재빌드 필요 |
 
 ---
 
@@ -112,6 +117,6 @@
 | DB 스키마 | `supabase/schema.sql` |
 | CI/CD | `.github/workflows/deploy-*.yml` |
 | 프론트엔드 Docker | `Dockerfile` (멀티스테이지: dev/build/prod) |
-| 운영 Docker Compose | `docker-compose.prod.yml` (VITE_* build args 포함) |
-| Nginx 설정 | `nginx.conf` (SPA 라우팅, 정적파일 캐싱) |
+| 운영 Docker Compose | `docker-compose.prod.yml` (ANON_KEY, CESIUM_TOKEN build args) |
+| Nginx 설정 | `nginx.conf` (SPA 라우팅, API/Converter 프록시, 정적파일 캐싱) |
 | 파일 업로드 컴포넌트 | `src/components/common/FileUpload.tsx` (maxSize 설정) |

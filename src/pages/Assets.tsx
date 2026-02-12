@@ -280,7 +280,7 @@ export default function Assets() {
       return
     }
 
-    const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+    const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
 
     let dataUrl: string
     let dataType: 'ply' | '3dtiles' | 'glb'
@@ -370,7 +370,7 @@ export default function Assets() {
 
       if (currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
         // 변환 완료된 파일 사용 - 컨버터 서비스에서 직접 로드
-        const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+        const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
 
         // 파일 경로 결정 (E57→PLY 또는 OBJ→GLB)
         let convertedFileUrl: string
@@ -468,7 +468,7 @@ export default function Assets() {
 
       if (currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
         // 변환 완료 → GLB 로드 시도
-        const converterUrl = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+        const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
         const dirName = currentFile.convertedPath.split('/').pop() || ''
         const glbName = dirName.replace('_3dtiles', '') + '.glb'
         const convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`

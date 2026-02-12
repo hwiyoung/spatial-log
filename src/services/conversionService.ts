@@ -44,7 +44,7 @@ export interface ConversionStatusResponse {
 }
 
 // 변환 서비스 URL (환경변수에서 가져오거나 기본값 사용)
-const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
 
 /**
  * 파일 포맷에 따른 변환 타입 결정

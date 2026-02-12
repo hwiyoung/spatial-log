@@ -3,17 +3,19 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from './database.types'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+// 운영환경: nginx 프록시를 통해 같은 도메인에서 API 호출 (CORS/네트워크 문제 방지)
+// 개발환경: 직접 Supabase URL 사용
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || window.location.origin
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseAnonKey) {
   console.warn(
     'Supabase 환경 변수가 설정되지 않았습니다. 로컬 스토리지 모드로 동작합니다.'
   )
 }
 
-// 내부 클라이언트 인스턴스
-const _supabaseClient: SupabaseClient<Database> | null = supabaseUrl && supabaseAnonKey
+// 내부 클라이언트 인스턴스 (supabaseUrl은 항상 존재, anonKey만 확인)
+const _supabaseClient: SupabaseClient<Database> | null = supabaseAnonKey
   ? createClient<Database>(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: true,

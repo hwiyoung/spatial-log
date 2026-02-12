@@ -657,7 +657,7 @@ export interface BatchDeleteResult {
 }
 
 // 변환 서비스 URL (파일 삭제에도 사용)
-const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || 'http://localhost:8200'
+const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
 
 /**
  * spatial-converter를 통한 물리적 파일 삭제

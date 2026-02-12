@@ -8,9 +8,8 @@ services:
       context: .
       target: production
       args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        # VITE_SUPABASE_URL, VITE_CONVERTER_URL: 미설정 → window.location.origin 사용 (nginx 프록시)
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-        VITE_CONVERTER_URL: ${VITE_CONVERTER_URL}
         VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN}
     ports:
       - "8090:80"

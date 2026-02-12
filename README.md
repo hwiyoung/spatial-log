@@ -134,21 +134,24 @@ docker compose down -v
 │     개발 환경       │        운영(데모) 환경         │
 ├─────────────────────┼───────────────────────────────┤
 │ Frontend: 5174      │ Frontend: 8090                │
-│ API: 8100           │ API: 8101                     │
-│ Converter: 8200     │ Converter: 8201               │
+│ API: 8100 (직접)    │ API: nginx 프록시 (동일 포트) │
+│ Converter: 8200     │ Converter: nginx 프록시       │
 │ Studio: 3101        │ (비노출)                       │
 │ 데이터: /data/      │ 데이터: /data/prod/           │
 └─────────────────────┴───────────────────────────────┘
 ```
+
+> **운영환경 API 프록시**: 운영환경에서는 nginx가 `/rest/v1/`, `/auth/v1/`, `/storage/v1/`, `/converter/` 경로를 Kong/Converter로 프록시합니다. 프론트엔드와 API가 같은 도메인을 사용하므로, 외부 네트워크에서도 사설 IP 없이 접근 가능하고 CORS 문제가 발생하지 않습니다.
 
 ### 운영 환경 실행
 
 ```bash
 # 1. 운영 환경 변수 파일 생성
 cp .env.prod.example .env.prod
-# .env.prod 파일을 편집하여 SITE_URL, VITE_SUPABASE_URL 등 설정
+# .env.prod 파일을 편집하여 VITE_SUPABASE_ANON_KEY, VITE_CESIUM_ION_TOKEN 등 설정
+# (VITE_SUPABASE_URL, VITE_CONVERTER_URL은 설정 불필요 - nginx 프록시 사용)
 
-# 2. 운영 환경 시작 (VITE_* 변수가 Docker build args로 주입됨)
+# 2. 운영 환경 시작
 docker compose -f docker-compose.prod.yml --env-file .env.prod -p spatial-log-prod up -d --build
 
 # 3. 상태 확인
@@ -161,8 +164,10 @@ docker compose -f docker-compose.prod.yml -p spatial-log-prod ps
 
 | 환경 | 프론트엔드 | API | 변환 서비스 |
 |------|-----------|-----|------------|
-| **개발** | http://서버IP:5174 | http://서버IP:8100 | http://서버IP:8200 |
-| **운영** | http://서버IP:8090 | http://서버IP:8101 | http://서버IP:8201 |
+| **개발** | http://서버IP:5174 | http://서버IP:8100 (직접) | http://서버IP:8200 (직접) |
+| **운영** | http://서버IP:8090 또는 도메인 | 같은 도메인/rest/v1/ (nginx 프록시) | 같은 도메인/converter/ (nginx 프록시) |
+
+> **운영환경 참고**: API와 변환 서비스는 프론트엔드와 같은 도메인의 nginx 프록시를 통해 접근됩니다. 별도 포트(8101, 8201)는 내부 통신용으로만 사용됩니다.
 
 ### 코드 수정 시 동작
 
@@ -184,14 +189,26 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod -p spatial-log-pr
 Dockerfile (target: production)
 ├── Build Stage (node:20-alpine)
 │   ├── npm ci (의존성 설치)
-│   ├── ARG VITE_* (docker-compose.prod.yml에서 주입)
+│   ├── ARG VITE_SUPABASE_ANON_KEY, VITE_CESIUM_ION_TOKEN (빌드 시 주입)
 │   └── npm run build (Vite 프로덕션 빌드)
 └── Production Stage (nginx:alpine)
     ├── dist/ → /usr/share/nginx/html
-    └── nginx.conf → SPA 라우팅 처리
+    └── nginx.conf → SPA 라우팅 + API 프록시
 ```
 
-`VITE_*` 환경변수는 `.env.prod`에서 `docker-compose.prod.yml`의 `build.args`를 통해 빌드 시 주입됩니다. `.dockerignore`에 `.env*`가 포함되어 있으므로 직접 복사되지 않습니다.
+`VITE_SUPABASE_ANON_KEY`, `VITE_CESIUM_ION_TOKEN`은 `.env.prod`에서 `docker-compose.prod.yml`의 `build.args`를 통해 빌드 시 주입됩니다. `VITE_SUPABASE_URL`과 `VITE_CONVERTER_URL`은 런타임에 `window.location.origin`으로 자동 결정되며, nginx가 API 경로를 프록시합니다.
+
+### 운영 환경 요청 흐름
+
+```
+브라우저 (sam.innopam.kr)
+  ├─ /                    → nginx → index.html (SPA)
+  ├─ /assets/*.js         → nginx → 정적 파일 (1년 캐시)
+  ├─ /rest/v1/*           → nginx → Kong:8000 → PostgREST → PostgreSQL
+  ├─ /auth/v1/*           → nginx → Kong:8000 → GoTrue (인증)
+  ├─ /storage/v1/*        → nginx → Kong:8000 → Storage API (파일)
+  └─ /converter/*         → nginx → spatial-converter:8200 (3D 변환)
+```
 
 ### 데이터 분리
 
@@ -212,16 +229,15 @@ npm install
 npm run dev
 ```
 
-> 환경변수 `VITE_SUPABASE_URL`이 설정되지 않으면 자동으로 로컬 스토리지 모드로 동작합니다.
+> 환경변수 `VITE_SUPABASE_ANON_KEY`가 설정되지 않으면 자동으로 로컬 스토리지 모드로 동작합니다.
 
 ### 프로덕션 빌드
 
 ```bash
-# Docker 프로덕션 빌드 (VITE_* 변수 필수)
+# Docker 프로덕션 빌드 (ANON_KEY 필수, URL은 nginx 프록시 사용)
 docker build --target production \
-  --build-arg VITE_SUPABASE_URL=http://서버IP:8101 \
   --build-arg VITE_SUPABASE_ANON_KEY=your-anon-key \
-  --build-arg VITE_CONVERTER_URL=http://서버IP:8201 \
+  --build-arg VITE_CESIUM_ION_TOKEN=your-cesium-token \
   -t spatial-log:prod .
 docker run -p 80:80 spatial-log:prod
 
@@ -230,7 +246,7 @@ npm run build
 npm run preview
 ```
 
-> **주의**: Docker 빌드 시 `--build-arg`로 `VITE_*` 변수를 전달하지 않으면, 앱이 Supabase에 연결하지 못하고 브라우저 localStorage 모드로 동작합니다.
+> **주의**: Docker 빌드 시 `--build-arg`로 `VITE_SUPABASE_ANON_KEY`를 전달하지 않으면, 앱이 Supabase에 연결하지 못하고 브라우저 localStorage 모드로 동작합니다. `VITE_SUPABASE_URL`과 `VITE_CONVERTER_URL`은 미설정 시 `window.location.origin`을 사용하여 nginx 프록시를 통해 API에 접근합니다.
 
 ## 환경변수
 
@@ -257,19 +273,25 @@ VITE_CONVERTER_URL=http://localhost:8200
 
 ### 네트워크 환경 설정
 
-다른 PC에서 접속할 경우 환경변수 파일의 URL을 서버 IP로 변경:
+**개발 환경**: 다른 PC에서 접속할 경우 `.env` 파일의 URL을 서버 IP로 변경:
 
 ```bash
 # 개발 환경: .env
 VITE_SUPABASE_URL=http://192.168.x.x:8100
 VITE_CONVERTER_URL=http://192.168.x.x:8200
-
-# 운영 환경: .env.prod
-VITE_SUPABASE_URL=http://192.168.x.x:8101
-VITE_CONVERTER_URL=http://192.168.x.x:8201
 ```
 
-> **주의**: 운영 환경은 `VITE_*` 변수가 Docker 빌드 시 주입되므로, `.env.prod` 변경 후 반드시 `--build`로 재빌드해야 합니다.
+**운영 환경**: URL 설정이 필요 없습니다. nginx 프록시를 통해 동일 도메인에서 API에 접근하므로, 도메인이나 IP에 관계없이 자동으로 동작합니다.
+
+```bash
+# 운영 환경: .env.prod
+# VITE_SUPABASE_URL → 미설정 (window.location.origin + nginx 프록시 사용)
+# VITE_CONVERTER_URL → 미설정 (window.location.origin/converter + nginx 프록시 사용)
+VITE_SUPABASE_ANON_KEY=your-anon-key  # 필수
+VITE_CESIUM_ION_TOKEN=your-token       # 필수
+```
+
+> **참고**: 운영 환경은 `.env.prod` 변경 후 반드시 `--build`로 재빌드해야 합니다.
 
 ### 파일 업로드 제한
 
@@ -304,7 +326,7 @@ spatial-log/
 │   │   ├── Assets.tsx          # 데이터 관리 + 변환 상태 표시
 │   │   └── Annotations.tsx
 │   ├── lib/
-│   │   ├── supabase.ts         # Supabase 클라이언트
+│   │   ├── supabase.ts         # Supabase 클라이언트 (운영: 동적 URL, 개발: 직접 URL)
 │   │   └── database.types.ts   # 데이터베이스 타입 정의
 │   ├── services/
 │   │   ├── api.ts              # API 추상화 레이어
@@ -331,10 +353,10 @@ spatial-log/
 │   └── kong.yml                # API Gateway 설정
 ├── Dockerfile                  # 프론트엔드 Docker 설정 (멀티스테이지: dev/build/prod)
 ├── docker-compose.yml          # Docker Compose 개발 환경 (앱 + Supabase + Converter)
-├── docker-compose.prod.yml     # Docker Compose 운영 환경 (VITE_* build args 포함)
+├── docker-compose.prod.yml     # Docker Compose 운영 환경 (ANON_KEY, CESIUM_TOKEN build args)
 ├── .env                        # 개발 환경 변수
 ├── .env.prod                   # 운영 환경 변수
-├── nginx.conf                  # 프로덕션 Nginx 설정 (SPA 라우팅)
+├── nginx.conf                  # 프로덕션 Nginx 설정 (SPA 라우팅 + API/Converter 프록시)
 ├── package.json
 ├── tailwind.config.js
 ├── tsconfig.json
@@ -499,6 +521,8 @@ spatial-log/
 | **WebGL 컨텍스트 손실** | 정상 동작에도 에러 표시 | 타임아웃 기반 에러 표시 |
 | **운영환경 DB 미연결** | PC마다 다른 데이터 표시 (localStorage 폴백) | Dockerfile에 `ARG VITE_*` 추가, docker-compose.prod.yml에 `build.args` 설정 |
 | **운영환경 SPA 라우팅** | `/assets` 등 새로고침 시 403 Forbidden | nginx.conf `try_files $uri /index.html` + 정적파일 location 분리 |
+| **운영환경 외부 API 접근** | 외부 네트워크에서 사설 IP(8101)로 API 접근 불가, "프로젝트 목록 조회 실패" | nginx API 프록시 추가 + `window.location.origin` 동적 URL 사용 |
+| **배포 후 캐시 문제** | 앱 재빌드 후 이전 JS 파일 404 | `index.html`에 `no-cache` 헤더 추가 |
 
 ### 🟡 부분 해결 / 테스트 필요 (Partial)
 
