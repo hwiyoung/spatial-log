@@ -146,14 +146,16 @@ docker compose down -v
 ```bash
 # 1. 운영 환경 변수 파일 생성
 cp .env.prod.example .env.prod
-# .env.prod 파일을 편집하여 SITE_URL 등 설정
+# .env.prod 파일을 편집하여 SITE_URL, VITE_SUPABASE_URL 등 설정
 
-# 2. 운영 환경 시작
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# 2. 운영 환경 시작 (VITE_* 변수가 Docker build args로 주입됨)
+docker compose -f docker-compose.prod.yml --env-file .env.prod -p spatial-log-prod up -d --build
 
 # 3. 상태 확인
-docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml -p spatial-log-prod ps
 ```
+
+> **주의**: 운영 환경은 프로젝트명 `-p spatial-log-prod`를 사용합니다. 개발 환경과 프로젝트명이 다르므로 반드시 명시해야 합니다.
 
 ### 환경별 접속 URL
 
@@ -164,13 +166,32 @@ docker compose -f docker-compose.prod.yml ps
 
 ### 코드 수정 시 동작
 
-- **개발 환경**: Vite 핫 리로드로 즉시 반영
+- **개발 환경**: Vite 핫 리로드로 즉시 반영 (소스 코드 마운트)
 - **운영 환경**: Docker 이미지로 고정, 재빌드 전까지 변경 없음
 
 ```bash
 # 운영 환경 업데이트 (재빌드)
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.prod -p spatial-log-prod up -d --build app
 ```
+
+> **참고**: `--build app`으로 프론트엔드만 재빌드할 수 있습니다. 전체 재빌드는 `--build`만 사용하세요.
+
+### 운영 환경 빌드 아키텍처
+
+운영 환경은 Docker 멀티스테이지 빌드로 동작합니다:
+
+```
+Dockerfile (target: production)
+├── Build Stage (node:20-alpine)
+│   ├── npm ci (의존성 설치)
+│   ├── ARG VITE_* (docker-compose.prod.yml에서 주입)
+│   └── npm run build (Vite 프로덕션 빌드)
+└── Production Stage (nginx:alpine)
+    ├── dist/ → /usr/share/nginx/html
+    └── nginx.conf → SPA 라우팅 처리
+```
+
+`VITE_*` 환경변수는 `.env.prod`에서 `docker-compose.prod.yml`의 `build.args`를 통해 빌드 시 주입됩니다. `.dockerignore`에 `.env*`가 포함되어 있으므로 직접 복사되지 않습니다.
 
 ### 데이터 분리
 
@@ -196,14 +217,20 @@ npm run dev
 ### 프로덕션 빌드
 
 ```bash
-# Docker 프로덕션 빌드
-docker build --target production -t spatial-log:prod .
+# Docker 프로덕션 빌드 (VITE_* 변수 필수)
+docker build --target production \
+  --build-arg VITE_SUPABASE_URL=http://서버IP:8101 \
+  --build-arg VITE_SUPABASE_ANON_KEY=your-anon-key \
+  --build-arg VITE_CONVERTER_URL=http://서버IP:8201 \
+  -t spatial-log:prod .
 docker run -p 80:80 spatial-log:prod
 
-# 또는 로컬 빌드
+# 또는 로컬 빌드 (.env 파일에서 VITE_* 자동 로드)
 npm run build
 npm run preview
 ```
+
+> **주의**: Docker 빌드 시 `--build-arg`로 `VITE_*` 변수를 전달하지 않으면, 앱이 Supabase에 연결하지 못하고 브라우저 localStorage 모드로 동작합니다.
 
 ## 환경변수
 
@@ -230,26 +257,31 @@ VITE_CONVERTER_URL=http://localhost:8200
 
 ### 네트워크 환경 설정
 
-다른 PC에서 접속할 경우 `.env`와 `docker-compose.yml`의 URL을 서버 IP로 변경:
+다른 PC에서 접속할 경우 환경변수 파일의 URL을 서버 IP로 변경:
 
 ```bash
-# .env
+# 개발 환경: .env
 VITE_SUPABASE_URL=http://192.168.x.x:8100
+VITE_CONVERTER_URL=http://192.168.x.x:8200
 
-# docker-compose.yml의 app 서비스
-environment:
-  - VITE_SUPABASE_URL=http://192.168.x.x:8100
+# 운영 환경: .env.prod
+VITE_SUPABASE_URL=http://192.168.x.x:8101
+VITE_CONVERTER_URL=http://192.168.x.x:8201
 ```
+
+> **주의**: 운영 환경은 `VITE_*` 변수가 Docker 빌드 시 주입되므로, `.env.prod` 변경 후 반드시 `--build`로 재빌드해야 합니다.
 
 ### 파일 업로드 제한
 
-기본 파일 크기 제한은 **1GB** 입니다. 변경하려면 `docker-compose.yml`:
+기본 파일 크기 제한은 **5GB** 입니다. 프론트엔드와 백엔드 양쪽에서 제한됩니다:
 
-```yaml
-storage:
-  environment:
-    FILE_SIZE_LIMIT: 1073741824  # 바이트 단위 (1GB)
-```
+| 계층 | 파일 | 설정값 |
+|------|------|--------|
+| **프론트엔드** | `src/components/common/FileUpload.tsx` | `maxSize = 5 * 1024 * 1024 * 1024` |
+| **백엔드 (개발)** | `docker-compose.yml` | `FILE_SIZE_LIMIT: 5368709120` |
+| **백엔드 (운영)** | `docker-compose.prod.yml` | `FILE_SIZE_LIMIT: 5368709120` |
+
+변경 시 **프론트엔드 + 백엔드 모두 수정** 후 재빌드가 필요합니다.
 
 ## 프로젝트 구조
 
@@ -297,9 +329,12 @@ spatial-log/
 ├── supabase/
 │   ├── schema.sql              # 데이터베이스 스키마 (변환 상태 컬럼 포함)
 │   └── kong.yml                # API Gateway 설정
-├── Dockerfile                  # 프론트엔드 Docker 설정
-├── docker-compose.yml          # Docker Compose (앱 + Supabase + Converter)
-├── nginx.conf                  # 프로덕션 Nginx 설정
+├── Dockerfile                  # 프론트엔드 Docker 설정 (멀티스테이지: dev/build/prod)
+├── docker-compose.yml          # Docker Compose 개발 환경 (앱 + Supabase + Converter)
+├── docker-compose.prod.yml     # Docker Compose 운영 환경 (VITE_* build args 포함)
+├── .env                        # 개발 환경 변수
+├── .env.prod                   # 운영 환경 변수
+├── nginx.conf                  # 프로덕션 Nginx 설정 (SPA 라우팅)
 ├── package.json
 ├── tailwind.config.js
 ├── tsconfig.json
@@ -367,7 +402,7 @@ spatial-log/
 
 ### Phase 5: 데이터 관리 ✅
 - [x] 파일 업로드 (드래그 앤 드롭)
-- [x] 대용량 파일 지원 (최대 1GB)
+- [x] 대용량 파일 지원 (최대 5GB)
 - [x] 폴더 구조 CRUD
 - [x] 파일 메타데이터 관리
 - [x] 클라이언트 스토리지 (IndexedDB)
@@ -397,7 +432,7 @@ spatial-log/
 - [x] 데이터베이스 스키마 설계 (PostgreSQL + PostGIS)
 - [x] API 추상화 레이어 (Supabase/로컬 스토리지 자동 전환)
 - [x] 사용자 인증 (Supabase Auth, 자동 확인)
-- [x] 파일 스토리지 (Supabase Storage, 1GB 지원)
+- [x] 파일 스토리지 (Supabase Storage, 5GB 지원)
 - [x] RLS 정책 설정 (개발 환경에서는 비활성화)
 - [ ] 클라우드 Supabase 배포
 
@@ -462,6 +497,8 @@ spatial-log/
 | **Resium React 18 호환** | `recentlyCreatedOwnerStacks` 에러 | CesiumJS 순수 API로 교체 |
 | **Cesium Ion 토큰 만료** | 401 Unauthorized 에러 | OpenStreetMap 타일 사용 |
 | **WebGL 컨텍스트 손실** | 정상 동작에도 에러 표시 | 타임아웃 기반 에러 표시 |
+| **운영환경 DB 미연결** | PC마다 다른 데이터 표시 (localStorage 폴백) | Dockerfile에 `ARG VITE_*` 추가, docker-compose.prod.yml에 `build.args` 설정 |
+| **운영환경 SPA 라우팅** | `/assets` 등 새로고침 시 403 Forbidden | nginx.conf `try_files $uri /index.html` + 정적파일 location 분리 |
 
 ### 🟡 부분 해결 / 테스트 필요 (Partial)
 
@@ -480,14 +517,14 @@ spatial-log/
 | **다른 포맷 지리 가시화** | GLTF, GLB, FBX, PLY, LAS의 Cesium 지원 | Medium |
 | **포인트 클라우드 3D Tiles** | PLY/LAS → 3D Tiles 변환 (pnts 형식) | Medium |
 | **E57 좌표 신뢰도** | 비표준 좌표계 E57 파일 처리 개선 | Low |
-| **대용량 파일 처리** | 500MB+ 파일 변환 최적화 | Low |
+| **대용량 파일 처리** | 5GB+ 파일 변환 최적화 | Low |
 
 ### 🟠 제한사항 (Known Limitations)
 
 | 기능 | 제한사항 | 해결 방법 |
 |------|----------|----------|
 | **E57 좌표계** | 파일에 올바른 WGS84 좌표가 저장되어 있어야 함 | 좌표계가 불명확한 경우 로컬 좌표로 처리 |
-| **파일 크기** | 1GB 이상 파일 업로드 불가 | docker-compose.yml FILE_SIZE_LIMIT 변경 |
+| **파일 크기** | 5GB 이상 파일 업로드 불가 | docker-compose.yml FILE_SIZE_LIMIT 변경 |
 | **OBJ 관련 파일** | 각각 별도 DB 레코드로 저장 | 정상 동작, 자동 그룹핑 예정 |
 | **고아 파일** | OBJ 삭제 시 MTL/텍스처 레코드가 남을 수 있음 | **Assets > 관리 탭 > 무결성 검사** |
 | **변환 시간** | 대용량 E57 변환에 수 분 소요 | 진행률 표시로 UX 개선 |

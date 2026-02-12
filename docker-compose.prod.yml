@@ -7,6 +7,11 @@ services:
     build:
       context: .
       target: production
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_CONVERTER_URL: ${VITE_CONVERTER_URL}
+        VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN}
     ports:
       - "8090:80"
     environment:
@@ -81,7 +86,7 @@ services:
       POSTGREST_URL: http://rest:3000
       PGRST_JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
-      FILE_SIZE_LIMIT: 1073741824
+      FILE_SIZE_LIMIT: 5368709120  # 5GB
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       TENANT_ID: stub

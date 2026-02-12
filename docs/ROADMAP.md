@@ -1,6 +1,6 @@
 # Spatial Log 개발 로드맵
 
-## 현재 상태 (2026-02-03 기준)
+## 현재 상태 (2026-02-12 기준)
 
 ### 완료된 Phase
 
@@ -10,6 +10,14 @@
 | 9 | 3D 데이터 변환 파이프라인 (E57→PLY, OBJ→GLB→3D Tiles) | ✅ 완료 |
 | 10 | 3D 어노테이션 완성 (레이캐스팅, 카메라 이동) | ✅ 완료 |
 | - | 개발/운영 환경 분리, CI/CD 파이프라인 | ✅ 완료 |
+
+### 최근 수정 (2026-02-12)
+
+| 항목 | 내용 |
+|------|------|
+| 업로드 제한 | 500MB/1GB → **5GB** (프론트엔드 + 백엔드) |
+| 운영환경 DB 연결 | Dockerfile `ARG VITE_*` + docker-compose.prod.yml `build.args` 추가 |
+| 운영환경 SPA 라우팅 | nginx.conf `try_files` 수정 (403 Forbidden 해결) |
 
 ### 검증 완료 (2026-02-03)
 
@@ -88,8 +96,9 @@
 | 기능 | 제한사항 | 해결 방안 |
 |------|----------|----------|
 | E57 좌표계 | 파일에 올바른 WGS84 좌표 필요 | 좌표계 선택 UI 추가 예정 |
-| 파일 크기 | 1GB 이상 업로드 불가 | FILE_SIZE_LIMIT 설정 변경 |
+| 파일 크기 | 5GB 이상 업로드 불가 | 프론트엔드(`FileUpload.tsx`) + 백엔드(`FILE_SIZE_LIMIT`) 양쪽 변경 |
 | OBJ 관련 파일 | OBJ+MTL+텍스처 동시 업로드 필요 | UI 가이드 추가 예정 |
+| 운영환경 배포 | `VITE_*` 변수가 빌드 시 주입되어야 함 | `.env.prod` 변경 후 반드시 `--build` 재빌드 필요 |
 
 ---
 
@@ -102,3 +111,7 @@
 | Cesium 뷰어 | `src/components/viewer/GeoViewer.tsx` |
 | DB 스키마 | `supabase/schema.sql` |
 | CI/CD | `.github/workflows/deploy-*.yml` |
+| 프론트엔드 Docker | `Dockerfile` (멀티스테이지: dev/build/prod) |
+| 운영 Docker Compose | `docker-compose.prod.yml` (VITE_* build args 포함) |
+| Nginx 설정 | `nginx.conf` (SPA 라우팅, 정적파일 캐싱) |
+| 파일 업로드 컴포넌트 | `src/components/common/FileUpload.tsx` (maxSize 설정) |

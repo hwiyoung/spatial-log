@@ -101,7 +101,7 @@ export default function FileUpload({
   onUpload,
   accept = SUPPORTED_EXTENSIONS.join(','),
   multiple = true,
-  maxSize = 500 * 1024 * 1024, // 500MB
+  maxSize = 5 * 1024 * 1024 * 1024, // 5GB
   className = '',
 }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false)

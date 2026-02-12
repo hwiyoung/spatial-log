@@ -831,11 +831,11 @@ export default function Assets() {
             <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full"
-                style={{ width: `${Math.min((storageUsed / (500 * 1024 * 1024)) * 100, 100)}%` }}
+                style={{ width: `${Math.min((storageUsed / (5 * 1024 * 1024 * 1024)) * 100, 100)}%` }}
               />
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              {formatFileSize(storageUsed)} / 500 MB
+              {formatFileSize(storageUsed)} / 5 GB
             </p>
           </div>
         </div>

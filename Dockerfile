@@ -22,6 +22,12 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
+# Vite build-time env vars (injected via docker-compose build args)
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_CONVERTER_URL
+ARG VITE_CESIUM_ION_TOKEN
+
 COPY . .
 RUN npm run build
 
