@@ -9,6 +9,7 @@ import { CONVERTER_URL } from '@/constants/config'
 export type ConversionType =
   | 'e57_to_ply'
   | 'e57_to_las'
+  | 'e57_to_3dtiles'
   | 'las_to_copc'
   | 'ply_to_copc'
   | 'laz_to_copc'
@@ -55,7 +56,7 @@ export function getConversionTypeForFormat(format: string): ConversionType | nul
 
   switch (formatLower) {
     case 'e57':
-      return 'e57_to_ply'  // 또는 'e57_to_las'
+      return 'e57_to_3dtiles'
     case 'las':
       return 'las_to_3dtiles'
     case 'laz':
@@ -197,6 +198,7 @@ export const CONVERSION_STATUS_LABELS: Record<ConversionStatus, string> = {
 export const CONVERSION_TYPE_LABELS: Record<ConversionType, string> = {
   e57_to_ply: 'E57 → PLY',
   e57_to_las: 'E57 → LAS',
+  e57_to_3dtiles: 'E57 → 3D Tiles',
   las_to_copc: 'LAS → LAZ (압축)',
   ply_to_copc: 'PLY → LAZ (압축)',
   laz_to_copc: 'LAZ → LAZ (최적화)',

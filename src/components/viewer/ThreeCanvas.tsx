@@ -4,10 +4,8 @@ import { OrbitControls, Grid, Environment, PerspectiveCamera, Html } from '@reac
 import { Box as BoxIcon, AlertTriangle, Loader2, Settings, Activity, Copy, Check, MapPin, Ruler, Trash2 } from 'lucide-react'
 import * as THREE from 'three'
 import ModelViewer from './ModelViewer'
-import { AnnotationMarkers3D } from './AnnotationMarker3D'
 import MeasurementOverlay, { type MeasurementPoint } from './MeasurementOverlay'
 import { type LoadProgress, type LoadedModel, type RelatedFile } from '../../utils/modelLoader'
-import type { AnnotationData } from '@/services/api'
 import {
   type QualityLevel,
   QUALITY_LABELS,
@@ -39,12 +37,6 @@ interface ThreeCanvasProps {
   modelFile?: File
   modelFormat?: string // 명시적 포맷 지정 (blob URL 사용 시)
   relatedFiles?: RelatedFile[] // 연관 파일 (MTL, 텍스처 등)
-  annotateMode?: boolean
-  onPointClick?: (position: ClickPosition) => void
-  // 어노테이션 관련 props
-  annotations?: AnnotationData[]
-  selectedAnnotationId?: string | null
-  onAnnotationClick?: (annotation: AnnotationData) => void
   // 품질 설정 관련
   showQualitySettings?: boolean
   // 좌표 확인 모드
@@ -114,17 +106,15 @@ function PerformanceMonitor({ onStats }: { onStats: (stats: PerformanceStats) =>
   return null
 }
 
-// 씬 전체 레이캐스팅 핸들러 (어노테이션 배치 및 좌표 확인용)
+// 씬 전체 레이캐스팅 핸들러 (좌표 확인 및 측정용)
 interface SceneRaycasterProps {
-  onPointClick?: (position: ClickPosition) => void
   onCoordinateClick?: (position: ClickPosition) => void
   onMeasureClick?: (position: ClickPosition) => void
-  annotateMode: boolean
   showCoordinates: boolean
   measureMode: boolean
 }
 
-function SceneRaycaster({ onPointClick, onCoordinateClick, onMeasureClick, annotateMode, showCoordinates, measureMode }: SceneRaycasterProps) {
+function SceneRaycaster({ onCoordinateClick, onMeasureClick, showCoordinates, measureMode }: SceneRaycasterProps) {
   const { camera, scene, raycaster, gl } = useThree()
   const fallbackPlaneRef = useRef<THREE.Mesh>(null)
 
@@ -134,9 +124,7 @@ function SceneRaycaster({ onPointClick, onCoordinateClick, onMeasureClick, annot
   }, [raycaster])
 
   const handleClick = useCallback((event: MouseEvent) => {
-    // annotateMode, showCoordinates, measureMode 중 하나가 활성일 때 클릭 처리
-    if (!annotateMode && !showCoordinates && !measureMode) return
-    if (annotateMode && !onPointClick) return
+    if (!showCoordinates && !measureMode) return
     if (showCoordinates && !onCoordinateClick) return
     if (measureMode && !onMeasureClick) return
 
@@ -196,12 +184,8 @@ function SceneRaycaster({ onPointClick, onCoordinateClick, onMeasureClick, annot
       if (showCoordinates && onCoordinateClick) {
         onCoordinateClick(clickedPosition)
       }
-      // 어노테이션 모드일 때
-      if (annotateMode && onPointClick) {
-        onPointClick(clickedPosition)
-      }
     }
-  }, [annotateMode, showCoordinates, measureMode, onPointClick, onCoordinateClick, onMeasureClick, camera, scene, raycaster, gl])
+  }, [showCoordinates, measureMode, onCoordinateClick, onMeasureClick, camera, scene, raycaster, gl])
 
   useEffect(() => {
     const canvas = gl.domElement
@@ -496,15 +480,9 @@ interface SceneContentProps {
   modelFile?: File
   modelFormat?: string
   relatedFiles?: RelatedFile[]
-  annotateMode: boolean
   onProgress: (progress: LoadProgress) => void
   onError: (error: Error) => void
   onLoad: (model: LoadedModel) => void
-  onPointClick?: (position: ClickPosition) => void
-  // 어노테이션 관련 props
-  annotations?: AnnotationData[]
-  selectedAnnotationId?: string | null
-  onAnnotationClick?: (annotation: AnnotationData) => void
   // 성능 모니터링
   onStats?: (stats: PerformanceStats) => void
   // 좌표 확인 모드
@@ -517,72 +495,14 @@ interface SceneContentProps {
   onMeasureClick?: (position: ClickPosition) => void
 }
 
-// 카메라 컨트롤러 (선택된 어노테이션으로 이동)
-function CameraFlyTo({ targetPosition }: { targetPosition: { x: number; y: number; z: number } | null }) {
-  const { camera } = useThree()
-  const isAnimating = useRef(false)
-  const startPosition = useRef(new THREE.Vector3())
-  const endPosition = useRef(new THREE.Vector3())
-  const progress = useRef(0)
-  const prevTarget = useRef<{ x: number; y: number; z: number } | null>(null)
-
-  useEffect(() => {
-    if (!targetPosition) {
-      isAnimating.current = false
-      return
-    }
-
-    if (
-      prevTarget.current &&
-      prevTarget.current.x === targetPosition.x &&
-      prevTarget.current.y === targetPosition.y &&
-      prevTarget.current.z === targetPosition.z
-    ) {
-      return
-    }
-
-    prevTarget.current = targetPosition
-    startPosition.current.copy(camera.position)
-    endPosition.current.set(
-      targetPosition.x + 3,
-      targetPosition.y + 3,
-      targetPosition.z + 3
-    )
-    progress.current = 0
-    isAnimating.current = true
-  }, [targetPosition, camera])
-
-  useFrame((_, delta) => {
-    if (!isAnimating.current || !prevTarget.current) return
-
-    progress.current += delta / 1.0 // 1초 duration
-
-    if (progress.current >= 1) {
-      progress.current = 1
-      isAnimating.current = false
-    }
-
-    const t = 1 - Math.pow(1 - progress.current, 3)
-    camera.position.lerpVectors(startPosition.current, endPosition.current, t)
-    camera.lookAt(prevTarget.current.x, prevTarget.current.y, prevTarget.current.z)
-  })
-
-  return null
-}
-
 function SceneContent({
   modelUrl,
   modelFile,
   modelFormat,
   relatedFiles,
-  annotateMode,
   onProgress,
   onError,
   onLoad,
-  onPointClick,
-  annotations = [],
-  selectedAnnotationId,
-  onAnnotationClick,
   onStats,
   showCoordinates,
   clickedPosition,
@@ -592,10 +512,6 @@ function SceneContent({
   onMeasureClick,
 }: SceneContentProps) {
   const hasModel = !!(modelUrl || modelFile)
-
-  // 선택된 어노테이션의 위치 찾기
-  const selectedAnnotation = annotations.find((a) => a.id === selectedAnnotationId)
-  const targetPosition = selectedAnnotation?.position || null
 
   return (
     <>
@@ -624,12 +540,10 @@ function SceneContent({
       {/* Grid */}
       <GridFloor />
 
-      {/* Scene raycaster for annotation placement, coordinate inspection, and measurement */}
+      {/* Scene raycaster for coordinate inspection and measurement */}
       <SceneRaycaster
-        onPointClick={onPointClick}
         onCoordinateClick={onCoordinateClick}
         onMeasureClick={onMeasureClick}
-        annotateMode={annotateMode}
         showCoordinates={showCoordinates}
         measureMode={measureMode}
       />
@@ -660,18 +574,6 @@ function SceneContent({
         />
       )}
 
-      {/* 어노테이션 마커 */}
-      {onAnnotationClick && (
-        <AnnotationMarkers3D
-          annotations={annotations}
-          selectedId={selectedAnnotationId || null}
-          onAnnotationClick={onAnnotationClick}
-        />
-      )}
-
-      {/* 선택된 어노테이션으로 카메라 이동 */}
-      <CameraFlyTo targetPosition={targetPosition} />
-
       {/* 성능 모니터링 */}
       {onStats && <PerformanceMonitor onStats={onStats} />}
     </>
@@ -683,11 +585,6 @@ export default function ThreeCanvas({
   modelFile,
   modelFormat,
   relatedFiles,
-  annotateMode = false,
-  onPointClick,
-  annotations = [],
-  selectedAnnotationId,
-  onAnnotationClick,
   showQualitySettings = true,
   showCoordinateMode = false,
 }: ThreeCanvasProps) {
@@ -813,7 +710,7 @@ export default function ThreeCanvas({
   const hasModel = !!(modelUrl || modelFile)
 
   return (
-    <div ref={canvasContainerRef} className={`w-full h-full relative ${annotateMode || showCoordinates ? 'cursor-crosshair' : ''}`}>
+    <div ref={canvasContainerRef} className={`w-full h-full relative ${showCoordinates ? 'cursor-crosshair' : ''}`}>
       {!isCanvasReady ? (
         <CanvasLoadingFallback />
       ) : (
@@ -851,14 +748,9 @@ export default function ThreeCanvas({
             modelFile={modelFile}
             modelFormat={modelFormat}
             relatedFiles={relatedFiles}
-            annotateMode={annotateMode}
             onProgress={handleProgress}
             onError={handleError}
             onLoad={handleLoad}
-            onPointClick={onPointClick}
-            annotations={annotations}
-            selectedAnnotationId={selectedAnnotationId}
-            onAnnotationClick={onAnnotationClick}
             onStats={showStats ? setPerfStats : undefined}
             showCoordinates={showCoordinates}
             clickedPosition={clickedPosition}

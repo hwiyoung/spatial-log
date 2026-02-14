@@ -276,6 +276,161 @@ export type Database = {
           updated_at?: string
         }
       }
+      stories: {
+        Row: {
+          id: string
+          user_id: string | null
+          title: string
+          description: string | null
+          status: string
+          tags: string[]
+          cover_file_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          title: string
+          description?: string | null
+          status?: string
+          tags?: string[]
+          cover_file_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          title?: string
+          description?: string | null
+          status?: string
+          tags?: string[]
+          cover_file_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      scenes: {
+        Row: {
+          id: string
+          story_id: string
+          title: string
+          zone_label: string | null
+          summary: string | null
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          story_id: string
+          title: string
+          zone_label?: string | null
+          summary?: string | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          story_id?: string
+          title?: string
+          zone_label?: string | null
+          summary?: string | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      scene_entries: {
+        Row: {
+          id: string
+          scene_id: string
+          file_id: string | null
+          entry_type: string
+          title: string | null
+          body: string | null
+          url: string | null
+          gps_latitude: number | null
+          gps_longitude: number | null
+          spatial_anchor: { x: number; y: number; z: number } | null
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          scene_id: string
+          file_id?: string | null
+          entry_type?: string
+          title?: string | null
+          body?: string | null
+          url?: string | null
+          gps_latitude?: number | null
+          gps_longitude?: number | null
+          spatial_anchor?: Json | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          scene_id?: string
+          file_id?: string | null
+          entry_type?: string
+          title?: string | null
+          body?: string | null
+          url?: string | null
+          gps_latitude?: number | null
+          gps_longitude?: number | null
+          spatial_anchor?: Json | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      releases: {
+        Row: {
+          id: string
+          story_id: string
+          user_id: string | null
+          version: number
+          label: string | null
+          snapshot: Json
+          manifest: Json
+          access_type: string
+          share_token: string | null
+          status: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          story_id: string
+          user_id?: string | null
+          version?: number
+          label?: string | null
+          snapshot: Json
+          manifest: Json
+          access_type?: string
+          share_token?: string | null
+          status?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          story_id?: string
+          user_id?: string | null
+          version?: number
+          label?: string | null
+          snapshot?: Json
+          manifest?: Json
+          access_type?: string
+          share_token?: string | null
+          status?: string
+          created_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -376,6 +531,10 @@ export type FolderRow = Tables<'folders'>
 export type ProjectRow = Tables<'projects'>
 export type AnnotationRow = Tables<'annotations'>
 export type IntegrityLogRow = Tables<'integrity_logs'>
+export type StoryRow = Tables<'stories'>
+export type SceneRow = Tables<'scenes'>
+export type SceneEntryRow = Tables<'scene_entries'>
+export type ReleaseRow = Tables<'releases'>
 
 // 파일 포맷 타입
 export type FileFormat = Database['public']['Enums']['file_format']

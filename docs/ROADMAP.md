@@ -1,28 +1,67 @@
 # Spatial Log 개발 로드맵
 
-## 현재 상태 (2026-02-12 기준)
+## 현재 상태 (2026-02-14 기준)
 
 ### 완료된 Phase
 
 | Phase | 내용 | 상태 |
 |-------|------|------|
 | 1-8 | 초기화, UI, 페이지, 3D 뷰어, 데이터 관리, 프로젝트, 어노테이션, 백엔드 | ✅ 완료 |
-| 9 | 3D 데이터 변환 파이프라인 (E57→PLY, OBJ→GLB→3D Tiles) | ✅ 완료 |
+| 9 | 3D 데이터 변환 파이프라인 (E57→PLY, OBJ→GLB) | ✅ 완료 |
 | 10 | 3D 어노테이션 완성 (레이캐스팅, 카메라 이동) | ✅ 완료 |
-| - | 개발/운영 환경 분리, CI/CD 파이프라인 | ✅ 완료 |
+| v2 | **3축 아키텍처 전환** (Assets/Story/Publish) | ✅ 완료 |
+| v2.1 | **표현 체계 재설계** (4종 Entry, 항상 Cesium, 말풍선 팝업) | ✅ 완료 |
+| - | 인증 시스템 (Supabase Auth), 개발/운영 환경 분리, CI/CD | ✅ 완료 |
 
-### 최근 수정 (2026-02-12)
+### v2 — 3축 아키텍처 전환 (완료)
+
+기존 Projects/Annotations 체계를 **Assets → Story → Publish** 3축으로 전환.
 
 | 항목 | 내용 |
 |------|------|
-| 업로드 제한 | 500MB/1GB → **5GB** (프론트엔드 + 백엔드) |
-| 운영환경 DB 연결 | Dockerfile `ARG VITE_*` + docker-compose.prod.yml `build.args` 추가 |
-| 운영환경 SPA 라우팅 | nginx.conf `try_files` 수정 (403 Forbidden 해결) |
-| **운영환경 API 프록시** | nginx에 `/rest/v1/`, `/auth/v1/`, `/storage/v1/`, `/converter/` 프록시 추가 |
-| **동적 URL** | `supabase.ts` - `VITE_SUPABASE_URL` 미설정 시 `window.location.origin` 사용 |
-| **Converter 동적 URL** | `VITE_CONVERTER_URL` 미설정 시 `window.location.origin/converter` 사용 |
-| **캐시 방지** | `index.html`에 `no-cache` 헤더 추가 (배포 후 즉시 반영) |
-| **.env.prod 간소화** | `VITE_SUPABASE_URL`, `VITE_CONVERTER_URL` 제거 (nginx 프록시로 대체) |
+| **데이터 모델** | `stories`, `scenes`, `scene_entries`, `releases` 테이블 신규 생성 |
+| **DB 마이그레이션** | `001_stories_scenes_releases.sql` |
+| **Store** | `storyStore.ts`, `releaseStore.ts` (Zustand) |
+| **페이지** | StoryList, StoryWorkspacePage, PublishList, PublishDetail, SharedRelease |
+| **컴포넌트** | StoryWorkspace, CesiumWorkspaceCanvas, SceneNavigator, SceneDetailPanel |
+| **Release** | Story 스냅샷(JSONB) 기반 불변 발행, 공유 토큰, 버전 관리 |
+| **라우팅** | `/story`, `/story/:storyId`, `/publish`, `/publish/:releaseId`, `/shared/:token` |
+
+### v2.1 — 표현 체계 재설계 (완료)
+
+핵심 철학 "모든 것은 공간 위에 존재한다"에 맞게 표현 체계 재설계.
+
+| 항목 | Before | After |
+|------|--------|-------|
+| Entry 타입 | `asset \| memo` | `spatial \| visual \| document \| note` |
+| 캔버스 | cesium/threejs/image 전환 | **항상 Cesium** |
+| 마커 클릭 | Entry 선택만 | **말풍선 팝업** (타입별 콘텐츠) |
+| GPS | spatial만 | **모든 타입 지원** (자동 추출 + 수동 지정) |
+| Entry 추가 | 우측 패널에서만 | **3가지 워크플로우** (패널/드래그/지도클릭) |
+| Scene 필드 | title만 | + zoneLabel, summary |
+| Publish 범위 | Story 전체 | **Scene 선택** 가능 |
+
+**수정 파일**:
+- DB: `002_entry_type_refactor.sql` (entry_type 4종, scene zone_label/summary, entry url)
+- 타입: `story.ts` (SceneEntryType 4종, SceneData + zoneLabel/summary, SceneEntryData + url)
+- API: `api.ts` (detectEntryTypeFromFormat, 매퍼/CRUD 확장, localStorage 마이그레이션)
+- Store: `storyStore.ts` (시그니처 확장)
+- 신규: `EntryBalloonPopup.tsx` (마커 클릭 말풍선 팝업)
+- 수정: `StoryWorkspace.tsx` (항상 Cesium, 드롭 수신, 지도 클릭 추가)
+- 수정: `CesiumWorkspaceCanvas.tsx` (타입별 마커 색상, 드롭 GPS 계산)
+- 수정: `SceneNavigator.tsx` (zoneLabel 표시, 드래그 지원)
+- 수정: `SceneDetailPanel.tsx` (4종 UI, Scene 메타 편집, GPS 상태)
+- 수정: `ReleaseCreateDialog.tsx` (Scene 선택 체크박스)
+- 수정: `ReleaseViewer.tsx` (4종 타입 표시, 말풍선 팝업, readOnly)
+
+### 최근 수정 이력
+
+| 날짜 | 항목 |
+|------|------|
+| 2026-02-14 | 표현 체계 재설계 (v2.1) 완료, DB 마이그레이션 002 적용 |
+| 2026-02-13 | 3축 아키텍처 (v2) 구현 완료 |
+| 2026-02-12 | 업로드 제한 5GB, 운영환경 DB 연결/SPA 라우팅/API 프록시 수정 |
+| 2026-02-03 | 3D 변환 파이프라인 검증 완료 |
 
 ### 검증 완료 (2026-02-03)
 
@@ -38,7 +77,7 @@
 
 ## 향후 개발 계획
 
-### Phase 11: 3D Tiles 확장 (예정)
+### 3D Tiles 확장 (예정)
 
 | 작업 | 우선순위 | 상태 |
 |------|---------|------|
@@ -47,7 +86,7 @@
 | PLY/LAS → 3D Tiles (pnts) | 높음 | 🔲 예정 |
 | 좌표계 선택 UI (EPSG) | 중간 | 🔲 예정 |
 
-### Phase 12: 사용자 경험 개선 (예정)
+### 사용자 경험 개선 (예정)
 
 | 작업 | 우선순위 |
 |------|---------|
@@ -56,43 +95,19 @@
 | 에러 메시지 개선 | 낮음 |
 | 반응형 UI | 낮음 |
 
-### Phase 13: 성능 최적화 (예정)
+### 성능 최적화 (예정)
 
 - 대용량 파일 변환 최적화 (PDAL 스트리밍)
 - 청크 기반 처리 (분할 업로드)
 - Web Worker 백그라운드 처리
 - 텍스처 LOD
 
-### Phase 14: 인증 시스템 완성 (예정)
+### 서버 인프라 강화 (예정)
 
-| 작업 | 우선순위 |
-|------|---------|
-| RLS 정책 활성화 | 높음 (프로덕션 필수) |
-| 로그인/회원가입 UI | 높음 |
-| 소셜 로그인 (Google, GitHub) | 중간 |
-| 프로젝트 공유 및 권한 관리 | 중간 |
-
-### Phase 15: 서버 인프라 강화 (예정)
-
-- 현재 서버 인프라 최적화
 - Docker 컨테이너 리소스 튜닝
 - 백업 및 복구 전략 수립
 - CI/CD 파이프라인 완성
 - 모니터링 (Sentry, Prometheus/Grafana)
-
----
-
-## 타임라인 (예상)
-
-| 주차 | 작업 |
-|------|------|
-| 1 | 검증 완료, 문서화 ✅ |
-| 2 | GLTF/GLB → 3D Tiles |
-| 3-4 | FBX, PLY/LAS → 3D Tiles |
-| 5-6 | 좌표 검증 UI, 진행률 개선 |
-| 7-9 | 성능 최적화 |
-| 10-12 | 인증 시스템 |
-| 13-15 | 서버 인프라 강화 |
 
 ---
 
@@ -101,9 +116,10 @@
 | 기능 | 제한사항 | 해결 방안 |
 |------|----------|----------|
 | E57 좌표계 | 파일에 올바른 WGS84 좌표 필요 | 좌표계 선택 UI 추가 예정 |
-| 파일 크기 | 5GB 이상 업로드 불가 | 프론트엔드(`FileUpload.tsx`) + 백엔드(`FILE_SIZE_LIMIT`) 양쪽 변경 |
+| 파일 크기 | 5GB 이상 업로드 불가 | `FILE_SIZE_LIMIT` 양쪽 변경 |
 | OBJ 관련 파일 | OBJ+MTL+텍스처 동시 업로드 필요 | UI 가이드 추가 예정 |
-| 운영환경 배포 | `VITE_SUPABASE_ANON_KEY`, `VITE_CESIUM_ION_TOKEN`이 빌드 시 필요 | `.env.prod` 변경 후 반드시 `--build` 재빌드 필요 |
+| GPS 미지정 Entry | Cesium 마커 미표시 | "위치 지정" 버튼으로 수동 지정 |
+| 운영환경 배포 | `VITE_SUPABASE_ANON_KEY` 빌드 시 필요 | `.env.prod` 변경 후 `--build` 재빌드 |
 
 ---
 
@@ -113,10 +129,18 @@
 |------|------|
 | 3D 변환 로직 | `services/spatial-converter/converter.py` |
 | 변환 API | `services/spatial-converter/server.py` |
-| Cesium 뷰어 | `src/components/viewer/GeoViewer.tsx` |
+| Story 워크스페이스 | `src/components/story/StoryWorkspace.tsx` |
+| Cesium 캔버스 | `src/components/story/CesiumWorkspaceCanvas.tsx` |
+| 말풍선 팝업 | `src/components/story/EntryBalloonPopup.tsx` |
+| Scene 패널 | `src/components/story/SceneDetailPanel.tsx` |
+| Release 뷰어 | `src/components/release/ReleaseViewer.tsx` |
+| API 추상화 | `src/services/api.ts` |
+| Story/Entry 타입 | `src/types/story.ts` |
+| Story Store | `src/stores/storyStore.ts` |
+| Release Store | `src/stores/releaseStore.ts` |
 | DB 스키마 | `supabase/schema.sql` |
+| DB 마이그레이션 | `supabase/migrations/001_*.sql`, `002_*.sql` |
 | CI/CD | `.github/workflows/deploy-*.yml` |
 | 프론트엔드 Docker | `Dockerfile` (멀티스테이지: dev/build/prod) |
-| 운영 Docker Compose | `docker-compose.prod.yml` (ANON_KEY, CESIUM_TOKEN build args) |
-| Nginx 설정 | `nginx.conf` (SPA 라우팅, API/Converter 프록시, 정적파일 캐싱) |
-| 파일 업로드 컴포넌트 | `src/components/common/FileUpload.tsx` (maxSize 설정) |
+| 운영 Docker Compose | `docker-compose.prod.yml` |
+| Nginx 설정 | `nginx.conf` (SPA 라우팅, API/Converter 프록시) |

@@ -111,8 +111,7 @@ export default function GeoViewer({
           const entity = await loadGLB(viewer, dataUrl, spatialInfo, 0)
           entityRef.current = entity
         } else if (dataType === 'ply') {
-          // PLY는 현재 직접 지원하지 않음, 3D Tiles로 변환 필요
-          setError('PLY 파일의 지리 가시화는 3D Tiles 변환 후 지원됩니다.')
+          setError('E57/PLY 파일의 Cesium 지리 가시화는 아직 지원되지 않습니다. 3D 미리보기를 이용해주세요.')
         }
 
         setIsLoading(false)

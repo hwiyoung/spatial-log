@@ -56,8 +56,12 @@ export function getConvertedFileInfo(
   if (!file.convertedPath) return null
 
   if (file.format === 'e57') {
-    const filename = file.convertedPath.split('/').pop() || ''
-    return { url: `${CONVERTER_URL}/output/${filename}`, format: 'ply', geoDataType: 'ply' }
+    const dirName = file.convertedPath.split('/').pop() || ''
+    return {
+      url: `${CONVERTER_URL}/output/${dirName}/tileset.json`,
+      format: '3dtiles',
+      geoDataType: '3dtiles',
+    }
   }
 
   if (['obj', 'gltf', 'glb'].includes(file.format)) {

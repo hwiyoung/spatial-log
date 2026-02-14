@@ -1,15 +1,45 @@
 # Spatial Log
 
-3D 모델, 3D 스캔, 드론 이미지, 스마트폰 이미지 등 다양한 공간 데이터를 업로드, 가시화, 관리하고 어노테이션을 작성할 수 있는 **3D 공간정보 플랫폼**입니다.
+3D 모델, 3D 스캔, 드론 이미지, 스마트폰 이미지 등 다양한 공간 데이터를 업로드, 가시화, 관리하고 공간 스토리를 구성·발행할 수 있는 **3D 공간정보 플랫폼**입니다.
+
+> **핵심 철학**: "모든 것은 공간 위에 존재한다" — 캔버스는 항상 Cesium 지구본이며, 모든 콘텐츠는 GPS 좌표에 배치됩니다.
+
+## 3축 아키텍처
+
+```
+Assets (업로드·관리)  →  Story (구성·편집)  →  Publish (발행·공유)
+```
+
+| 축 | 설명 |
+|-----|------|
+| **Assets** | 폴더 기반 파일 업로드, 정리, 검색, 3D 변환 파이프라인 |
+| **Story** | Story → Scene → Entry 계층 구조로 공간 콘텐츠 구성 (항상 Cesium 캔버스) |
+| **Publish** | Story 스냅샷을 Release로 발행, 공유 링크 생성, 버전 관리 |
 
 ## 핵심 기능
 
 | 기능 | 설명 |
 |------|------|
 | **데이터 관리** | 폴더 기반 파일 업로드, 정리, 검색 |
-| **3D 가시화** | Three.js + CesiumJS 하이브리드 뷰어 |
-| **프로젝트 관리** | 데이터셋 그룹화, 에셋 연결, 협업 |
-| **어노테이션** | 2D/3D 맵 기반 이슈 트래킹 |
+| **3D 가시화** | CesiumJS 지구본 캔버스 (3D 오브젝트 + 타입별 마커) |
+| **Story 구성** | Scene별 Entry 배치 (spatial/visual/document/note 4종) |
+| **공간 마커** | GPS 기반 마커 + 말풍선 팝업 (썸네일, 다운로드, 텍스트) |
+| **Release 발행** | 스냅샷 기반 버전 관리, Scene 선택 발행, 공유 링크 |
+
+### Entry 타입
+
+| 타입 | 역할 | 파일 | 아이콘 | 마커색 |
+|------|------|------|--------|--------|
+| `spatial` | 3D 모델, 포인트클라우드 | 필수 | Box | blue |
+| `visual` | 사진, 이미지 | 필수 | Image | green |
+| `document` | PDF, 도면, 문서 | 필수 | FileText | purple |
+| `note` | 텍스트, 링크, 메모 | 없음 | StickyNote | amber |
+
+### Entry 추가 워크플로우
+
+- **A. 우측 패널**: 타입 선택 → 파일/메모 입력 → GPS 자동 추출 또는 수동 지정
+- **B. 에셋 드래그**: 에셋 브라우저에서 Cesium 캔버스로 드래그&드롭 → 드롭 위치 GPS로 Entry 생성
+- **C. 지도 클릭**: "위치에 추가" → 지구본 클릭 → 해당 GPS에 Entry 생성 다이얼로그
 
 ## 지원 데이터
 
@@ -67,9 +97,9 @@
 - **Icons**: Lucide React
 
 ### 3D Engine
-- **Three.js** (react-three-fiber): 일반 3D 모델 렌더링
-- **CesiumJS** (순수 API): 3D 지구본 가시화 (OpenStreetMap 타일)
-- **Leaflet** (react-leaflet): 2D 맵 가시화
+- **CesiumJS** (순수 API): 3D 지구본 캔버스 (Story 워크스페이스 메인 뷰어, OpenStreetMap 타일)
+- **Three.js** (react-three-fiber): Assets 페이지 3D 미리보기
+- **Leaflet** (react-leaflet): 2D 맵 보조 가시화
 
 ### Backend
 - **Supabase**: 인증, 데이터베이스, 스토리지
@@ -312,35 +342,50 @@ spatial-log/
 ├── public/                     # 정적 에셋
 ├── src/
 │   ├── components/
-│   │   ├── common/             # Button, Modal, Card, Input, ConversionStatus
+│   │   ├── common/             # Button, Modal, Card, Input, FileUpload, ErrorBoundary
 │   │   ├── layout/             # Sidebar, Header, MainLayout
-│   │   ├── viewer/             # ThreeCanvas, ModelViewer, GeoViewer
-│   │   ├── dashboard/          # ProjectCard, AssetCard
-│   │   ├── project/            # AssetLinkModal
-│   │   ├── annotation/         # AnnotationModal, AnnotationMapView
+│   │   ├── viewer/             # ThreeCanvas, ModelViewer, GeoViewer (Assets 미리보기)
+│   │   ├── story/              # Story 워크스페이스 (핵심)
+│   │   │   ├── StoryWorkspace.tsx          # 전체화면 워크스페이스 (캔버스 + 패널)
+│   │   │   ├── CesiumWorkspaceCanvas.tsx   # Cesium 캔버스 (마커, 3D 오브젝트, 드롭)
+│   │   │   ├── EntryBalloonPopup.tsx       # 마커 클릭 말풍선 팝업
+│   │   │   ├── SceneNavigator.tsx          # 좌측 패널 (Scene 목록 + 에셋 브라우저)
+│   │   │   ├── SceneDetailPanel.tsx        # 우측 패널 (Entry 관리 + Scene 메타)
+│   │   │   └── SplitViewport.tsx           # 분할 뷰포트
+│   │   ├── release/            # Release 발행·뷰어
+│   │   │   ├── ReleaseCreateDialog.tsx     # 발행 다이얼로그 (Scene 선택)
+│   │   │   └── ReleaseViewer.tsx           # Release 뷰어 (읽기 전용 Cesium)
+│   │   ├── project/            # AssetLinkModal (레거시 호환)
 │   │   └── admin/              # IntegrityChecker, DevConsole
 │   ├── pages/
-│   │   ├── Dashboard.tsx
-│   │   ├── Projects.tsx
-│   │   ├── ProjectDetail.tsx   # 프로젝트 상세 (에셋, 어노테이션, 3D 뷰어)
+│   │   ├── Dashboard.tsx       # 대시보드 (최근 Story, 에셋)
 │   │   ├── Assets.tsx          # 데이터 관리 + 변환 상태 표시
-│   │   └── Annotations.tsx
+│   │   ├── StoryList.tsx       # Story 목록
+│   │   ├── StoryWorkspacePage.tsx  # Story 워크스페이스 (전체화면)
+│   │   ├── PublishList.tsx     # Release 목록
+│   │   ├── PublishDetail.tsx   # Release 상세 (뷰어)
+│   │   ├── SharedRelease.tsx   # 공유 링크 페이지 (인증 불필요)
+│   │   └── Login.tsx           # 로그인 페이지
+│   ├── contexts/
+│   │   └── AuthContext.tsx     # 인증 컨텍스트
 │   ├── lib/
 │   │   ├── supabase.ts         # Supabase 클라이언트 (운영: 동적 URL, 개발: 직접 URL)
 │   │   └── database.types.ts   # 데이터베이스 타입 정의
 │   ├── services/
-│   │   ├── api.ts              # API 추상화 레이어
+│   │   ├── api.ts              # API 추상화 레이어 (Supabase/localStorage 자동 전환)
 │   │   └── conversionService.ts # 변환 서비스 API 클라이언트
-│   ├── hooks/                  # 커스텀 훅
 │   ├── stores/
-│   │   └── assetStore.ts       # 파일/폴더 상태 관리 (변환 트리거 포함)
-│   ├── types/                  # TypeScript 타입 정의
+│   │   ├── assetStore.ts       # 파일/폴더 상태 관리 (변환 트리거 포함)
+│   │   ├── storyStore.ts       # Story/Scene/Entry 상태 관리
+│   │   └── releaseStore.ts     # Release 상태 관리
+│   ├── types/
+│   │   └── story.ts            # Story/Scene/Entry/Release 타입 정의
 │   ├── utils/
 │   │   ├── storage.ts          # 로컬 스토리지 (IndexedDB)
-│   │   ├── exifParser.ts       # EXIF 메타데이터 파서
+│   │   ├── exifParser.ts       # EXIF 메타데이터 파서 (GPS 추출)
 │   │   ├── modelLoader.ts      # 3D 모델 로더 (자동 스케일링 포함)
 │   │   └── texturePreloader.ts # 텍스처 프리로딩 유틸리티
-│   ├── App.tsx
+│   ├── App.tsx                 # 라우팅 + AuthGuard + localStorage 마이그레이션
 │   └── main.tsx
 ├── services/
 │   └── spatial-converter/      # 3D 데이터 변환 서비스
@@ -349,7 +394,10 @@ spatial-log/
 │       ├── Dockerfile          # 변환 서비스 컨테이너
 │       └── requirements.txt
 ├── supabase/
-│   ├── schema.sql              # 데이터베이스 스키마 (변환 상태 컬럼 포함)
+│   ├── schema.sql              # 데이터베이스 스키마 (기본)
+│   ├── migrations/
+│   │   ├── 001_stories_scenes_releases.sql  # Story/Scene/Entry/Release 테이블
+│   │   └── 002_entry_type_refactor.sql      # Entry 4종 타입 + Scene 메타 확장
 │   └── kong.yml                # API Gateway 설정
 ├── Dockerfile                  # 프론트엔드 Docker 설정 (멀티스테이지: dev/build/prod)
 ├── docker-compose.yml          # Docker Compose 개발 환경 (앱 + Supabase + Converter)
@@ -369,11 +417,28 @@ spatial-log/
 
 | 테이블 | 설명 |
 |--------|------|
-| `projects` | 프로젝트 정보 |
+| `files` | 파일 메타데이터 (GPS, EXIF, 변환 상태, 공간 정보) |
 | `folders` | 폴더 계층 구조 |
-| `files` | 파일 메타데이터 (GPS, EXIF, 변환 상태, 공간 정보 포함) |
-| `annotations` | 3D 어노테이션 |
+| `stories` | Story 정보 (title, description, status, tags) |
+| `scenes` | Scene 정보 (title, zone_label, summary, sort_order) |
+| `scene_entries` | Entry 정보 (entry_type, file_id, gps, title, body, url) |
+| `releases` | Release 정보 (version, snapshot JSONB, share_token) |
+| `projects` | 프로젝트 정보 (레거시 호환) |
+| `annotations` | 3D 어노테이션 (레거시 호환) |
 | `integrity_logs` | 무결성 검사 로그 |
+
+### Story 계층 구조
+
+```
+stories
+  └── scenes (sort_order 정렬)
+        └── scene_entries (sort_order 정렬)
+              ├── entry_type: spatial | visual | document | note
+              ├── file_id → files (spatial/visual/document)
+              ├── gps_latitude, gps_longitude (GPS 좌표)
+              ├── title, body, url (note 타입용)
+              └── spatial_anchor (3D 공간 좌표)
+```
 
 ### files 테이블 주요 컬럼
 
@@ -384,187 +449,54 @@ spatial-log/
 | `converted_path` | TEXT | 변환된 파일 경로 |
 | `metadata` | JSONB | 공간 정보 (spatialInfo: epsg, bbox, center, ...) |
 
+### 마이그레이션 파일
+
+| 파일 | 설명 |
+|------|------|
+| `supabase/schema.sql` | 기본 스키마 (files, folders, projects, annotations) |
+| `001_stories_scenes_releases.sql` | Story/Scene/Entry/Release 테이블 생성 |
+| `002_entry_type_refactor.sql` | Entry 4종 타입 리팩터링 + Scene zone_label/summary |
+
 ### 주요 기능
 - **PostGIS 확장**: 공간 쿼리 지원
 - **Row Level Security (RLS)**: 사용자별 데이터 격리
 - **자동 위치 계산**: GPS 좌표 → Geography 타입 자동 변환
-- **프로젝트-에셋 연결**: files.project_id 외래키
+- **Release 스냅샷**: Story 상태를 JSONB로 동결하여 불변 보존
 - **변환 상태 추적**: 3D 데이터 변환 진행 상황 저장
 
 ## 개발 로드맵
 
-### Phase 1: 프로젝트 초기화 ✅
-- [x] UI 프로토타입 (3DPlatformUI.jsx)
-- [x] Vite + React + TypeScript 프로젝트 구성
-- [x] Tailwind CSS 설정
-- [x] ESLint + Prettier 설정
-- [x] Docker 환경 구성
+> 상세 로드맵: [docs/ROADMAP.md](docs/ROADMAP.md)
 
-### Phase 2: UI 컴포넌트 분리 ✅
-- [x] 레이아웃 컴포넌트 (Sidebar, Header, MainLayout)
-- [x] 공통 컴포넌트 (Button, Modal, Card, Input)
-- [x] 페이지 라우팅 (React Router v6)
-- [x] 다크 테마 시스템
+### 완료된 Phase
 
-### Phase 3: 페이지 구현 ✅
-- [x] Dashboard 페이지
-- [x] Projects 페이지
-- [x] Assets 페이지
-- [x] Annotations 페이지
+| Phase | 내용 | 상태 |
+|-------|------|------|
+| 1-8 | 프로젝트 초기화, UI, 3D 뷰어, 데이터 관리, 백엔드 연동 | ✅ 완료 |
+| 9 | 3D 데이터 변환 파이프라인 (E57→PLY, OBJ→GLB) | ✅ 완료 |
+| 10 | 3D 어노테이션 (레이캐스팅, 카메라 이동) | ✅ 완료 |
+| v2 | **3축 아키텍처** (Assets/Story/Publish) 전환 | ✅ 완료 |
+| v2.1 | **표현 체계 재설계** (4종 Entry, 항상 Cesium, 말풍선 팝업) | ✅ 완료 |
+| - | 인증 시스템, 개발/운영 환경 분리, CI/CD | ✅ 완료 |
 
-### Phase 4: 3D 뷰어 통합 ✅
-- [x] react-three-fiber 통합 (3D 모델)
-- [x] CesiumJS 순수 API 통합 (지리공간 데이터, React 18 호환)
-- [x] 뷰어 모드 전환 (Grid/Map)
-- [x] 파일 포맷 지원 (GLTF, GLB, OBJ, FBX, PLY, LAS)
-- [x] **E57 서버 사이드 변환 (PLY)** - 브라우저 파싱 대신 PDAL 사용
-- [x] OBJ Z-up → Y-up 좌표계 자동 변환
-- [x] WebGL 컨텍스트 손실 복구 처리 (타임아웃 기반 에러 표시)
-- [x] WGS84 좌표 모델 자동 스케일링 (Three.js)
+### 향후 계획
 
-### Phase 5: 데이터 관리 ✅
-- [x] 파일 업로드 (드래그 앤 드롭)
-- [x] 대용량 파일 지원 (최대 5GB)
-- [x] 폴더 구조 CRUD
-- [x] 파일 메타데이터 관리
-- [x] 클라이언트 스토리지 (IndexedDB)
-- [x] EXIF/GPS 메타데이터 추출
+| Phase | 영역 | 우선순위 |
+|-------|------|---------|
+| 3D Tiles 확장 | GLTF/GLB/PLY/LAS → 3D Tiles 변환 | High |
+| 사용자 경험 | 좌표 검증 UI, 변환 진행률, 반응형 | Medium |
+| 성능 최적화 | 대용량 변환, Web Worker, 텍스처 LOD | Medium |
+| 서버 인프라 | 리소스 튜닝, 백업, 모니터링 | High |
 
-### Phase 6: 프로젝트 시스템 ✅
-- [x] 프로젝트 CRUD
-- [x] 프로젝트 목록/그리드 뷰
-- [x] 에셋-프로젝트 연결 (AssetLinkModal)
-- [x] 프로젝트 상세 페이지 (ProjectDetail.tsx)
-- [x] 프로젝트 내 3D 뷰어 통합
-- [x] 에셋 연결/해제 기능
-
-### Phase 7: 어노테이션 시스템 ✅
-- [x] 이슈 CRUD (제목, 설명, 우선순위, 상태)
-- [x] 분포 맵 시각화
-- [x] 필터링 및 검색
-- [x] 맵에서 클릭으로 위치 지정
-- [x] 맵 드래그 이동
-- [x] **맵 휠 줌 (Leaflet 기반 2D 맵)**
-- [x] **2D/3D 맵 토글 (Leaflet + CesiumJS)**
-- [ ] 3D 좌표 기반 마커 생성 (ThreeCanvas 레이캐스팅)
-- [ ] 마커-뷰어 연동 (CameraController)
-
-### Phase 8: 백엔드 연동 ✅
-- [x] Supabase 로컬 환경 구성 (Docker Compose)
-- [x] 데이터베이스 스키마 설계 (PostgreSQL + PostGIS)
-- [x] API 추상화 레이어 (Supabase/로컬 스토리지 자동 전환)
-- [x] 사용자 인증 (Supabase Auth, 자동 확인)
-- [x] 파일 스토리지 (Supabase Storage, 5GB 지원)
-- [x] RLS 정책 설정 (개발 환경에서는 비활성화)
-- [ ] 클라우드 Supabase 배포
-
-### Phase 9: 3D 데이터 변환 파이프라인 ✅
-- [x] 변환 서비스 Docker 컨테이너 구축 (PDAL + Node.js)
-- [x] E57 → PLY 변환 (PDAL, 다운샘플링, 높이 기반 색상)
-- [x] OBJ → GLB 변환 (obj2gltf + gltf-transform 압축)
-- [x] OBJ 텍스처 복사 (Supabase 스토리지 파일명 매칭)
-- [x] WGS84 좌표 변환 (경위도 → 로컬 미터)
-- [x] 좌표계 자동 감지 (WGS84, Korea TM, 로컬)
-- [x] 변환 상태 DB 저장 및 프론트엔드 표시
-- [x] GLB Entity 직접 로드 + 방향 조정 슬라이더
-- [x] 변환 완료 시 자동 미리보기 지원
-
-### Phase 10: 3D 어노테이션 완성 ✅
-- [x] 모델 표면 클릭 마커 생성 (SceneRaycaster 연결)
-- [x] 포인트 클라우드 클릭 지원 (raycaster threshold 조정)
-- [x] 어노테이션 선택 시 카메라 자동 이동 (CameraFlyTo)
-- [x] 마커 호버 프리뷰 및 선택 하이라이트
-
-### Phase 11: 3D Tiles 확장 📋
-- [ ] GLTF/GLB → 3D Tiles 변환 (gltf-transform 바운딩 박스)
-- [ ] FBX → 3D Tiles 변환 (Assimp/Blender CLI)
-- [ ] PLY/LAS → 3D Tiles 포인트 클라우드 (pnts 형식)
-- [ ] 좌표계 선택 UI (EPSG 코드 검색/선택)
-
-### Phase 12: 사용자 경험 개선 📋
-- [ ] 좌표 검증 UI (지도에서 위치 확인 및 수정)
-- [ ] 변환 진행률 개선 (단계별 상태, 취소 기능)
-- [ ] 에러 메시지 개선 (해결 방법 제안)
-- [ ] 반응형 UI (모바일/태블릿 지원)
-
-### Phase 13: 성능 최적화 📋
-- [ ] 대용량 파일 변환 최적화 (PDAL 스트리밍)
-- [ ] 청크 기반 처리 (분할 업로드, 재시작 가능)
-- [ ] Web Worker 백그라운드 처리
-- [ ] 텍스처 LOD (점진적 고해상도 로드)
-
-### Phase 14: 인증 시스템 완성 📋
-- [ ] RLS 정책 활성화 및 테스트
-- [ ] 로그인/회원가입 UI 구현
-- [ ] 소셜 로그인 (Google, GitHub)
-- [ ] 프로젝트 공유 및 권한 관리
-
-### Phase 15: 클라우드 배포 📋
-- [ ] Supabase 클라우드 연동
-- [ ] 변환 서비스 클라우드 배포 (Cloud Run / Lambda)
-- [ ] CI/CD 파이프라인 구축
-- [ ] 모니터링 및 에러 추적 (Sentry)
-
-## 알려진 제한사항 및 TODO
-
-### 🟢 해결 완료 (Resolved)
-
-| 기능 | 증상 | 해결 방법 |
-|------|------|----------|
-| **E57 가시화** | "maximum call stack size exceeded" 에러 | 서버사이드 PDAL 변환 (E57 → PLY) |
-| **OBJ Cesium 가시화** | 지리 좌표에 모델 미표시 | GLB Entity 직접 로드 (3D Tiles보다 간단) |
-| **OBJ 모델 방향** | Cesium에서 모델 방향이 맞지 않음 | 방향 조정 슬라이더 (0-360°) 추가 |
-| **WGS84 좌표 모델** | Three.js에서 매우 작게 렌더링 | 자동 스케일링 로직 추가 |
-| **어노테이션 맵 휠 줌** | 맵 콘텐츠가 아닌 패널 전체가 줌됨 | Leaflet 라이브러리 도입 |
-| **Resium React 18 호환** | `recentlyCreatedOwnerStacks` 에러 | CesiumJS 순수 API로 교체 |
-| **Cesium Ion 토큰 만료** | 401 Unauthorized 에러 | OpenStreetMap 타일 사용 |
-| **WebGL 컨텍스트 손실** | 정상 동작에도 에러 표시 | 타임아웃 기반 에러 표시 |
-| **운영환경 DB 미연결** | PC마다 다른 데이터 표시 (localStorage 폴백) | Dockerfile에 `ARG VITE_*` 추가, docker-compose.prod.yml에 `build.args` 설정 |
-| **운영환경 SPA 라우팅** | `/assets` 등 새로고침 시 403 Forbidden | nginx.conf `try_files $uri /index.html` + 정적파일 location 분리 |
-| **운영환경 외부 API 접근** | 외부 네트워크에서 사설 IP(8101)로 API 접근 불가, "프로젝트 목록 조회 실패" | nginx API 프록시 추가 + `window.location.origin` 동적 URL 사용 |
-| **배포 후 캐시 문제** | 앱 재빌드 후 이전 JS 파일 404 | `index.html`에 `no-cache` 헤더 추가 |
-
-### 🟡 부분 해결 / 테스트 필요 (Partial)
-
-| 기능 | 현재 상태 | 테스트 필요 사항 |
-|------|----------|-----------------|
-| **E57 좌표 추출** | 좌표계 자동 감지 구현 | 다양한 E57 파일로 검증 필요 (일부 파일에서 좌표 오류) |
-| **OBJ Three.js 미리보기** | GLB 변환 + 자동 스케일링 | WGS84 좌표 OBJ 파일 테스트 필요 |
-| **OBJ Cesium 가시화** | GLB Entity 직접 로드, 방향 조정 슬라이더 | 위치/방향 정확도 검증 필요 |
-| **OBJ 텍스처** | Supabase 스토리지 파일명 매칭 수정 | OBJ+MTL+텍스처 재업로드 후 변환 테스트 필요 |
-| **텍스처 프리로딩** | 프리로딩 유틸리티 구현 | OBJ+MTL+텍스처 로딩 성능 측정 필요 |
-
-### 🔴 미해결 (TODO)
-
-| 기능 | 설명 | 우선순위 |
-|------|------|---------|
-| **다른 포맷 지리 가시화** | GLTF, GLB, FBX, PLY, LAS의 Cesium 지원 | Medium |
-| **포인트 클라우드 3D Tiles** | PLY/LAS → 3D Tiles 변환 (pnts 형식) | Medium |
-| **E57 좌표 신뢰도** | 비표준 좌표계 E57 파일 처리 개선 | Low |
-| **대용량 파일 처리** | 5GB+ 파일 변환 최적화 | Low |
-
-### 🟠 제한사항 (Known Limitations)
+## 알려진 제한사항
 
 | 기능 | 제한사항 | 해결 방법 |
 |------|----------|----------|
 | **E57 좌표계** | 파일에 올바른 WGS84 좌표가 저장되어 있어야 함 | 좌표계가 불명확한 경우 로컬 좌표로 처리 |
 | **파일 크기** | 5GB 이상 파일 업로드 불가 | docker-compose.yml FILE_SIZE_LIMIT 변경 |
-| **OBJ 관련 파일** | 각각 별도 DB 레코드로 저장 | 정상 동작, 자동 그룹핑 예정 |
-| **고아 파일** | OBJ 삭제 시 MTL/텍스처 레코드가 남을 수 있음 | **Assets > 관리 탭 > 무결성 검사** |
+| **OBJ 관련 파일** | OBJ+MTL+텍스처를 각각 별도 업로드 | 동시 업로드 필요 |
+| **GPS 미지정 Entry** | Cesium 마커 미표시, 패널 목록에만 존재 | "위치 지정" 버튼으로 지도 클릭 GPS 지정 |
 | **변환 시간** | 대용량 E57 변환에 수 분 소요 | 진행률 표시로 UX 개선 |
-
-### 향후 개선 방향
-
-상세 계획은 **Phase 10-15**를 참조하세요.
-
-| Phase | 영역 | 우선순위 |
-|-------|------|---------|
-| **10** | 3D 어노테이션 완성 | High |
-| **11** | 3D Tiles 확장 | High |
-| **12** | 사용자 경험 개선 | Medium |
-| **13** | 성능 최적화 | Medium |
-| **14** | 인증 시스템 완성 | High (Production) |
-| **15** | 클라우드 배포 | High (Production) |
 
 ## 유지보수
 
@@ -611,30 +543,41 @@ CREATE TABLE IF NOT EXISTS public.integrity_logs (
 
 ## 화면 구성
 
-### 대시보드
-- 최근 프로젝트 목록
-- 최근 업로드 데이터
+### 대시보드 (`/`)
+- 최근 Story 목록
+- 최근 업로드 에셋
 - 3D 뷰어 미리보기 (파일 클릭 시)
 
-### 프로젝트
-- 프로젝트 카드 그리드
-- 프로젝트 생성/편집
-- 프로젝트 상세 페이지
-  - 에셋 탭: 연결된 파일 목록, 파일 추가/연결 해제
-  - 어노테이션 탭: 프로젝트 관련 어노테이션
-  - 3D 뷰어 탭: 선택한 에셋 3D 미리보기
-
-### 데이터 보관함
+### 데이터 보관함 (`/assets`)
 - 폴더 트리 네비게이션
 - 파일 그리드/리스트 뷰
 - 드래그 앤 드롭 업로드
+- 3D 변환 상태 표시
 
-### 어노테이션
-- 이슈 목록 (필터링, 정렬)
-- 2D/3D 맵 토글
-  - 2D 맵: Leaflet 기반 (휠 줌 지원)
-  - 3D 맵: CesiumJS 기반 지구본
-- 이슈 상세 패널
+### Story 목록 (`/story`)
+- Story 카드 그리드 (제목, 설명, 상태, 태그)
+- Story 생성/편집/삭제
+
+### Story 워크스페이스 (`/story/:storyId`, 전체화면)
+- **좌측 패널** (SceneNavigator): Scene 목록 + 에셋 브라우저 (드래그 지원)
+- **중앙 캔버스** (CesiumWorkspaceCanvas): 항상 Cesium 지구본
+  - 타입별 색상 마커 (spatial=blue, visual=green, document=purple, note=amber)
+  - spatial Entry: 3D 오브젝트 로드 + 마커
+  - 마커 클릭 → 말풍선 팝업 (EntryBalloonPopup)
+  - 에셋 드래그&드롭 → 드롭 위치 GPS로 Entry 생성
+  - "위치에 추가" → 지도 클릭 → Entry 생성 다이얼로그
+- **우측 패널** (SceneDetailPanel): Scene 메타 편집, Entry CRUD, GPS 상태
+
+### 발행 목록 (`/publish`)
+- Release 카드 그리드 (버전, 라벨, Scene/Entry 수)
+- Release 생성 다이얼로그 (Scene 선택 발행)
+
+### Release 상세 (`/publish/:releaseId`)
+- 읽기 전용 Cesium 뷰어 + 마커 + 말풍선 팝업
+- Scene/Entry 네비게이션
+
+### 공유 페이지 (`/shared/:token`, 인증 불필요)
+- 공유 링크로 Release 열람
 
 ## 기여하기
 

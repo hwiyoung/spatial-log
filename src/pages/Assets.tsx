@@ -480,85 +480,90 @@ export default function Assets() {
           </div>
         </div>
         <div className="flex items-center space-x-3">
-          {/* 선택된 파일 액션 (파일 탭에서만) */}
-          {activeTab === 'files' && selectedFileIds.length > 0 && (
-            <div className="flex items-center space-x-2 mr-4">
-              <span className="text-sm text-slate-400">{selectedFileIds.length}개 선택됨</span>
-              {selectedFileIds.length === 1 && (
-                <button
-                  onClick={() => {
-                    const file = files.find(f => f.id === selectedFileIds[0])
-                    if (file) handleDownload(file)
-                  }}
-                  className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg border border-blue-600/30"
-                >
-                  <Download size={14} />
-                  <span className="text-sm">다운로드</span>
-                </button>
-              )}
-              <button
-                onClick={handleDeleteSelected}
-                className="flex items-center space-x-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg border border-red-600/30"
-              >
-                <Trash2 size={14} />
-                <span className="text-sm">삭제</span>
-              </button>
-              <button
-                onClick={clearSelection}
-                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
-
-          {/* 뷰 모드 토글 (파일 탭에서만) */}
           {activeTab === 'files' && (
-            <>
-              {/* 다중 선택 모드 토글 */}
-              <button
-                onClick={toggleMultiSelectMode}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-colors ${
-                  multiSelectMode
-                    ? 'bg-blue-600/20 border-blue-500 text-blue-400'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
-                }`}
-                title="다중 선택 모드"
-              >
-                <CheckSquare size={16} />
-                <span className="text-sm">다중 선택</span>
-              </button>
-
-              <div className="bg-slate-800 rounded-lg p-1 flex border border-slate-700">
+            selectedFileIds.length > 0 ? (
+              <>
+                <span className="text-sm text-slate-400">{selectedFileIds.length}개 선택됨</span>
+                {selectedFileIds.length === 1 && (
+                  <button
+                    onClick={() => {
+                      const file = files.find(f => f.id === selectedFileIds[0])
+                      if (file) handleDownload(file)
+                    }}
+                    className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg border border-blue-600/30"
+                  >
+                    <Download size={14} />
+                    <span className="text-sm">다운로드</span>
+                  </button>
+                )}
                 <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                  onClick={handleDeleteSelected}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg border border-red-600/30"
                 >
-                  <Grid size={16} />
+                  <Trash2 size={14} />
+                  <span className="text-sm">삭제</span>
                 </button>
                 <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                  onClick={clearSelection}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
                 >
-                  <List size={16} />
+                  <X size={16} />
                 </button>
-              </div>
+                <div className="h-5 border-l border-slate-600" />
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  <UploadCloud size={18} />
+                  <span>파일 업로드</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={toggleMultiSelectMode}
+                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-colors ${
+                    multiSelectMode
+                      ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                      : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                  title="다중 선택 모드"
+                >
+                  <CheckSquare size={16} />
+                  <span className="text-sm">다중 선택</span>
+                </button>
 
-              <button
-                onClick={() => setShowNewFolderModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700"
-              >
-                <FolderPlus size={18} />
-                <span>새 폴더</span>
-              </button>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-              >
-                <UploadCloud size={18} />
-                <span>파일 업로드</span>
-              </button>
-            </>
+                <div className="bg-slate-800 rounded-lg p-1 flex border border-slate-700">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 rounded ${viewMode === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    <Grid size={16} />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded ${viewMode === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    <List size={16} />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowNewFolderModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700"
+                >
+                  <FolderPlus size={18} />
+                  <span>새 폴더</span>
+                </button>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+                >
+                  <UploadCloud size={18} />
+                  <span>파일 업로드</span>
+                </button>
+              </>
+            )
           )}
         </div>
       </div>
@@ -581,9 +586,9 @@ export default function Assets() {
           <IntegrityChecker />
         </div>
       ) : (
-      <div className="flex-1 flex gap-6 min-h-0 bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
+      <div className="flex-1 flex min-h-0 bg-slate-900/50 rounded-xl border border-slate-700 overflow-hidden">
         {/* 폴더 트리 */}
-        <div className="w-60 bg-slate-900 border-r border-slate-800 p-4">
+        <div className="w-60 bg-slate-900 border-r border-slate-700 p-4 flex-shrink-0">
           <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">폴더</h3>
           <ul className="space-y-1">
             {/* 전체 파일 */}
@@ -824,15 +829,12 @@ export default function Assets() {
             <div className="space-y-1">
               {/* 헤더 */}
               <div className="grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-slate-500 uppercase border-b border-slate-800">
-                {(multiSelectMode || selectedFileIds.length > 0) && (
-                  <span className="col-span-1"></span>
-                )}
-                <span className={multiSelectMode || selectedFileIds.length > 0 ? 'col-span-3' : 'col-span-4'}>이름</span>
+                <span className="col-span-1"></span>
+                <span className="col-span-3">이름</span>
                 <span className="col-span-2">포맷</span>
                 <span className="col-span-2">상태</span>
                 <span className="col-span-2">크기</span>
                 <span className="col-span-2">수정일</span>
-                <span className="col-span-1"></span>
               </div>
 
               {currentFiles.map((file) => (
@@ -852,8 +854,8 @@ export default function Assets() {
                   }`}
                 >
                   {/* 체크박스 */}
-                  {(multiSelectMode || selectedFileIds.length > 0) && (
-                    <div className="col-span-1 flex items-center">
+                  <div className="col-span-1 flex items-center justify-center">
+                    {(multiSelectMode || selectedFileIds.length > 0) && (
                       <button
                         onClick={(e) => handleCheckboxToggle(e, file.id)}
                         className="p-1 hover:bg-slate-700 rounded"
@@ -864,9 +866,9 @@ export default function Assets() {
                           <Square size={18} className="text-slate-500" />
                         )}
                       </button>
-                    </div>
-                  )}
-                  <div className={`${multiSelectMode || selectedFileIds.length > 0 ? 'col-span-3' : 'col-span-4'} flex items-center space-x-3`}>
+                    )}
+                  </div>
+                  <div className="col-span-3 flex items-center space-x-3">
                     <div className={`w-8 h-8 rounded flex items-center justify-center ${getFormatBgColor(file.format)}`}>
                       {file.thumbnailUrl ? (
                         <img src={file.thumbnailUrl} alt="" className="w-full h-full object-cover rounded" />
@@ -1191,8 +1193,8 @@ export default function Assets() {
 
       {/* 3D 미리보기 모달 */}
       {previewFile && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-slate-900 rounded-xl border border-slate-700 w-full max-w-5xl h-[80vh] shadow-2xl flex flex-col">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={closePreview}>
+          <div className="bg-slate-900 rounded-xl border border-slate-700 w-full max-w-5xl h-[80vh] shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
             {/* 헤더 */}
             <div className="flex items-center justify-between p-4 border-b border-slate-700">
               <div className="flex items-center gap-3">

@@ -30,6 +30,7 @@ class ConversionType(str, Enum):
     GLB_TO_3DTILES = "glb_to_3dtiles"
     PLY_TO_3DTILES = "ply_to_3dtiles"
     LAS_TO_3DTILES = "las_to_3dtiles"
+    E57_TO_3DTILES = "e57_to_3dtiles"
 
 
 @dataclass
@@ -99,6 +100,8 @@ class SpatialConverter:
                 return self._convert_to_3dtiles(source, options, progress_callback)
             elif conversion_type in [ConversionType.PLY_TO_3DTILES, ConversionType.LAS_TO_3DTILES]:
                 return self._convert_pointcloud_to_3dtiles(source, options, progress_callback)
+            elif conversion_type == ConversionType.E57_TO_3DTILES:
+                return self._convert_e57_to_3dtiles(source, options, progress_callback)
             else:
                 return ConversionResult(
                     success=False,
@@ -632,10 +635,11 @@ class SpatialConverter:
             # 0.05m = 5cm 간격
             voxel_size = options.get("voxel_size", 0.05)
 
-        # 좌표계 변환 여부 (Z-up → Y-up, 기본: 활성화)
-        # 지리 좌표계의 경우 좌표 변환을 비활성화 (이미 축이 뒤바뀌어 있을 수 있음)
-        # 한국 TM / 투영 좌표계는 일반적으로 Z-up이므로 Y-up 변환 필요
-        transform_coords = options.get("transform_coords", not is_geographic or is_korea_tm or is_projected)
+        # 좌표계 변환 여부 (Z-up → Y-up)
+        # 프론트엔드 PLY 로더에서 별도 회전을 적용하지 않으므로,
+        # 한국 TM / 투영 좌표계(명확히 Z-up)만 변환, 나머지는 원본 유지
+        # (E57 스캐너 데이터는 이미 Y-up이거나 방향이 다양하여 일괄 변환 시 눕혀짐)
+        transform_coords = options.get("transform_coords", is_korea_tm or is_projected)
 
         # PDAL 파이프라인 구성
         pipeline_stages = [
@@ -1893,6 +1897,87 @@ class SpatialConverter:
             if temp_link and temp_link.exists():
                 try:
                     temp_link.unlink()
+                except Exception:
+                    pass
+
+    def _convert_e57_to_3dtiles(
+        self,
+        source: Path,
+        options: dict,
+        progress_callback: Callable[[int], None] = None
+    ) -> ConversionResult:
+        """E57 → 3D Tiles 변환 (E57 → PLY 임시 변환 후 py3dtiles로 3D Tiles 생성)
+
+        Cesium에서 E57 포인트 클라우드를 지리 가시화하기 위한 파이프라인입니다.
+        1단계: PDAL로 E57 → PLY 변환 (좌표 변환 없이 원본 유지)
+        2단계: py3dtiles로 PLY → 3D Tiles (pnts) 변환
+        """
+        if progress_callback:
+            progress_callback(5)
+
+        # 1단계: E57 → PLY (임시 파일로)
+        logger.info("e57_to_3dtiles_step1", source=str(source))
+        temp_ply = self.temp_path / f"e57_3dt_{source.stem}.ply"
+
+        try:
+            # E57 → PLY 변환 (좌표 변환 비활성화 — py3dtiles가 좌표계 처리)
+            ply_options = {**options, "transform_coords": False}
+            ply_result = self._convert_e57_to_ply(
+                source, ply_options,
+                lambda p: progress_callback(5 + int(p * 0.4)) if progress_callback else None
+            )
+
+            if not ply_result.success:
+                return ConversionResult(
+                    success=False,
+                    error=f"E57 → PLY 변환 실패: {ply_result.error}"
+                )
+
+            # PLY 결과 파일을 임시 위치로 이동
+            ply_output = Path(ply_result.output_path)
+            if ply_output != temp_ply:
+                shutil.copy2(str(ply_output), str(temp_ply))
+
+            if progress_callback:
+                progress_callback(50)
+
+            # 2단계: PLY → 3D Tiles
+            logger.info("e57_to_3dtiles_step2", ply_path=str(temp_ply))
+            tiles_options = {**options, "original_format": "ply"}
+            tiles_result = self._convert_pointcloud_to_3dtiles(
+                temp_ply, tiles_options,
+                lambda p: progress_callback(50 + int(p * 0.5)) if progress_callback else None
+            )
+
+            if not tiles_result.success:
+                return ConversionResult(
+                    success=False,
+                    error=f"PLY → 3D Tiles 변환 실패: {tiles_result.error}"
+                )
+
+            # 메타데이터에 원본 포맷 기록
+            if tiles_result.metadata:
+                tiles_result.metadata["source_format"] = "e57"
+                # PLY 단계의 공간 정보 보존
+                if ply_result.metadata and "spatialInfo" in ply_result.metadata:
+                    tiles_result.metadata["spatialInfo"] = ply_result.metadata["spatialInfo"]
+
+            logger.info("e57_to_3dtiles_success",
+                       output=tiles_result.output_path)
+
+            return tiles_result
+
+        except Exception as e:
+            logger.exception("e57_to_3dtiles_error")
+            return ConversionResult(
+                success=False,
+                error=f"E57 → 3D Tiles 변환 오류: {str(e)}"
+            )
+        finally:
+            # 임시 PLY 파일 정리
+            if temp_ply.exists():
+                try:
+                    temp_ply.unlink()
                 except Exception:
                     pass
 

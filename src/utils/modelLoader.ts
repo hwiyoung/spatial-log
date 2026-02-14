@@ -316,11 +316,15 @@ export async function loadOBJ(
 
           console.log(`OBJ WGS84 스케일링: X=${scaleX.toFixed(2)}, Y=${scaleY.toFixed(2)}, Z=${scaleZ.toFixed(2)}`)
         } else {
-          // 일반 모델: 기존 로직
-          // OBJ 파일은 종종 Z-up 좌표계를 사용하므로 Y-up으로 변환
-          object.rotation.x = -Math.PI / 2
+          // 일반 모델: Z-up 여부를 휴리스틱으로 판단
+          // Z축 범위가 Y축보다 확연히 크면 Z-up으로 간주하여 회전
+          const isLikelyZUp = originalSize.z > originalSize.y * 1.5 && originalSize.z > 0.1
+          if (isLikelyZUp) {
+            object.rotation.x = -Math.PI / 2
+            console.log('OBJ Z-up 감지: Y-up으로 회전 적용')
+          }
 
-          // 회전 후 bounding box 재계산하여 중심 맞추기
+          // bounding box 재계산하여 중심 맞추기
           object.updateMatrixWorld(true)
           const box = new THREE.Box3().setFromObject(object)
           const center = box.getCenter(new THREE.Vector3())
