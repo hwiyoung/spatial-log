@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { X, Search, Check, FolderOpen, FileImage, File } from 'lucide-react'
+import { X, Search, Check, FolderOpen } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
-import type { FileMetadata } from '@/services/api'
 import { formatFileSize } from '@/utils/storage'
+import { getFileIcon } from '@/utils/fileFormatUtils'
 
 interface AssetLinkModalProps {
   isOpen: boolean
@@ -57,12 +57,6 @@ export default function AssetLinkModal({
     if (selectedIds.length === 0) return
     await linkToProject(selectedIds, projectId)
     onLinked()
-  }
-
-  const getFileIcon = (file: FileMetadata) => {
-    if (file.format === 'image') return FileImage
-    if (['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) return File
-    return FolderOpen
   }
 
   return (
@@ -125,7 +119,7 @@ export default function AssetLinkModal({
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {filteredFiles.map((file) => {
-                const FileIcon = getFileIcon(file)
+                const FileIcon = getFileIcon(file.format)
                 const isSelected = selectedIds.includes(file.id)
                 return (
                   <div

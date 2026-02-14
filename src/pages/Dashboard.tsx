@@ -6,6 +6,8 @@ import Viewer3D from '@/components/viewer/Viewer3D'
 import { useProjectStore } from '@/stores/projectStore'
 import { useAssetStore } from '@/stores/assetStore'
 import { formatFileSize } from '@/utils/storage'
+import { is3DFormat } from '@/constants/formats'
+import { getConvertedFileInfo, revokeBlobUrl } from '@/utils/previewHelpers'
 import type { ProjectData, FileMetadata } from '@/services/api'
 
 export default function Dashboard() {
@@ -26,12 +28,7 @@ export default function Dashboard() {
   // 컴포넌트 언마운트 시 Blob URL 정리
   useEffect(() => {
     return () => {
-      if (previewUrlRef.current) {
-        const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current
-        if (blobUrlOnly.startsWith('blob:')) {
-          URL.revokeObjectURL(blobUrlOnly)
-        }
-      }
+      revokeBlobUrl(previewUrlRef.current)
     }
   }, [])
 
@@ -50,98 +47,61 @@ export default function Dashboard() {
   }
 
   const handleFileClick = useCallback(async (file: FileMetadata) => {
-    // 3D 미리보기 지원 파일인지 확인
-    const is3DFormat = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)
-    if (!is3DFormat) {
+    if (!is3DFormat(file.format)) {
       setSelectedFile(file)
       setPreviewUrl(null)
       previewUrlRef.current = null
       return
     }
 
-    // 변환이 필요한 파일 처리 (E57, OBJ 등)
-    const needsConversionFormats = ['e57', 'obj']
-    if (needsConversionFormats.includes(file.format)) {
-      if (file.conversionStatus === 'ready' && file.convertedPath) {
-        // 변환 완료된 파일 사용
-        const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
-        let convertedFileUrl: string
-        let fileExtHint: string
+    // 변환이 필요한 포맷(E57, OBJ)만 변환된 파일로 로드 시도
+    // GLB/GLTF/PLY/LAS는 원본 Blob으로 직접 로드 (Dashboard의 Viewer3D는 3D Tiles 미지원)
+    const convertedInfo = ['e57', 'obj'].includes(file.format) ? getConvertedFileInfo(file) : null
+    if (convertedInfo && file.conversionStatus === 'ready') {
+      revokeBlobUrl(previewUrlRef.current)
+      setSelectedFile(file)
+      setPreviewUrl(null)
+      previewUrlRef.current = null
+      setIsLoadingPreview(true)
 
-        if (file.format === 'e57') {
-          const filename = file.convertedPath.split('/').pop() || ''
-          convertedFileUrl = `${converterUrl}/output/${filename}`
-          fileExtHint = 'ply'
-        } else {
-          const dirName = file.convertedPath.split('/').pop() || ''
-          const glbName = dirName.replace('_3dtiles', '') + '.glb'
-          convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
-          fileExtHint = 'glb'
-        }
-
-        // 이전 미리보기 정리
-        if (previewUrlRef.current) {
-          const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current
-          if (blobUrlOnly.startsWith('blob:')) URL.revokeObjectURL(blobUrlOnly)
-        }
-
-        setSelectedFile(file)
+      try {
+        const response = await fetch(convertedInfo.url)
+        if (!response.ok) throw new Error(`변환된 파일 로드 실패: ${response.status}`)
+        const blob = await response.blob()
+        const blobUrl = URL.createObjectURL(blob) + `#file.${convertedInfo.format}`
+        setPreviewUrl(blobUrl)
+        previewUrlRef.current = blobUrl
+      } catch (err) {
+        console.error('변환된 파일 로드 실패:', err)
         setPreviewUrl(null)
         previewUrlRef.current = null
-        setIsLoadingPreview(true)
-
-        try {
-          const response = await fetch(convertedFileUrl)
-          if (!response.ok) throw new Error(`변환된 파일 로드 실패: ${response.status}`)
-          const blob = await response.blob()
-          const blobUrl = URL.createObjectURL(blob) + `#file.${fileExtHint}`
-          setPreviewUrl(blobUrl)
-          previewUrlRef.current = blobUrl
-        } catch (err) {
-          console.error('변환된 파일 로드 실패:', err)
-          setPreviewUrl(null)
-          previewUrlRef.current = null
-        } finally {
-          setIsLoadingPreview(false)
-        }
-        return
-      } else if (file.conversionStatus === 'converting' || file.conversionStatus === 'pending') {
-        // 변환 중인 파일은 미리보기 불가
-        setSelectedFile(file)
-        setPreviewUrl(null)
-        previewUrlRef.current = null
-        return
-      } else if (file.format === 'e57') {
-        // E57은 변환 없이는 미리보기 불가
-        setSelectedFile(file)
-        setPreviewUrl(null)
-        previewUrlRef.current = null
-        return
+      } finally {
+        setIsLoadingPreview(false)
       }
-      // OBJ는 변환 없어도 원본 로드 시도 (아래에서 처리)
+      return
     }
 
-    // 이전 미리보기 URL 정리
-    if (previewUrlRef.current) {
-      const blobUrlOnly = previewUrlRef.current.split('#')[0] || previewUrlRef.current
-      if (blobUrlOnly.startsWith('blob:')) {
-        URL.revokeObjectURL(blobUrlOnly)
-      }
+    // 변환 중이거나 E57 미변환 → 미리보기 불가
+    if (file.conversionStatus === 'converting' || file.conversionStatus === 'pending' ||
+        (file.format === 'e57' && file.conversionStatus !== 'ready')) {
+      setSelectedFile(file)
+      setPreviewUrl(null)
+      previewUrlRef.current = null
+      return
     }
 
+    // 원본 Blob 로드
+    revokeBlobUrl(previewUrlRef.current)
     setSelectedFile(file)
     setPreviewUrl(null)
     previewUrlRef.current = null
     setIsLoadingPreview(true)
 
-    // WebGL 컨텍스트 안정화를 위한 짧은 대기
     await new Promise(resolve => setTimeout(resolve, 150))
 
     try {
-      // Blob으로 직접 다운로드하여 URL 생성 (signed URL 401 에러 회피)
       const blob = await getFileBlob(file.id)
       if (blob) {
-        // blob URL에 파일 확장자 힌트 추가
         const blobUrl = URL.createObjectURL(blob) + `#file.${file.format}`
         setPreviewUrl(blobUrl)
         previewUrlRef.current = blobUrl

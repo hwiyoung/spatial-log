@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useMemo } from 'react'
 import { UploadCloud, X, File, CheckCircle, AlertCircle, Loader2, Package, Link2, RefreshCw } from 'lucide-react'
 import { formatFileSize } from '@/utils/storage'
 import { needsConversion, getConversionTypeForFormat, CONVERSION_TYPE_LABELS } from '@/services/conversionService'
+import EPSGSelector from './EPSGSelector'
 
 // UUID 생성 함수 (브라우저 호환성 폴백 포함)
 function generateUUID(): string {
@@ -45,6 +46,84 @@ function getBaseName(filename: string): string {
   return parts.join('.').toLowerCase()
 }
 
+// 파일 분류 결과 타입
+interface FileClassification {
+  groups: Map<string, { groupId: string; modelFile: File; materials: File[]; textures: File[] }>
+  otherFiles: File[]
+}
+
+/**
+ * 파일 배열을 모델/재질/텍스처 그룹으로 분류
+ */
+function classifyFilesIntoGroups(fileArray: File[]): FileClassification {
+  const modelFiles: File[] = []
+  const materialFiles: File[] = []
+  const textureFiles: File[] = []
+  const otherFiles: File[] = []
+
+  for (const file of fileArray) {
+    const fileType = classifyFileType(file.name)
+    switch (fileType) {
+      case 'model': modelFiles.push(file); break
+      case 'material': materialFiles.push(file); break
+      case 'texture': textureFiles.push(file); break
+      default: otherFiles.push(file)
+    }
+  }
+
+  // 모델 파일별로 그룹 생성
+  const groups: FileClassification['groups'] = new Map()
+
+  for (const modelFile of modelFiles) {
+    const baseName = getBaseName(modelFile.name)
+    groups.set(baseName, {
+      groupId: generateUUID(),
+      modelFile,
+      materials: [],
+      textures: [],
+    })
+  }
+
+  // MTL 파일 연결
+  for (const mtlFile of materialFiles) {
+    const baseName = getBaseName(mtlFile.name)
+    if (groups.has(baseName)) {
+      groups.get(baseName)!.materials.push(mtlFile)
+    } else if (groups.size === 1) {
+      const firstGroup = groups.values().next().value
+      if (firstGroup) firstGroup.materials.push(mtlFile)
+    } else {
+      otherFiles.push(mtlFile)
+    }
+  }
+
+  // 텍스처 파일 연결
+  for (const texFile of textureFiles) {
+    if (groups.size === 1) {
+      const firstGroup = groups.values().next().value
+      if (firstGroup) firstGroup.textures.push(texFile)
+    } else if (groups.size > 1) {
+      const baseName = getBaseName(texFile.name)
+      let matched = false
+      for (const [modelBaseName, group] of groups.entries()) {
+        if (baseName.includes(modelBaseName) || modelBaseName.includes(baseName)) {
+          group.textures.push(texFile)
+          matched = true
+          break
+        }
+      }
+      if (!matched) {
+        const firstGroup = groups.values().next().value
+        if (firstGroup) firstGroup.textures.push(texFile)
+      }
+    } else {
+      otherFiles.push(texFile)
+    }
+  }
+
+  return { groups, otherFiles }
+}
+
 // 연관 파일 그룹 타입
 export interface FileGroup {
   groupId: string
@@ -72,8 +151,12 @@ const SUPPORTED_EXTENSIONS = [
   '.zip',
 ]
 
+export interface UploadOptions {
+  epsg?: number | null
+}
+
 interface FileUploadProps {
-  onUpload: (files: File[], groups?: FileGroup[]) => void
+  onUpload: (files: File[], groups?: FileGroup[], options?: UploadOptions) => void
   accept?: string
   multiple?: boolean
   maxSize?: number // bytes
@@ -107,6 +190,7 @@ export default function FileUpload({
   const [isDragging, setIsDragging] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  const [selectedEpsg, setSelectedEpsg] = useState<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // 파일 유효성 검사
@@ -130,93 +214,10 @@ export default function FileUpload({
     const fileArray = Array.from(files)
     const processed: SelectedFile[] = []
 
-    // 1. 파일 분류
-    const modelFiles: File[] = []
-    const materialFiles: File[] = []
-    const textureFiles: File[] = []
-    const otherFiles: File[] = []
+    // 파일 분류 및 그룹화
+    const { groups, otherFiles } = classifyFilesIntoGroups(fileArray)
 
-    for (const file of fileArray) {
-      const fileType = classifyFileType(file.name)
-      switch (fileType) {
-        case 'model':
-          modelFiles.push(file)
-          break
-        case 'material':
-          materialFiles.push(file)
-          break
-        case 'texture':
-          textureFiles.push(file)
-          break
-        default:
-          otherFiles.push(file)
-      }
-    }
-
-    // 2. 모델 파일별로 그룹 생성
-    const groups: Map<string, { groupId: string; modelFile: File; materials: File[]; textures: File[] }> = new Map()
-
-    for (const modelFile of modelFiles) {
-      const baseName = getBaseName(modelFile.name)
-      const groupId = generateUUID()
-      groups.set(baseName, {
-        groupId,
-        modelFile,
-        materials: [],
-        textures: [],
-      })
-    }
-
-    // 3. MTL 파일 연결 (같은 기본 이름 또는 모델이 1개인 경우)
-    for (const mtlFile of materialFiles) {
-      const baseName = getBaseName(mtlFile.name)
-      if (groups.has(baseName)) {
-        groups.get(baseName)!.materials.push(mtlFile)
-      } else if (groups.size === 1) {
-        // 모델이 하나만 있으면 모든 MTL을 그 모델에 연결
-        const firstGroup = groups.values().next().value
-        if (firstGroup) {
-          firstGroup.materials.push(mtlFile)
-        }
-      } else {
-        // 연결할 모델이 없으면 기타로 처리
-        otherFiles.push(mtlFile)
-      }
-    }
-
-    // 4. 텍스처 파일 연결 (모델이 있는 경우에만)
-    for (const texFile of textureFiles) {
-      if (groups.size === 1) {
-        // 모델이 하나만 있으면 모든 텍스처를 그 모델에 연결
-        const firstGroup = groups.values().next().value
-        if (firstGroup) {
-          firstGroup.textures.push(texFile)
-        }
-      } else if (groups.size > 1) {
-        // 모델이 여러 개면 이름 유사도로 연결 시도
-        const baseName = getBaseName(texFile.name)
-        let matched = false
-        for (const [modelBaseName, group] of groups.entries()) {
-          if (baseName.includes(modelBaseName) || modelBaseName.includes(baseName)) {
-            group.textures.push(texFile)
-            matched = true
-            break
-          }
-        }
-        if (!matched) {
-          // 첫 번째 그룹에 연결
-          const firstGroup = groups.values().next().value
-          if (firstGroup) {
-            firstGroup.textures.push(texFile)
-          }
-        }
-      } else {
-        // 모델이 없으면 기타로 처리
-        otherFiles.push(texFile)
-      }
-    }
-
-    // 5. 그룹화된 파일들을 SelectedFile로 변환
+    // 그룹화된 파일들을 SelectedFile로 변환
     for (const [, group] of groups) {
       const hasRelatedFiles = group.materials.length > 0 || group.textures.length > 0
 
@@ -401,13 +402,15 @@ export default function FileUpload({
 
     setIsUploading(true)
     try {
-      // 그룹 정보와 함께 업로드
-      await onUpload(validFiles, fileGroups.length > 0 ? fileGroups : undefined)
+      // 그룹 정보 및 EPSG 옵션과 함께 업로드
+      const uploadOpts: UploadOptions | undefined = selectedEpsg ? { epsg: selectedEpsg } : undefined
+      await onUpload(validFiles, fileGroups.length > 0 ? fileGroups : undefined, uploadOpts)
       setSelectedFiles([])
+      setSelectedEpsg(null)
     } finally {
       setIsUploading(false)
     }
-  }, [selectedFiles, onUpload, fileGroups])
+  }, [selectedFiles, onUpload, fileGroups, selectedEpsg])
 
   // 표시할 파일들 (그룹에 속한 연관 파일은 숨김, 메인 파일만 표시)
   const displayFiles = useMemo(() => {
@@ -636,6 +639,20 @@ export default function FileUpload({
               </div>
             )})}
           </div>
+
+          {/* EPSG 좌표계 선택 (변환 필요 파일이 있을 때) */}
+          {conversionCount > 0 && (
+            <div className="px-4 py-3 border-t border-slate-800">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs text-slate-400">좌표계 (EPSG)</span>
+                <span className="text-xs text-slate-600">— 포인트클라우드/3D 모델의 원본 좌표계를 지정하세요</span>
+              </div>
+              <EPSGSelector
+                value={selectedEpsg}
+                onChange={setSelectedEpsg}
+              />
+            </div>
+          )}
 
           {/* 업로드 버튼 */}
           {validCount > 0 && (

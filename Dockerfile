@@ -35,8 +35,9 @@ RUN npm run build
 FROM nginx:alpine AS production
 
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf.template /etc/nginx/nginx.conf.template
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+# envsubst로 CONVERTER_API_KEY만 치환 (nginx 내장 변수 $host 등 보호)
+CMD ["/bin/sh", "-c", "envsubst '${CONVERTER_API_KEY}' < /etc/nginx/nginx.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]

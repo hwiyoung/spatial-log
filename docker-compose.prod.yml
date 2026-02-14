@@ -2,6 +2,12 @@
 # 운영 환경: main 브랜치에서 자동 배포됨
 # 사용법: docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   app:
     build:
@@ -15,9 +21,16 @@ services:
       - "8090:80"
     environment:
       - NODE_ENV=production
+      - CONVERTER_API_KEY=${CONVERTER_API_KEY}
     depends_on:
       - kong
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
 
   # Supabase Services
   db:
@@ -35,7 +48,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
 
   auth:
     image: supabase/gotrue:v2.164.0
@@ -46,8 +65,8 @@ services:
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
       GOTRUE_SITE_URL: ${SITE_URL}
-      GOTRUE_URI_ALLOW_LIST: "*"
-      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_URI_ALLOW_LIST: ${SITE_URL}
+      GOTRUE_DISABLE_SIGNUP: "true"
       GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
@@ -62,7 +81,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
   rest:
     image: postgrest/postgrest:v12.2.3
@@ -75,7 +100,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
 
   storage:
     image: supabase/storage-api:v1.11.13
@@ -100,7 +131,13 @@ services:
         condition: service_healthy
       rest:
         condition: service_started
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
 
   imgproxy:
     image: darthsim/imgproxy:v3.24
@@ -111,7 +148,13 @@ services:
       IMGPROXY_ENABLE_WEBP_DETECTION: "true"
     volumes:
       - ./data/prod/storage:/var/lib/storage
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
 
   kong:
     image: kong:2.8.1
@@ -132,7 +175,13 @@ services:
       - auth
       - rest
       - storage
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
 
   meta:
     image: supabase/postgres-meta:v0.84.2
@@ -146,7 +195,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
   # 3D 데이터 변환 서비스
   spatial-converter:
@@ -162,11 +217,19 @@ services:
       - STORAGE_PATH=/var/lib/storage/stub/stub
       - SUPABASE_URL=http://kong:8000
       - SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
+      - CONVERTER_API_KEY=${CONVERTER_API_KEY}
+      - ALLOWED_ORIGINS=${SITE_URL},${SITE_URL}:8090
       - DEV_MODE=false
     depends_on:
       - storage
       - kong
+    logging: *default-logging
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
 
 # 운영 환경 데이터 (개발 환경과 분리)
 # - ./data/prod/db/: PostgreSQL 데이터

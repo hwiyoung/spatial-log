@@ -5,6 +5,7 @@ import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
 import { preloadTextures, findPreloadedTexture } from './texturePreloader'
+import { ALL_3D_FORMATS } from '@/constants/formats'
 
 // 연관 파일 정보 타입
 export interface RelatedFile {
@@ -34,7 +35,7 @@ export function getFormatFromUrl(url: string): SupportedFormat | null {
   if (url.startsWith('blob:') && url.includes('#')) {
     const hashPart = url.split('#')[1] || ''
     const extension = hashPart.split('.').pop()?.toLowerCase()
-    if (extension && ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(extension)) {
+    if (extension && (ALL_3D_FORMATS as readonly string[]).includes(extension)) {
       return extension as SupportedFormat
     }
   }

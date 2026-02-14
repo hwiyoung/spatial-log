@@ -232,13 +232,13 @@ CREATE TRIGGER trigger_annotations_updated_at
   BEFORE UPDATE ON public.annotations
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Row Level Security (RLS) - 개발 환경에서는 비활성화
--- 프로덕션에서는 ENABLE로 변경 필요
-ALTER TABLE public.projects DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.folders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.files DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.annotations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.integrity_logs DISABLE ROW LEVEL SECURITY;
+-- Row Level Security (RLS) 활성화
+-- 인증된 사용자만 자신의 데이터에 접근 가능
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.annotations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.integrity_logs ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies if they exist
 DROP POLICY IF EXISTS "Users can view own projects" ON public.projects;
@@ -301,6 +301,15 @@ CREATE POLICY "Users can update own annotations" ON public.annotations
 CREATE POLICY "Users can delete own annotations" ON public.annotations
   FOR DELETE USING (auth.uid() = user_id);
 
+-- RLS Policies for Integrity Logs (시스템 테이블 - user_id 없음)
+-- 인증 사용자는 조회만 가능, 삽입은 service_role만 수행
+DROP POLICY IF EXISTS "Authenticated users can view integrity logs" ON public.integrity_logs;
+CREATE POLICY "Authenticated users can view integrity logs" ON public.integrity_logs
+  FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Service role can manage integrity logs" ON public.integrity_logs;
+CREATE POLICY "Service role can manage integrity logs" ON public.integrity_logs
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
 -- Grant access to authenticated and anon roles
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
@@ -308,33 +317,29 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 
 -- Storage bucket 생성 및 정책 설정
--- 버킷이 없으면 생성, public = true로 설정 (개발 환경)
+-- 비공개 버킷: 인증된 사용자만 접근 가능
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('spatial-files', 'spatial-files', true)
-ON CONFLICT (id) DO UPDATE SET public = true;
+VALUES ('spatial-files', 'spatial-files', false)
+ON CONFLICT (id) DO UPDATE SET public = false;
 
 -- Storage RLS 정책 (기존 정책 삭제 후 재생성)
 DROP POLICY IF EXISTS "Allow public read access" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated read access" ON storage.objects;
 DROP POLICY IF EXISTS "Allow authenticated uploads" ON storage.objects;
 DROP POLICY IF EXISTS "Allow authenticated deletes" ON storage.objects;
+DROP POLICY IF EXISTS "Allow anon uploads" ON storage.objects;
 
--- 공개 읽기 정책 (모든 사용자가 파일 읽기 가능)
-CREATE POLICY "Allow public read access"
+-- 인증된 사용자 읽기 정책
+CREATE POLICY "Allow authenticated read access"
 ON storage.objects FOR SELECT
-USING (bucket_id = 'spatial-files');
+USING (bucket_id = 'spatial-files' AND auth.role() = 'authenticated');
 
 -- 인증된 사용자 업로드 정책
 CREATE POLICY "Allow authenticated uploads"
 ON storage.objects FOR INSERT
-WITH CHECK (bucket_id = 'spatial-files');
+WITH CHECK (bucket_id = 'spatial-files' AND auth.role() = 'authenticated');
 
 -- 인증된 사용자 삭제 정책
 CREATE POLICY "Allow authenticated deletes"
 ON storage.objects FOR DELETE
-USING (bucket_id = 'spatial-files');
-
--- 익명 사용자도 업로드 가능 (개발 환경용)
-DROP POLICY IF EXISTS "Allow anon uploads" ON storage.objects;
-CREATE POLICY "Allow anon uploads"
-ON storage.objects FOR INSERT
-WITH CHECK (bucket_id = 'spatial-files');
+USING (bucket_id = 'spatial-files' AND auth.role() = 'authenticated');

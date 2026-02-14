@@ -33,3 +33,4 @@ coverage
 
 # Local data (Docker bind mounts)
 data/
+backups/

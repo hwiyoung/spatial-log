@@ -74,15 +74,19 @@ export default function Viewer3D({
   }
 
   const handleCreateAnnotation = async (data: Omit<AnnotationData, 'id' | 'createdAt' | 'updatedAt'>) => {
-    // 클릭한 위치 정보 추가
-    const annotationData = {
-      ...data,
-      position: pendingPosition,
+    try {
+      const annotationData = {
+        ...data,
+        position: pendingPosition,
+      }
+      await createAnnotation(annotationData)
+      setShowAnnotationModal(false)
+      setPendingPosition(null)
+      setActiveTool('select')
+    } catch (err) {
+      console.error('어노테이션 생성 실패:', err)
+      alert('어노테이션 생성에 실패했습니다.')
     }
-    await createAnnotation(annotationData)
-    setShowAnnotationModal(false)
-    setPendingPosition(null)
-    setActiveTool('select') // 어노테이션 생성 후 선택 도구로 전환
   }
 
   return (

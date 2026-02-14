@@ -15,7 +15,8 @@ import {
 import { AnnotationModal, AnnotationMapView } from '@/components/annotation'
 import { useAnnotationStore } from '@/stores/annotationStore'
 import { useProjectStore } from '@/stores/projectStore'
-import type { AnnotationData } from '@/services/api'
+import type { AnnotationData, FlightPathPoint } from '@/services/api'
+import { getFlightPathData } from '@/services/api'
 
 // 우선순위 설정
 const PRIORITY_CONFIG = {
@@ -81,11 +82,14 @@ export default function Annotations() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [isMapCreateMode, setIsMapCreateMode] = useState(false)
   const [mapClickPosition, setMapClickPosition] = useState<{ lat: number; lng: number } | null>(null)
+  const [flightPaths, setFlightPaths] = useState<FlightPathPoint[]>([])
 
   // 초기화
   useEffect(() => {
     initialize()
     initProjects()
+    // 비행경로 데이터 로드
+    getFlightPathData().then(setFlightPaths).catch(() => {})
   }, [initialize, initProjects])
 
   // 메뉴 외부 클릭 시 닫기
@@ -102,7 +106,12 @@ export default function Annotations() {
 
   // 어노테이션 생성
   const handleCreate = async (data: Omit<AnnotationData, 'id' | 'createdAt' | 'updatedAt'>) => {
-    await createAnnotation(data)
+    try {
+      await createAnnotation(data)
+    } catch (err) {
+      console.error('어노테이션 생성 실패:', err)
+      alert('어노테이션 생성에 실패했습니다.')
+    }
   }
 
   // 어노테이션 편집
@@ -349,6 +358,7 @@ export default function Annotations() {
               setIsMapCreateMode(false)
             }}
             onCancelPosition={() => setMapClickPosition(null)}
+            flightPaths={flightPaths}
           />
 
           {/* 선택된 이슈 상세 정보 */}

@@ -4,6 +4,8 @@ import { getSupabaseClient, isSupabaseConfigured, STORAGE_BUCKET } from '@/lib/s
 import type { FileRow, FolderRow, ProjectRow, AnnotationRow, InsertTables, UpdateTables } from '@/lib/database.types'
 import * as localStorage from '@/utils/storage'
 import { extractExifFromFile } from '@/utils/exifParser'
+import { CONVERTER_URL } from '@/constants/config'
+import { ALL_3D_FORMATS } from '@/constants/formats'
 
 // Insert/Update 타입
 type FileInsert = InsertTables<'files'>
@@ -214,6 +216,69 @@ function mapAnnotationRowToData(row: AnnotationRow): AnnotationData {
 
 // === 파일 API ===
 
+/**
+ * 이미지 파일의 썸네일 생성/업로드 및 EXIF 메타데이터 추출
+ */
+async function processImageForUpload(
+  file: File,
+  userId: string,
+  timestamp: number,
+  supabase: ReturnType<typeof getSupabaseClient>
+): Promise<{
+  thumbnailPath: string | null
+  gpsData: { latitude: number; longitude: number; altitude?: number } | null
+  exifData: { make?: string; model?: string; dateTime?: Date } | null
+}> {
+  let thumbnailPath: string | null = null
+  let gpsData: { latitude: number; longitude: number; altitude?: number } | null = null
+  let exifData: { make?: string; model?: string; dateTime?: Date } | null = null
+
+  // 썸네일 생성 및 업로드
+  try {
+    const thumbnailBlob = await createThumbnailBlob(file)
+    const thumbPath = `${userId}/thumbnails/${timestamp}_thumb.jpg`
+
+    const { error: thumbError } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(thumbPath, thumbnailBlob, {
+        cacheControl: '3600',
+        upsert: false,
+      })
+
+    if (!thumbError) {
+      const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(thumbPath)
+      thumbnailPath = data.publicUrl
+    }
+  } catch (err) {
+    console.warn('썸네일 생성 실패:', err)
+  }
+
+  // EXIF 추출
+  try {
+    const exif = await extractExifFromFile(file)
+    if (exif) {
+      if (exif.latitude !== undefined && exif.longitude !== undefined) {
+        gpsData = {
+          latitude: exif.latitude,
+          longitude: exif.longitude,
+          altitude: exif.altitude,
+        }
+      }
+      if (exif.make || exif.model || exif.dateTime) {
+        exifData = {
+          make: exif.make,
+          model: exif.model,
+          dateTime: exif.dateTime,
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('EXIF 추출 실패:', err)
+  }
+
+  return { thumbnailPath, gpsData, exifData }
+}
+
 export async function uploadFile(
   file: File,
   folderId: string | null = null,
@@ -273,54 +338,9 @@ export async function uploadFile(
   const format = localStorage.detectFileFormat(file.name)
 
   // 이미지인 경우 썸네일 업로드 및 EXIF 추출
-  let thumbnailPath: string | null = null
-  let gpsData: { latitude: number; longitude: number; altitude?: number } | null = null
-  let exifData: { make?: string; model?: string; dateTime?: Date } | null = null
-
-  if (format === 'image') {
-    // 썸네일 생성 및 업로드
-    try {
-      const thumbnailBlob = await createThumbnailBlob(file)
-      const thumbPath = `${userId}/thumbnails/${timestamp}_thumb.jpg`
-
-      const { error: thumbError } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(thumbPath, thumbnailBlob, {
-          cacheControl: '3600',
-          upsert: false,
-        })
-
-      if (!thumbError) {
-        const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(thumbPath)
-        thumbnailPath = data.publicUrl
-      }
-    } catch (err) {
-      console.warn('썸네일 생성 실패:', err)
-    }
-
-    // EXIF 추출
-    try {
-      const exif = await extractExifFromFile(file)
-      if (exif) {
-        if (exif.latitude !== undefined && exif.longitude !== undefined) {
-          gpsData = {
-            latitude: exif.latitude,
-            longitude: exif.longitude,
-            altitude: exif.altitude,
-          }
-        }
-        if (exif.make || exif.model || exif.dateTime) {
-          exifData = {
-            make: exif.make,
-            model: exif.model,
-            dateTime: exif.dateTime,
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('EXIF 추출 실패:', err)
-    }
-  }
+  const { thumbnailPath, gpsData, exifData } = format === 'image'
+    ? await processImageForUpload(file, userId, timestamp, supabase)
+    : { thumbnailPath: null, gpsData: null, exifData: null }
 
   // 태그 생성 (그룹 정보 포함)
   const tags: string[] = options?.tags ? [...options.tags] : []
@@ -656,9 +676,6 @@ export interface BatchDeleteResult {
   failed: { id: string; error: string }[]
 }
 
-// 변환 서비스 URL (파일 삭제에도 사용)
-const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
-
 /**
  * spatial-converter를 통한 물리적 파일 삭제
  * Supabase Storage API가 파일 백엔드에서 물리 파일을 안 지우는 문제 해결
@@ -927,6 +944,95 @@ export async function updateFileConversionStatus(
   return mapFileRowToMetadata(data as FileRow)
 }
 
+// GPS 좌표 수정
+export async function updateFileGpsCoordinates(
+  id: string,
+  latitude: number | null,
+  longitude: number | null,
+  altitude?: number | null
+): Promise<FileMetadata | null> {
+  if (!isSupabaseConfigured()) {
+    console.warn('로컬 스토리지에서는 GPS 수정을 지원하지 않습니다.')
+    return null
+  }
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await supabase
+    .from('files')
+    .update({
+      gps_latitude: latitude,
+      gps_longitude: longitude,
+      gps_altitude: altitude ?? null,
+    } as never)
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error || !data) {
+    console.error('GPS 좌표 수정 실패:', error?.message)
+    return null
+  }
+
+  return mapFileRowToMetadata(data as FileRow)
+}
+
+// 비행경로 데이터 조회 (GPS + 촬영시각이 있는 이미지 파일)
+export interface FlightPathPoint {
+  fileId: string
+  fileName: string
+  latitude: number
+  longitude: number
+  altitude?: number
+  datetime: string
+}
+
+export async function getFlightPathData(projectId?: string): Promise<FlightPathPoint[]> {
+  if (!isSupabaseConfigured()) {
+    return []
+  }
+
+  const supabase = getSupabaseClient()
+  let query = supabase
+    .from('files')
+    .select('id, name, gps_latitude, gps_longitude, gps_altitude, exif_datetime')
+    .not('gps_latitude', 'is', null)
+    .not('gps_longitude', 'is', null)
+    .not('exif_datetime', 'is', null)
+    .eq('format', 'image')
+    .order('exif_datetime', { ascending: true })
+
+  if (projectId) {
+    // 프로젝트에 연결된 파일만 필터
+    const { data: links } = await supabase
+      .from('project_files')
+      .select('file_id')
+      .eq('project_id', projectId)
+
+    if (links && links.length > 0) {
+      const fileIds = links.map((l: { file_id: string }) => l.file_id)
+      query = query.in('id', fileIds)
+    } else {
+      return []
+    }
+  }
+
+  const { data, error } = await query
+
+  if (error || !data) {
+    console.error('비행경로 데이터 조회 실패:', error?.message)
+    return []
+  }
+
+  return data.map((row: Record<string, unknown>) => ({
+    fileId: row.id as string,
+    fileName: row.name as string,
+    latitude: row.gps_latitude as number,
+    longitude: row.gps_longitude as number,
+    altitude: (row.gps_altitude as number) ?? undefined,
+    datetime: row.exif_datetime as string,
+  }))
+}
+
 // === 폴더 API ===
 
 export async function createFolder(
@@ -1052,8 +1158,7 @@ function getMimeTypeFromExtension(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase()
 
   // 3D 모델 포맷은 모두 application/octet-stream 사용 (Supabase Storage 호환성)
-  const binaryFormats = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57']
-  if (ext && binaryFormats.includes(ext)) {
+  if (ext && (ALL_3D_FORMATS as readonly string[]).includes(ext)) {
     return 'application/octet-stream'
   }
 
@@ -1144,6 +1249,7 @@ export async function signUp(email: string, password: string) {
 }
 
 export async function signOut() {
+  if (!isSupabaseConfigured()) return
   const supabase = getSupabaseClient()
   const { error } = await supabase.auth.signOut()
   if (error) throw error

@@ -5,19 +5,15 @@ import {
   FolderPlus,
   UploadCloud,
   Folder,
-  Layers,
   MoreVertical,
   Box,
   Trash2,
   Edit2,
   Check,
   X,
-  Image,
-  FileText,
   HardDrive,
   Loader2,
   MapPin,
-  Scan,
   Download,
   Eye,
   Shield,
@@ -29,12 +25,15 @@ import {
   Globe,
 } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
-import { Modal, Input, FileUpload, type FileGroup } from '@/components/common'
+import { Modal, Input, FileUpload, type FileGroup, type UploadOptions } from '@/components/common'
 import ThreeCanvas from '@/components/viewer/ThreeCanvas'
 import { GeoViewer } from '@/components/viewer'
 import IntegrityChecker from '@/components/admin/IntegrityChecker'
 import DevConsole from '@/components/admin/DevConsole'
 import { formatFileSize } from '@/utils/storage'
+import { is3DFormat, isGeoViewableFormat } from '@/constants/formats'
+import { getFileIconProps, getFormatBgColor } from '@/utils/fileFormatUtils'
+import { fetchBlobWithProgress, getConvertedFileInfo, isGeographicFile, revokeBlobUrl } from '@/utils/previewHelpers'
 import type { FileMetadata, FolderData } from '@/services/api'
 import { getFileMetadata } from '@/services/api'
 import { ConversionStatusBadge } from '@/components/common/ConversionStatus'
@@ -44,45 +43,10 @@ import type { ConversionStatus } from '@/services/conversionService'
 // 탭 타입
 type TabType = 'files' | 'admin'
 
-// 포맷별 아이콘 매핑
-function FileIcon({ format }: { format: FileMetadata['format'] }) {
-  switch (format) {
-    case 'gltf':
-    case 'glb':
-    case 'obj':
-    case 'fbx':
-      return <Box size={24} className="text-blue-400" />
-    case 'ply':
-    case 'las':
-      return <Layers size={24} className="text-green-400" />
-    case 'e57':
-      return <Scan size={24} className="text-emerald-400" />
-    case 'image':
-      return <Image size={24} className="text-purple-400" />
-    default:
-      return <FileText size={24} className="text-slate-400" />
-  }
-}
-
-// 포맷별 배경색
-function getFormatBgColor(format: FileMetadata['format']): string {
-  switch (format) {
-    case 'gltf':
-    case 'glb':
-      return 'bg-gradient-to-br from-blue-900/50 to-blue-800/30'
-    case 'obj':
-    case 'fbx':
-      return 'bg-gradient-to-br from-cyan-900/50 to-cyan-800/30'
-    case 'ply':
-    case 'las':
-      return 'bg-gradient-to-br from-green-900/50 to-green-800/30'
-    case 'e57':
-      return 'bg-gradient-to-br from-emerald-900/50 to-emerald-800/30'
-    case 'image':
-      return 'bg-gradient-to-br from-purple-900/50 to-purple-800/30'
-    default:
-      return 'bg-gradient-to-br from-slate-800/50 to-slate-700/30'
-  }
+// 포맷별 아이콘 컴포넌트
+function FileIcon({ format, size = 24 }: { format: FileMetadata['format']; size?: number }) {
+  const { icon: Icon, className } = getFileIconProps(format)
+  return <Icon size={size} className={className} />
 }
 
 export default function Assets() {
@@ -151,8 +115,8 @@ export default function Assets() {
   }, [initialize])
 
   // 파일 업로드 핸들러
-  const handleUpload = useCallback(async (uploadedFiles: File[], groups?: FileGroup[]) => {
-    await uploadFiles(uploadedFiles, groups)
+  const handleUpload = useCallback(async (uploadedFiles: File[], groups?: FileGroup[], options?: UploadOptions) => {
+    await uploadFiles(uploadedFiles, groups, options)
     setShowUploadModal(false)
   }, [uploadFiles])
 
@@ -274,46 +238,67 @@ export default function Assets() {
 
   // 지리좌표 기반 가시화 (Cesium)
   const handleGeoView = useCallback(async (file: FileMetadata) => {
-    // 변환 완료된 파일만 지원
     if (file.conversionStatus !== 'ready' || !file.convertedPath) {
       alert('지리 좌표 가시화는 변환이 완료된 파일만 지원합니다.')
       return
     }
 
-    const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
-
-    let dataUrl: string
-    let dataType: 'ply' | '3dtiles' | 'glb'
-
-    if (file.format === 'e57') {
-      // E57 → PLY (현재 PLY는 Cesium에서 직접 지원하지 않음)
-      const filename = file.convertedPath.split('/').pop() || ''
-      dataUrl = `${converterUrl}/output/${filename}`
-      dataType = 'ply'
-    } else if (['obj', 'gltf', 'glb'].includes(file.format)) {
-      // OBJ/GLTF → GLB Entity로 직접 로드 (3D Tiles보다 간단하고 텍스처 유지 쉬움)
-      const dirName = file.convertedPath.split('/').pop() || ''
-      // GLB 파일명: 원본 파일명.glb (예: samyang_3dtiles 폴더 내 samyang.glb)
-      const baseName = dirName.replace('_3dtiles', '')
-      dataUrl = `${converterUrl}/output/${dirName}/${baseName}.glb`
-      dataType = 'glb'
-    } else {
+    const info = getConvertedFileInfo(file)
+    if (!info) {
       alert('지리 좌표 가시화를 지원하지 않는 파일 형식입니다.')
       return
     }
 
-    console.log('GeoView:', { file: file.name, dataUrl, dataType, spatialInfo: file.spatialInfo })
+    console.log('GeoView:', { file: file.name, dataUrl: info.url, dataType: info.geoDataType, spatialInfo: file.spatialInfo })
 
     setGeoViewerFile(file)
-    setGeoViewerUrl(dataUrl)
-    setGeoViewerDataType(dataType)
+    setGeoViewerUrl(info.url)
+    setGeoViewerDataType(info.geoDataType)
   }, [])
+
+  // 이전 미리보기 정리 헬퍼
+  const clearPreviousPreview = useCallback(async () => {
+    if (previewUrl) {
+      revokeBlobUrl(previewUrl)
+      setPreviewUrl(null)
+      setPreviewFile(null)
+      setPreviewRelatedFiles([])
+      await new Promise(resolve => setTimeout(resolve, 150))
+    }
+  }, [previewUrl])
+
+  // 변환된 파일로 미리보기 로드
+  const loadConvertedPreview = useCallback(async (
+    file: FileMetadata,
+    convertedUrl: string,
+    format: string
+  ): Promise<boolean> => {
+    await clearPreviousPreview()
+
+    setPreviewFile(file)
+    setIsLoadingPreview(true)
+    setDownloadProgress(null)
+
+    try {
+      const blob = await fetchBlobWithProgress(convertedUrl, (loaded, total) => {
+        setDownloadProgress({ loaded, total })
+      })
+      const blobUrl = URL.createObjectURL(blob) + `#file.${format}`
+      setPreviewUrl(blobUrl)
+      setPreviewActualFormat(format)
+      return true
+    } catch (err) {
+      console.error('변환된 파일 로드 실패:', err)
+      return false
+    } finally {
+      setIsLoadingPreview(false)
+      setDownloadProgress(null)
+    }
+  }, [clearPreviousPreview])
 
   // 3D 파일 미리보기
   const handlePreview = useCallback(async (file: FileMetadata) => {
-    // 3D 파일 포맷인지 확인
-    const is3DFormat = ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)
-    if (!is3DFormat) {
+    if (!is3DFormat(file.format)) {
       alert('3D 미리보기는 GLTF, GLB, OBJ, FBX, PLY, LAS 파일만 지원합니다.')
       return
     }
@@ -330,225 +315,60 @@ export default function Assets() {
     }
 
     // 지리좌표 데이터 자동 감지 → Cesium으로 라우팅
-    const hasGeoConversion = currentFile.conversionStatus === 'ready' &&
+    if (
+      currentFile.conversionStatus === 'ready' &&
       currentFile.convertedPath &&
-      ['e57', 'obj'].includes(currentFile.format)
-
-    if (hasGeoConversion) {
-      // 지리좌표 감지: isGeographic 플래그 또는 bbox 값으로 판단
-      const isGeographicData = currentFile.spatialInfo?.isGeographic === true
-
-      // bbox가 WGS84 범위인지 확인 (경도: -180~180, 위도: -90~90)
-      const bbox = currentFile.spatialInfo?.bbox
-      const isWGS84FromBbox = bbox && (
-        (Math.abs(bbox.minX) <= 180 && Math.abs(bbox.maxX) <= 180) &&
-        (Math.abs(bbox.minY) <= 90 && Math.abs(bbox.maxY) <= 90) &&
-        // X/Y 범위가 매우 작음 (도 단위 = 작은 영역)
-        (Math.abs(bbox.maxX - bbox.minX) < 1 && Math.abs(bbox.maxY - bbox.minY) < 1)
-      )
-
-      if (isGeographicData || isWGS84FromBbox) {
-        console.log('지리좌표 데이터 감지 → Cesium 뷰어로 라우팅:', currentFile.name, { isGeographicData, isWGS84FromBbox, bbox })
-        handleGeoView(currentFile)
-        return
-      }
+      ['e57', 'obj', 'ply', 'las'].includes(currentFile.format) &&
+      isGeographicFile(currentFile)
+    ) {
+      console.log('지리좌표 데이터 감지 → Cesium 뷰어로 라우팅:', currentFile.name)
+      handleGeoView(currentFile)
+      return
     }
 
-    // E57은 브라우저에서 직접 로드 불가 - 반드시 변환 필요
-    // OBJ는 변환 완료 시 GLB 사용, 미변환 시 원본 OBJ 직접 로드
-    if (file.format === 'e57') {
-      // 최신 변환 상태 조회 (DB에서 직접 가져오기)
-      let currentFile = file
-      try {
-        const freshMetadata = await getFileMetadata(file.id)
-        if (freshMetadata) {
-          currentFile = freshMetadata
-        }
-      } catch (err) {
-        console.warn('파일 메타데이터 조회 실패, 캐시된 데이터 사용:', err)
-      }
-
+    // E57은 변환 필수
+    if (currentFile.format === 'e57') {
       if (currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
-        // 변환 완료된 파일 사용 - 컨버터 서비스에서 직접 로드
-        const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
-
-        // 파일 경로 결정 (E57→PLY 또는 OBJ→GLB)
-        let convertedFileUrl: string
-        let fileExtHint: string
-
-        if (currentFile.format === 'e57') {
-          // E57 → PLY (단일 파일)
-          const filename = currentFile.convertedPath!.split('/').pop() || ''
-          convertedFileUrl = `${converterUrl}/output/${filename}`
-          fileExtHint = 'ply'
-        } else {
-          // OBJ → 3D Tiles (디렉토리 내 GLB 파일)
-          // convertedPath가 디렉토리인 경우, GLB 파일 경로 구성
-          const dirName = currentFile.convertedPath!.split('/').pop() || ''
-          const glbName = dirName.replace('_3dtiles', '') + '.glb'
-          convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
-          fileExtHint = 'glb'
+        const info = getConvertedFileInfo(currentFile)
+        if (info) {
+          const success = await loadConvertedPreview(file, info.url, info.format)
+          if (!success) {
+            alert('변환된 파일을 로드할 수 없습니다.')
+            setPreviewFile(null)
+            setPreviewActualFormat(null)
+          }
         }
-
-        // 이전 미리보기 정리
-        if (previewUrl) {
-          URL.revokeObjectURL(previewUrl)
-          setPreviewUrl(null)
-          setPreviewFile(null)
-          setPreviewRelatedFiles([])
-          await new Promise(resolve => setTimeout(resolve, 150))
-        }
-
-        setPreviewFile(file)
-        setIsLoadingPreview(true)
-        setDownloadProgress(null)
-
-        try {
-          // 변환된 파일 로드 (진행률 표시 포함)
-          const blob = await new Promise<Blob>((resolve, reject) => {
-            const xhr = new XMLHttpRequest()
-            xhr.open('GET', convertedFileUrl, true)
-            xhr.responseType = 'blob'
-
-            xhr.onprogress = (event) => {
-              if (event.lengthComputable) {
-                setDownloadProgress({ loaded: event.loaded, total: event.total })
-              }
-            }
-
-            xhr.onload = () => {
-              if (xhr.status === 200) {
-                resolve(xhr.response as Blob)
-              } else {
-                reject(new Error(`변환된 파일을 로드할 수 없습니다: ${xhr.status}`))
-              }
-            }
-
-            xhr.onerror = () => reject(new Error('네트워크 오류'))
-            xhr.send()
-          })
-
-          const blobUrl = URL.createObjectURL(blob) + `#file.${fileExtHint}`
-          setPreviewUrl(blobUrl)
-          setPreviewActualFormat(fileExtHint) // 실제 미리보기 포맷 설정 (ply, glb 등)
-        } catch (err) {
-          console.error('변환된 파일 로드 실패:', err)
-          alert('변환된 파일을 로드할 수 없습니다.')
-          setPreviewFile(null)
-          setPreviewActualFormat(null)
-        } finally {
-          setIsLoadingPreview(false)
-          setDownloadProgress(null)
-        }
-        return
       } else if (currentFile.conversionStatus === 'converting' || currentFile.conversionStatus === 'pending') {
         alert(`${currentFile.format.toUpperCase()} 파일이 변환 중입니다. (${currentFile.conversionProgress || 0}%)\n잠시 후 다시 시도해주세요.`)
-        return
       } else if (currentFile.conversionStatus === 'failed') {
         alert(`${currentFile.format.toUpperCase()} 변환 실패: ${currentFile.conversionError || '알 수 없는 오류'}`)
-        return
       } else {
-        // E57은 변환 필수
         alert('E57 파일은 변환 후 미리보기가 가능합니다.\n\n변환 서비스가 실행 중이면 자동으로 변환됩니다.')
-        return
+      }
+      return
+    }
+
+    // OBJ: 변환 완료 시 GLB 사용 시도, 실패 시 원본 OBJ 직접 로드
+    if (currentFile.format === 'obj' && currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
+      const info = getConvertedFileInfo(currentFile)
+      if (info) {
+        const success = await loadConvertedPreview(file, info.url, info.format)
+        if (success) return
+        console.warn('변환된 GLB 로드 실패, 원본 OBJ 로드 시도')
       }
     }
 
-    // OBJ 파일: 변환 완료 시 GLB 사용, 미완료 시 원본 OBJ 직접 로드
-    if (file.format === 'obj') {
-      let currentFile = file
-      try {
-        const freshMetadata = await getFileMetadata(file.id)
-        if (freshMetadata) {
-          currentFile = freshMetadata
-        }
-      } catch (err) {
-        console.warn('파일 메타데이터 조회 실패:', err)
-      }
-
-      if (currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
-        // 변환 완료 → GLB 로드 시도
-        const converterUrl = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
-        const dirName = currentFile.convertedPath.split('/').pop() || ''
-        const glbName = dirName.replace('_3dtiles', '') + '.glb'
-        const convertedFileUrl = `${converterUrl}/output/${dirName}/${glbName}`
-
-        if (previewUrl) {
-          URL.revokeObjectURL(previewUrl)
-          setPreviewUrl(null)
-          setPreviewFile(null)
-          setPreviewRelatedFiles([])
-          await new Promise(resolve => setTimeout(resolve, 150))
-        }
-
-        setPreviewFile(file)
-        setIsLoadingPreview(true)
-        setDownloadProgress(null)
-
-        let loadSuccess = false
-        try {
-          const blob = await new Promise<Blob>((resolve, reject) => {
-            const xhr = new XMLHttpRequest()
-            xhr.open('GET', convertedFileUrl, true)
-            xhr.responseType = 'blob'
-
-            xhr.onprogress = (event) => {
-              if (event.lengthComputable) {
-                setDownloadProgress({ loaded: event.loaded, total: event.total })
-              }
-            }
-
-            xhr.onload = () => {
-              if (xhr.status === 200) {
-                resolve(xhr.response as Blob)
-              } else {
-                reject(new Error(`변환된 파일을 로드할 수 없습니다: ${xhr.status}`))
-              }
-            }
-
-            xhr.onerror = () => reject(new Error('네트워크 오류'))
-            xhr.send()
-          })
-
-          const blobUrl = URL.createObjectURL(blob) + '#file.glb'
-          setPreviewUrl(blobUrl)
-          setPreviewActualFormat('glb')
-          loadSuccess = true
-        } catch (err) {
-          console.error('변환된 GLB 로드 실패, 원본 OBJ 로드 시도:', err)
-        } finally {
-          setIsLoadingPreview(false)
-          setDownloadProgress(null)
-        }
-
-        // GLB 로드 성공 시 리턴
-        if (loadSuccess) return
-        // 실패 시 원본 OBJ 로드로 계속
-      }
-      // 변환 미완료/실패 또는 GLB 로드 실패 시 → 원본 OBJ 직접 로드 (아래 일반 로직으로 계속)
-    }
-
-    // 이전 미리보기가 있다면 먼저 닫기
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl)
-      setPreviewUrl(null)
-      setPreviewFile(null)
-      setPreviewRelatedFiles([])
-      // WebGL 컨텍스트 정리를 위한 대기
-      await new Promise(resolve => setTimeout(resolve, 150))
-    }
-
+    // 일반 3D 파일: 원본 Blob 로드
+    await clearPreviousPreview()
     setPreviewFile(file)
     setIsLoadingPreview(true)
 
     try {
-      // Blob으로 직접 다운로드하여 URL 생성 (signed URL 401 에러 회피)
       const blob = await getFileBlob(file.id)
       if (blob) {
-        // blob URL에 파일 확장자 힌트 추가
         const blobUrl = URL.createObjectURL(blob) + `#file.${file.format}`
         setPreviewUrl(blobUrl)
-        setPreviewActualFormat(file.format) // 원본 파일 포맷 사용
+        setPreviewActualFormat(file.format)
 
         // OBJ 파일인 경우 연관 파일 (MTL, 텍스처) 로드
         if (file.format === 'obj') {
@@ -576,17 +396,11 @@ export default function Assets() {
     } finally {
       setIsLoadingPreview(false)
     }
-  }, [getFileBlob, getRelatedFileBlobs, previewUrl, handleGeoView])
+  }, [getFileBlob, getRelatedFileBlobs, handleGeoView, loadConvertedPreview, clearPreviousPreview])
 
   // 미리보기 닫기
   const closePreview = useCallback(() => {
-    if (previewUrl) {
-      // hash fragment 제거 후 blob URL revoke
-      const blobUrlOnly = previewUrl.split('#')[0] || previewUrl
-      if (blobUrlOnly.startsWith('blob:')) {
-        URL.revokeObjectURL(blobUrlOnly)
-      }
-    }
+    revokeBlobUrl(previewUrl)
     setPreviewFile(null)
     setPreviewUrl(null)
     setPreviewActualFormat(null)
@@ -867,7 +681,7 @@ export default function Assets() {
                   key={file.id}
                   onClick={(e) => handleFileClick(e, file.id)}
                   onDoubleClick={() => {
-                    if (!multiSelectMode && ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
+                    if (!multiSelectMode && is3DFormat(file.format)) {
                       handlePreview(file)
                     }
                   }}
@@ -938,7 +752,7 @@ export default function Assets() {
 
                     {/* 호버 액션 */}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                      {['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format) && (
+                      {is3DFormat(file.format) && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -951,7 +765,7 @@ export default function Assets() {
                         </button>
                       )}
                       {/* 지리좌표 가시화 버튼 (변환 완료된 파일만) */}
-                      {file.conversionStatus === 'ready' && ['e57', 'obj', 'gltf', 'glb'].includes(file.format) && (
+                      {file.conversionStatus === 'ready' && isGeoViewableFormat(file.format) && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -1026,7 +840,7 @@ export default function Assets() {
                   key={file.id}
                   onClick={(e) => handleFileClick(e, file.id)}
                   onDoubleClick={() => {
-                    if (!multiSelectMode && ['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format)) {
+                    if (!multiSelectMode && is3DFormat(file.format)) {
                       handlePreview(file)
                     }
                   }}
@@ -1083,7 +897,7 @@ export default function Assets() {
                   <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatFileSize(file.size)}</span>
                   <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatDate(file.createdAt)}</span>
                   <div className="col-span-1 flex items-center justify-end space-x-1">
-                    {['gltf', 'glb', 'obj', 'fbx', 'ply', 'las', 'e57'].includes(file.format) && (
+                    {is3DFormat(file.format) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1096,7 +910,7 @@ export default function Assets() {
                       </button>
                     )}
                     {/* 지리좌표 가시화 버튼 (변환 완료된 파일만) */}
-                    {file.conversionStatus === 'ready' && ['e57', 'obj', 'gltf', 'glb'].includes(file.format) && (
+                    {file.conversionStatus === 'ready' && isGeoViewableFormat(file.format) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1247,7 +1061,7 @@ export default function Assets() {
               {/* 지리좌표 가시화 (변환 완료된 파일만) */}
               {(() => {
                 const file = files.find(f => f.id === contextMenu.id)
-                if (file?.conversionStatus === 'ready' && ['e57', 'obj', 'gltf', 'glb'].includes(file.format)) {
+                if (file?.conversionStatus === 'ready' && isGeoViewableFormat(file.format)) {
                   return (
                     <button
                       onClick={() => {
@@ -1414,7 +1228,7 @@ export default function Assets() {
                   <div className="flex flex-col items-center gap-3 text-slate-400">
                     <Loader2 size={40} className="animate-spin" />
                     <span>모델 로딩 중...</span>
-                    {downloadProgress && (
+                    {downloadProgress && downloadProgress.total > 0 && (
                       <div className="w-48">
                         <div className="flex justify-between text-xs mb-1">
                           <span>다운로드</span>

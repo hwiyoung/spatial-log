@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, lazy, Suspense, useCallback, Component, t
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L, { type LeafletMouseEvent } from 'leaflet'
 import { PenTool, Map as MapIcon, Globe, Loader2 } from 'lucide-react'
-import type { AnnotationData } from '@/services/api'
+import type { AnnotationData, FlightPathPoint } from '@/services/api'
+import FlightPathLayer from '@/components/viewer/FlightPathLayer'
 import { getPriorityColor, PRIORITY_COLORS } from '@/constants/annotation'
 import 'leaflet/dist/leaflet.css'
 
@@ -56,6 +57,7 @@ interface AnnotationMapViewProps {
   onCancelPosition?: () => void
   center?: [number, number]
   zoom?: number
+  flightPaths?: FlightPathPoint[]
 }
 
 function createMarkerIcon(priority: string, isSelected: boolean): L.DivIcon {
@@ -154,6 +156,7 @@ export default function AnnotationMapView({
   onCancelPosition,
   center = [36.5, 127.5],
   zoom = 7,
+  flightPaths = [],
 }: AnnotationMapViewProps) {
   const [mapMode, setMapMode] = useState<MapMode>('2D')
   const [map3DError, setMap3DError] = useState(false)
@@ -306,6 +309,9 @@ export default function AnnotationMapView({
 
         <MapClickHandler onMapClick={onMapClick} isCreateMode={isCreateMode} />
         <FlyToSelected selectedAnnotation={selectedAnnotation} />
+
+        {/* 드론 비행경로 */}
+        {flightPaths.length > 0 && <FlightPathLayer points={flightPaths} />}
 
         {/* 기존 어노테이션 마커들 */}
         {annotationsWithGps.map((annotation) => (

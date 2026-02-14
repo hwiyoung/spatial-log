@@ -1,10 +1,11 @@
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, Grid, Environment, PerspectiveCamera, Html } from '@react-three/drei'
-import { Box as BoxIcon, AlertTriangle, Loader2, Settings, Activity, Copy, Check, MapPin } from 'lucide-react'
+import { Box as BoxIcon, AlertTriangle, Loader2, Settings, Activity, Copy, Check, MapPin, Ruler, Trash2 } from 'lucide-react'
 import * as THREE from 'three'
 import ModelViewer from './ModelViewer'
 import { AnnotationMarkers3D } from './AnnotationMarker3D'
+import MeasurementOverlay, { type MeasurementPoint } from './MeasurementOverlay'
 import { type LoadProgress, type LoadedModel, type RelatedFile } from '../../utils/modelLoader'
 import type { AnnotationData } from '@/services/api'
 import {
@@ -117,11 +118,13 @@ function PerformanceMonitor({ onStats }: { onStats: (stats: PerformanceStats) =>
 interface SceneRaycasterProps {
   onPointClick?: (position: ClickPosition) => void
   onCoordinateClick?: (position: ClickPosition) => void
+  onMeasureClick?: (position: ClickPosition) => void
   annotateMode: boolean
   showCoordinates: boolean
+  measureMode: boolean
 }
 
-function SceneRaycaster({ onPointClick, onCoordinateClick, annotateMode, showCoordinates }: SceneRaycasterProps) {
+function SceneRaycaster({ onPointClick, onCoordinateClick, onMeasureClick, annotateMode, showCoordinates, measureMode }: SceneRaycasterProps) {
   const { camera, scene, raycaster, gl } = useThree()
   const fallbackPlaneRef = useRef<THREE.Mesh>(null)
 
@@ -131,10 +134,11 @@ function SceneRaycaster({ onPointClick, onCoordinateClick, annotateMode, showCoo
   }, [raycaster])
 
   const handleClick = useCallback((event: MouseEvent) => {
-    // annotateMode이거나 showCoordinates일 때 클릭 처리
-    if (!annotateMode && !showCoordinates) return
+    // annotateMode, showCoordinates, measureMode 중 하나가 활성일 때 클릭 처리
+    if (!annotateMode && !showCoordinates && !measureMode) return
     if (annotateMode && !onPointClick) return
     if (showCoordinates && !onCoordinateClick) return
+    if (measureMode && !onMeasureClick) return
 
     // 마우스 좌표를 정규화된 디바이스 좌표로 변환
     const rect = gl.domElement.getBoundingClientRect()
@@ -184,6 +188,10 @@ function SceneRaycaster({ onPointClick, onCoordinateClick, annotateMode, showCoo
     }
 
     if (clickedPosition) {
+      // 측정 모드일 때
+      if (measureMode && onMeasureClick) {
+        onMeasureClick(clickedPosition)
+      }
       // 좌표 확인 모드일 때
       if (showCoordinates && onCoordinateClick) {
         onCoordinateClick(clickedPosition)
@@ -193,7 +201,7 @@ function SceneRaycaster({ onPointClick, onCoordinateClick, annotateMode, showCoo
         onPointClick(clickedPosition)
       }
     }
-  }, [annotateMode, showCoordinates, onPointClick, onCoordinateClick, camera, scene, raycaster, gl])
+  }, [annotateMode, showCoordinates, measureMode, onPointClick, onCoordinateClick, onMeasureClick, camera, scene, raycaster, gl])
 
   useEffect(() => {
     const canvas = gl.domElement
@@ -286,6 +294,153 @@ function ClickPositionMarker({ position }: ClickPositionMarkerProps) {
   )
 }
 
+// 성능 통계 패널 컴포넌트
+function PerformanceStatsPanel({
+  stats,
+  qualityLevel,
+}: {
+  stats: PerformanceStats
+  qualityLevel: QualityLevel
+}) {
+  return (
+    <div className="absolute bottom-4 left-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-xl p-3 min-w-44">
+      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-700">
+        <Activity size={14} className="text-green-400" />
+        <span className="text-xs font-medium text-white">성능 모니터</span>
+      </div>
+      <div className="space-y-1.5 text-xs">
+        <div className="flex justify-between items-center">
+          <span className="text-slate-400">FPS</span>
+          <span className={`font-mono font-bold ${
+            stats.fps >= 55 ? 'text-green-400' :
+            stats.fps >= 30 ? 'text-yellow-400' :
+            'text-red-400'
+          }`}>
+            {stats.fps}
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-slate-400">프레임 시간</span>
+          <span className="text-white font-mono">{stats.frameTime}ms</span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-slate-400">삼각형</span>
+          <span className="text-white font-mono">{stats.triangles.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-slate-400">드로우 콜</span>
+          <span className="text-white font-mono">{stats.drawCalls}</span>
+        </div>
+        {stats.memory && (
+          <div className="flex justify-between items-center">
+            <span className="text-slate-400">메모리</span>
+            <span className="text-white font-mono">
+              {Math.round(stats.memory / 1024 / 1024)}MB
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="mt-2 pt-2 border-t border-slate-700">
+        <div className="flex justify-between items-center text-xs">
+          <span className="text-slate-400">품질 설정</span>
+          <span className={`font-medium ${
+            qualityLevel === 'ultra' ? 'text-purple-400' :
+            qualityLevel === 'high' ? 'text-blue-400' :
+            qualityLevel === 'medium' ? 'text-yellow-400' :
+            'text-slate-400'
+          }`}>
+            {QUALITY_LABELS[qualityLevel].label}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// 좌표 확인 패널 컴포넌트
+function CoordinatePanel({
+  position,
+  onCopyText,
+  onCopyJson,
+  copied,
+}: {
+  position: ClickPosition | null
+  onCopyText: () => void
+  onCopyJson: () => void
+  copied: boolean
+}) {
+  return (
+    <div className="absolute bottom-4 right-4 bg-slate-900/95 backdrop-blur border border-blue-600/50 rounded-lg shadow-xl p-3 min-w-56">
+      <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-700">
+        <div className="flex items-center gap-2">
+          <MapPin size={14} className="text-blue-400" />
+          <span className="text-xs font-medium text-white">좌표 확인</span>
+        </div>
+        {position && (
+          <button
+            onClick={onCopyText}
+            className="p-1 hover:bg-slate-700 rounded transition-colors"
+            title="좌표 복사 (x, y, z)"
+          >
+            {copied ? (
+              <Check size={12} className="text-green-400" />
+            ) : (
+              <Copy size={12} className="text-slate-400" />
+            )}
+          </button>
+        )}
+      </div>
+
+      {position ? (
+        <div className="space-y-2">
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-red-400 font-medium">X</span>
+              <span className="text-white font-mono">{position.x.toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-green-400 font-medium">Y</span>
+              <span className="text-white font-mono">{position.y.toFixed(4)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-blue-400 font-medium">Z</span>
+              <span className="text-white font-mono">{position.z.toFixed(4)}</span>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-700 flex gap-2">
+            <button
+              onClick={onCopyText}
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 transition-colors"
+            >
+              <Copy size={12} />
+              <span>복사</span>
+            </button>
+            <button
+              onClick={onCopyJson}
+              className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 transition-colors"
+            >
+              <Copy size={12} />
+              <span>JSON</span>
+            </button>
+          </div>
+
+          {copied && (
+            <div className="text-center text-xs text-green-400 animate-pulse">
+              클립보드에 복사되었습니다!
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="text-center py-4">
+          <p className="text-slate-400 text-xs">모델을 클릭하여</p>
+          <p className="text-slate-400 text-xs">좌표를 확인하세요</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CanvasLoadingFallback() {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-slate-950">
@@ -356,6 +511,10 @@ interface SceneContentProps {
   showCoordinates: boolean
   clickedPosition: ClickPosition | null
   onCoordinateClick?: (position: ClickPosition) => void
+  // 측정 모드
+  measureMode: boolean
+  measurePoints: MeasurementPoint[]
+  onMeasureClick?: (position: ClickPosition) => void
 }
 
 // 카메라 컨트롤러 (선택된 어노테이션으로 이동)
@@ -428,6 +587,9 @@ function SceneContent({
   showCoordinates,
   clickedPosition,
   onCoordinateClick,
+  measureMode,
+  measurePoints,
+  onMeasureClick,
 }: SceneContentProps) {
   const hasModel = !!(modelUrl || modelFile)
 
@@ -462,12 +624,14 @@ function SceneContent({
       {/* Grid */}
       <GridFloor />
 
-      {/* Scene raycaster for annotation placement and coordinate inspection */}
+      {/* Scene raycaster for annotation placement, coordinate inspection, and measurement */}
       <SceneRaycaster
         onPointClick={onPointClick}
         onCoordinateClick={onCoordinateClick}
+        onMeasureClick={onMeasureClick}
         annotateMode={annotateMode}
         showCoordinates={showCoordinates}
+        measureMode={measureMode}
       />
 
       {/* Model or Placeholder */}
@@ -487,6 +651,14 @@ function SceneContent({
 
       {/* 클릭 위치 마커 (좌표 확인 모드) */}
       {showCoordinates && <ClickPositionMarker position={clickedPosition} />}
+
+      {/* 측정 오버레이 */}
+      {measureMode && (
+        <MeasurementOverlay
+          points={measurePoints}
+          activePointIndex={measurePoints.length % 2 === 1 ? measurePoints.length - 1 : null}
+        />
+      )}
 
       {/* 어노테이션 마커 */}
       {onAnnotationClick && (
@@ -540,6 +712,36 @@ export default function ThreeCanvas({
   const [clickedPosition, setClickedPosition] = useState<ClickPosition | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // 측정 모드
+  const [measureMode, setMeasureMode] = useState(false)
+  const [measurePoints, setMeasurePoints] = useState<MeasurementPoint[]>([])
+  const measureIdCounter = useRef(0)
+
+  // WebGL 컨텍스트 손실 타이머 ref (언마운트 시 정리용)
+  const contextLostTimeoutRef = useRef<number | null>(null)
+  useEffect(() => {
+    return () => {
+      if (contextLostTimeoutRef.current) clearTimeout(contextLostTimeoutRef.current)
+    }
+  }, [])
+
+  // 측정 클릭 핸들러
+  const handleMeasureClick = useCallback((position: ClickPosition) => {
+    setMeasurePoints(prev => {
+      // 짝수개면 새로운 시작점 추가, 홀수개면 끝점 추가
+      const newPoint: MeasurementPoint = {
+        position,
+        id: measureIdCounter.current++,
+      }
+      return [...prev, newPoint]
+    })
+  }, [])
+
+  // 측정 초기화
+  const clearMeasurements = useCallback(() => {
+    setMeasurePoints([])
+  }, [])
+
   // 좌표 클릭 핸들러
   const handleCoordinateClick = useCallback((position: ClickPosition) => {
     setClickedPosition(position)
@@ -553,7 +755,7 @@ export default function ThreeCanvas({
     navigator.clipboard.writeText(coordText).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }).catch(() => { /* clipboard permission denied */ })
   }, [clickedPosition])
 
   // 좌표 JSON 복사 핸들러
@@ -563,7 +765,7 @@ export default function ThreeCanvas({
     navigator.clipboard.writeText(coordJson).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    })
+    }).catch(() => { /* clipboard permission denied */ })
   }, [clickedPosition])
 
   // 품질 변경 핸들러
@@ -627,21 +829,18 @@ export default function ThreeCanvas({
           }}
           onCreated={({ gl }) => {
             // WebGL 컨텍스트 손실 처리
-            let contextLostTimeout: number | null = null
             gl.domElement.addEventListener('webglcontextlost', (e) => {
               e.preventDefault()
               console.warn('WebGL context lost, attempting recovery...')
-              // 일시적인 컨텍스트 손실일 수 있으므로 짧은 대기 후 에러 표시
-              contextLostTimeout = window.setTimeout(() => {
+              contextLostTimeoutRef.current = window.setTimeout(() => {
                 setError('WebGL 컨텍스트 손실. 다시 시도해 주세요.')
               }, 500)
             })
             gl.domElement.addEventListener('webglcontextrestored', () => {
               console.log('WebGL context restored')
-              // 복구되면 타이머 취소 및 에러 해제
-              if (contextLostTimeout) {
-                clearTimeout(contextLostTimeout)
-                contextLostTimeout = null
+              if (contextLostTimeoutRef.current) {
+                clearTimeout(contextLostTimeoutRef.current)
+                contextLostTimeoutRef.current = null
               }
               setError(null)
             })
@@ -664,6 +863,9 @@ export default function ThreeCanvas({
             showCoordinates={showCoordinates}
             clickedPosition={clickedPosition}
             onCoordinateClick={handleCoordinateClick}
+            measureMode={measureMode}
+            measurePoints={measurePoints}
+            onMeasureClick={handleMeasureClick}
           />
         </Canvas>
       </Suspense>
@@ -749,140 +951,52 @@ export default function ThreeCanvas({
             <MapPin size={14} />
             <span>좌표</span>
           </button>
+
+          {/* 측정 모드 토글 버튼 */}
+          <button
+            onClick={() => {
+              setMeasureMode(!measureMode)
+              if (measureMode) {
+                clearMeasurements()
+              }
+            }}
+            className={`flex items-center gap-2 px-3 py-1.5 backdrop-blur border rounded-lg text-xs shadow-lg transition-colors ${
+              measureMode
+                ? 'bg-amber-600/20 border-amber-600 text-amber-400 hover:bg-amber-600/30'
+                : 'bg-slate-900/90 border-slate-700 text-white hover:bg-slate-800/90'
+            }`}
+            title="거리 측정 모드"
+          >
+            <Ruler size={14} />
+            <span>측정</span>
+          </button>
+
+          {/* 측정 초기화 버튼 (측정 모드이고 포인트가 있을 때) */}
+          {measureMode && measurePoints.length > 0 && (
+            <button
+              onClick={clearMeasurements}
+              className="flex items-center gap-2 px-3 py-1.5 backdrop-blur border border-red-600/50 rounded-lg text-xs shadow-lg text-red-400 hover:bg-red-600/20 transition-colors"
+              title="측정 초기화"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       )}
 
       {/* 성능 통계 패널 */}
       {showStats && perfStats && (
-        <div className="absolute bottom-4 left-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg shadow-xl p-3 min-w-44">
-          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-700">
-            <Activity size={14} className="text-green-400" />
-            <span className="text-xs font-medium text-white">성능 모니터</span>
-          </div>
-          <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">FPS</span>
-              <span className={`font-mono font-bold ${
-                perfStats.fps >= 55 ? 'text-green-400' :
-                perfStats.fps >= 30 ? 'text-yellow-400' :
-                'text-red-400'
-              }`}>
-                {perfStats.fps}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">프레임 시간</span>
-              <span className="text-white font-mono">{perfStats.frameTime}ms</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">삼각형</span>
-              <span className="text-white font-mono">{perfStats.triangles.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400">드로우 콜</span>
-              <span className="text-white font-mono">{perfStats.drawCalls}</span>
-            </div>
-            {perfStats.memory && (
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">메모리</span>
-                <span className="text-white font-mono">
-                  {Math.round(perfStats.memory / 1024 / 1024)}MB
-                </span>
-              </div>
-            )}
-          </div>
-          {/* 품질 수준 표시 */}
-          <div className="mt-2 pt-2 border-t border-slate-700">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-slate-400">품질 설정</span>
-              <span className={`font-medium ${
-                qualityLevel === 'ultra' ? 'text-purple-400' :
-                qualityLevel === 'high' ? 'text-blue-400' :
-                qualityLevel === 'medium' ? 'text-yellow-400' :
-                'text-slate-400'
-              }`}>
-                {QUALITY_LABELS[qualityLevel].label}
-              </span>
-            </div>
-          </div>
-        </div>
+        <PerformanceStatsPanel stats={perfStats} qualityLevel={qualityLevel} />
       )}
 
       {/* 좌표 확인 패널 */}
       {showCoordinates && (
-        <div className="absolute bottom-4 right-4 bg-slate-900/95 backdrop-blur border border-blue-600/50 rounded-lg shadow-xl p-3 min-w-56">
-          <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-700">
-            <div className="flex items-center gap-2">
-              <MapPin size={14} className="text-blue-400" />
-              <span className="text-xs font-medium text-white">좌표 확인</span>
-            </div>
-            {clickedPosition && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleCopyCoordinates}
-                  className="p-1 hover:bg-slate-700 rounded transition-colors"
-                  title="좌표 복사 (x, y, z)"
-                >
-                  {copied ? (
-                    <Check size={12} className="text-green-400" />
-                  ) : (
-                    <Copy size={12} className="text-slate-400" />
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {clickedPosition ? (
-            <div className="space-y-2">
-              {/* 개별 좌표 */}
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-red-400 font-medium">X</span>
-                  <span className="text-white font-mono">{clickedPosition.x.toFixed(4)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-green-400 font-medium">Y</span>
-                  <span className="text-white font-mono">{clickedPosition.y.toFixed(4)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-blue-400 font-medium">Z</span>
-                  <span className="text-white font-mono">{clickedPosition.z.toFixed(4)}</span>
-                </div>
-              </div>
-
-              {/* 복사 버튼들 */}
-              <div className="pt-2 border-t border-slate-700 flex gap-2">
-                <button
-                  onClick={handleCopyCoordinates}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 transition-colors"
-                >
-                  <Copy size={12} />
-                  <span>복사</span>
-                </button>
-                <button
-                  onClick={handleCopyCoordinatesJson}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 transition-colors"
-                >
-                  <Copy size={12} />
-                  <span>JSON</span>
-                </button>
-              </div>
-
-              {/* 복사 완료 메시지 */}
-              {copied && (
-                <div className="text-center text-xs text-green-400 animate-pulse">
-                  클립보드에 복사되었습니다!
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-4">
-              <p className="text-slate-400 text-xs">모델을 클릭하여</p>
-              <p className="text-slate-400 text-xs">좌표를 확인하세요</p>
-            </div>
-          )}
-        </div>
+        <CoordinatePanel
+          position={clickedPosition}
+          onCopyText={handleCopyCoordinates}
+          onCopyJson={handleCopyCoordinatesJson}
+          copied={copied}
+        />
       )}
 
       {/* Empty state overlay */}

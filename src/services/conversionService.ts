@@ -3,6 +3,8 @@
  * spatial-converter 백엔드와 통신하여 파일 변환을 관리합니다.
  */
 
+import { CONVERTER_URL } from '@/constants/config'
+
 // 변환 타입
 export type ConversionType =
   | 'e57_to_ply'
@@ -13,6 +15,8 @@ export type ConversionType =
   | 'obj_to_3dtiles'
   | 'gltf_to_3dtiles'
   | 'glb_to_3dtiles'
+  | 'ply_to_3dtiles'
+  | 'las_to_3dtiles'
 
 // 변환 상태
 export type ConversionStatus = 'pending' | 'converting' | 'ready' | 'failed'
@@ -43,9 +47,6 @@ export interface ConversionStatusResponse {
   error?: string
 }
 
-// 변환 서비스 URL (환경변수에서 가져오거나 기본값 사용)
-const CONVERTER_URL = import.meta.env.VITE_CONVERTER_URL || `${window.location.origin}/converter`
-
 /**
  * 파일 포맷에 따른 변환 타입 결정
  */
@@ -56,11 +57,11 @@ export function getConversionTypeForFormat(format: string): ConversionType | nul
     case 'e57':
       return 'e57_to_ply'  // 또는 'e57_to_las'
     case 'las':
-      return 'las_to_copc'
+      return 'las_to_3dtiles'
     case 'laz':
       return 'laz_to_copc'
     case 'ply':
-      return 'ply_to_copc'
+      return 'ply_to_3dtiles'
     case 'obj':
       return 'obj_to_3dtiles'
     case 'gltf':
@@ -149,71 +150,6 @@ export async function getConversionStatus(jobId: string): Promise<ConversionStat
 }
 
 /**
- * 변환 상태 폴링 (완료될 때까지)
- */
-export async function pollConversionStatus(
-  jobId: string,
-  onProgress?: (status: ConversionStatusResponse) => void,
-  intervalMs: number = 2000,
-  maxAttempts: number = 1800  // 1시간 (2초 * 1800)
-): Promise<ConversionStatusResponse> {
-  let attempts = 0
-
-  while (attempts < maxAttempts) {
-    const status = await getConversionStatus(jobId)
-
-    // 콜백 호출
-    onProgress?.(status)
-
-    // 완료 또는 실패 시 반환
-    if (status.status === 'ready' || status.status === 'failed') {
-      return status
-    }
-
-    // 대기
-    await new Promise((resolve) => setTimeout(resolve, intervalMs))
-    attempts++
-  }
-
-  throw new Error('변환 타임아웃: 최대 대기 시간 초과')
-}
-
-/**
- * 모든 변환 작업 목록 조회
- */
-export async function listConversionJobs(): Promise<{
-  jobs: Array<{
-    jobId: string
-    fileId: string
-    status: ConversionStatus
-    progress: number
-  }>
-}> {
-  try {
-    const response = await fetch(`${CONVERTER_URL}/jobs`)
-
-    if (!response.ok) {
-      throw new Error(`작업 목록 조회 실패: ${response.status}`)
-    }
-
-    const data = await response.json()
-    return {
-      jobs: data.jobs.map((job: Record<string, unknown>) => ({
-        jobId: job.job_id,
-        fileId: job.file_id,
-        status: job.status as ConversionStatus,
-        progress: job.progress as number,
-      })),
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error
-    }
-    throw new Error('작업 목록 조회 중 오류가 발생했습니다.')
-  }
-}
-
-/**
  * 변환 서비스 헬스체크
  */
 export async function checkConverterHealth(): Promise<{
@@ -267,4 +203,6 @@ export const CONVERSION_TYPE_LABELS: Record<ConversionType, string> = {
   obj_to_3dtiles: 'OBJ → 3D Tiles',
   gltf_to_3dtiles: 'GLTF → 3D Tiles',
   glb_to_3dtiles: 'GLB → 3D Tiles',
+  ply_to_3dtiles: 'PLY → 3D Tiles',
+  las_to_3dtiles: 'LAS → 3D Tiles',
 }

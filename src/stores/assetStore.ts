@@ -20,7 +20,7 @@ import {
   getRelatedFiles,
   updateFileConversionStatus,
 } from '@/services/api'
-import type { FileGroup } from '@/components/common/FileUpload'
+import type { FileGroup, UploadOptions } from '@/components/common/FileUpload'
 import {
   needsConversion,
   getConversionTypeForFormat,
@@ -43,7 +43,8 @@ async function triggerConversionForFile(
   storagePath: string,
   format: string,
   originalName: string,
-  onUpdate?: () => Promise<void>
+  onUpdate?: () => Promise<void>,
+  conversionOptions?: UploadOptions
 ): Promise<void> {
   try {
     // 변환 서비스 상태 확인
@@ -63,12 +64,16 @@ async function triggerConversionForFile(
     // DB에 pending 상태 저장
     await updateFileConversionStatus(fileId, 'pending', 0)
 
-    // 변환 시작 (원본 파일명을 옵션으로 전달)
+    // 변환 시작 (원본 파일명 + EPSG 코드를 옵션으로 전달)
+    const options: Record<string, unknown> = { original_name: originalName }
+    if (conversionOptions?.epsg) {
+      options.epsg = conversionOptions.epsg
+    }
     const response = await startConversion({
       fileId,
       sourcePath: storagePath,
       conversionType,
-      options: { original_name: originalName },
+      options,
     })
 
     console.log(`변환 시작: ${fileId}, jobId: ${response.jobId}`)
@@ -141,6 +146,25 @@ async function pollConversionStatus(
   setTimeout(poll, intervalMs)
 }
 
+// 파일 그룹 정보를 이름 기반 맵으로 변환
+function buildFileGroupMap(groups?: FileGroup[]): Map<string, { groupId: string; isMain: boolean; mainFileName?: string }> {
+  const map = new Map<string, { groupId: string; isMain: boolean; mainFileName?: string }>()
+  if (!groups || groups.length === 0) return map
+
+  for (const group of groups) {
+    if (group.mainFile) {
+      map.set(group.mainFile.name, { groupId: group.groupId, isMain: true })
+      for (const mtl of group.materialFiles) {
+        map.set(mtl.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
+      }
+      for (const tex of group.textureFiles) {
+        map.set(tex.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
+      }
+    }
+  }
+  return map
+}
+
 interface AssetState {
   // 데이터
   files: FileMetadata[]
@@ -167,7 +191,7 @@ interface AssetState {
   refreshFolders: () => Promise<void>
 
   // 파일 액션
-  uploadFiles: (files: File[], groups?: FileGroup[]) => Promise<void>
+  uploadFiles: (files: File[], groups?: FileGroup[], conversionOptions?: UploadOptions) => Promise<void>
   deleteFiles: (ids: string[]) => Promise<void>
   moveFiles: (ids: string[], folderId: string | null) => Promise<void>
   renameFile: (id: string, name: string) => Promise<void>
@@ -260,25 +284,11 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   },
 
   // 파일 업로드
-  uploadFiles: async (filesToUpload: File[], groups?: FileGroup[]) => {
+  uploadFiles: async (filesToUpload: File[], groups?: FileGroup[], conversionOptions?: UploadOptions) => {
     const { selectedFolderId } = get()
 
     // 그룹 정보를 파일명 기반으로 매핑
-    const fileGroupMap = new Map<string, { groupId: string; isMain: boolean; mainFileName?: string }>()
-    if (groups && groups.length > 0) {
-      for (const group of groups) {
-        if (group.mainFile) {
-          fileGroupMap.set(group.mainFile.name, { groupId: group.groupId, isMain: true })
-          // 연관 파일들에 메인 파일 정보 추가
-          for (const mtl of group.materialFiles) {
-            fileGroupMap.set(mtl.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
-          }
-          for (const tex of group.textureFiles) {
-            fileGroupMap.set(tex.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
-          }
-        }
-      }
-    }
+    const fileGroupMap = buildFileGroupMap(groups)
 
     // 업로드 진행 상태 초기화 (메인 파일만 표시)
     const mainFilesToUpload = filesToUpload.filter(file => {
@@ -341,7 +351,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
         // 변환이 필요한 파일인지 확인하고 자동 변환 트리거
         if (needsConversion(metadata.format) && metadata.storagePath) {
           // 비동기로 변환 시작 (백그라운드에서 실행, 에러는 무시)
-          triggerConversionForFile(metadata.id, metadata.storagePath, metadata.format, metadata.name, get().refreshFiles)
+          triggerConversionForFile(metadata.id, metadata.storagePath, metadata.format, metadata.name, get().refreshFiles, conversionOptions)
         }
       } catch (err) {
         const currentIndex = progressIndex - 1

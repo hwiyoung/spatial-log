@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -31,6 +31,8 @@ logger = structlog.get_logger()
 STORAGE_PATH = os.getenv("STORAGE_PATH", "/var/lib/storage")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "http://kong:8000")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+CONVERTER_API_KEY = os.getenv("CONVERTER_API_KEY", "")
 
 # 변환기 인스턴스
 converter = SpatialConverter(storage_path=STORAGE_PATH)
@@ -54,10 +56,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 설정
+# CORS 설정 (운영 환경: ALLOWED_ORIGINS 환경변수로 도메인 제한)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -112,6 +114,19 @@ class DeleteResponse(BaseModel):
     message: str
 
 
+# === 인증 ===
+
+def verify_api_key(request: Request):
+    """변환/삭제 엔드포인트의 API 키 검증
+    CONVERTER_API_KEY가 설정된 경우에만 검증 (미설정 시 허용 — 개발 환경)
+    """
+    if not CONVERTER_API_KEY:
+        return
+    auth_header = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ")
+    if auth_header != CONVERTER_API_KEY:
+        raise HTTPException(status_code=401, detail="인증 실패: 유효한 API 키가 필요합니다")
+
+
 # === API Endpoints ===
 
 @app.get("/health", response_model=HealthResponse)
@@ -132,7 +147,8 @@ async def health_check():
 
 
 @app.post("/delete", response_model=DeleteResponse)
-async def delete_storage_files(request: DeleteRequest):
+async def delete_storage_files(request: DeleteRequest, raw_request: Request):
+    verify_api_key(raw_request)
     """Storage 파일 물리적 삭제
 
     Supabase Storage API가 파일 백엔드 모드에서 물리적 파일을 삭제하지 않는 문제 해결용
@@ -189,8 +205,10 @@ async def delete_storage_files(request: DeleteRequest):
 @app.post("/convert", response_model=ConversionResponse)
 async def start_conversion(
     request: ConversionRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    raw_request: Request,
 ):
+    verify_api_key(raw_request)
     """변환 작업 시작"""
     job_id = f"conv_{request.file_id}_{request.conversion_type.value}"
 

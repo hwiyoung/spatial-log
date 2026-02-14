@@ -6,6 +6,17 @@ import { Loader2, CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react'
 import type { ConversionStatus as ConversionStatusType } from '@/services/conversionService'
 import { CONVERSION_STATUS_LABELS } from '@/services/conversionService'
 
+// 진행률 구간별 단계명
+function getProgressStepLabel(progress: number): string {
+  if (progress <= 10) return '준비 중...'
+  if (progress <= 20) return '파일 분석 중...'
+  if (progress <= 30) return '좌표계 감지 중...'
+  if (progress <= 40) return '변환 시작...'
+  if (progress <= 80) return '데이터 변환 중...'
+  if (progress <= 95) return '후처리 중...'
+  return '완료 처리 중...'
+}
+
 interface ConversionStatusProps {
   status: ConversionStatusType | null
   progress?: number
@@ -76,8 +87,7 @@ export function ConversionStatusBadge({
     >
       <Icon size={16} className={`${config.color} ${isAnimated ? 'animate-spin' : ''}`} />
       <span className={`text-sm font-medium ${config.color}`}>
-        {label}
-        {status === 'converting' && ` (${progress}%)`}
+        {status === 'converting' ? `${getProgressStepLabel(progress)} (${progress}%)` : label}
       </span>
       {status === 'failed' && onRetry && (
         <button
@@ -113,7 +123,7 @@ export function ConversionProgressBar({
     <div className="w-full">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-slate-400">
-          {CONVERSION_STATUS_LABELS[status]}
+          {status === 'converting' ? getProgressStepLabel(progress) : CONVERSION_STATUS_LABELS[status]}
         </span>
         <span className="text-xs text-slate-400">{progress}%</span>
       </div>

@@ -67,7 +67,7 @@ services:
       - name: cors
       - name: key-auth
         config:
-          hide_credentials: false
+          hide_credentials: true
       - name: acl
         config:
           hide_groups_header: true
@@ -88,7 +88,7 @@ services:
       - name: cors
       - name: key-auth
         config:
-          hide_credentials: false
+          hide_credentials: true
       - name: acl
         config:
           hide_groups_header: true
@@ -114,7 +114,7 @@ services:
       - name: cors
       - name: key-auth
         config:
-          hide_credentials: false
+          hide_credentials: true
       - name: acl
         config:
           hide_groups_header: true

@@ -28,6 +28,8 @@ class ConversionType(str, Enum):
     OBJ_TO_3DTILES = "obj_to_3dtiles"
     GLTF_TO_3DTILES = "gltf_to_3dtiles"
     GLB_TO_3DTILES = "glb_to_3dtiles"
+    PLY_TO_3DTILES = "ply_to_3dtiles"
+    LAS_TO_3DTILES = "las_to_3dtiles"
 
 
 @dataclass
@@ -95,6 +97,8 @@ class SpatialConverter:
                 return self._convert_to_copc(source, options, progress_callback)
             elif conversion_type in [ConversionType.OBJ_TO_3DTILES, ConversionType.GLTF_TO_3DTILES, ConversionType.GLB_TO_3DTILES]:
                 return self._convert_to_3dtiles(source, options, progress_callback)
+            elif conversion_type in [ConversionType.PLY_TO_3DTILES, ConversionType.LAS_TO_3DTILES]:
+                return self._convert_pointcloud_to_3dtiles(source, options, progress_callback)
             else:
                 return ConversionResult(
                     success=False,
@@ -1718,6 +1722,179 @@ class SpatialConverter:
             output_path=str(output_dir),
             metadata=metadata
         )
+
+    def _convert_pointcloud_to_3dtiles(
+        self,
+        source: Path,
+        options: dict,
+        progress_callback: Callable[[int], None] = None
+    ) -> ConversionResult:
+        """포인트 클라우드 (PLY/LAS) → 3D Tiles (pnts) 변환
+
+        py3dtiles를 사용하여 포인트 클라우드를 3D Tiles 포맷으로 변환합니다.
+        3D Tiles는 CesiumJS에서 LOD 기반 스트리밍 렌더링을 지원합니다.
+        """
+        output_dir = self.output_base / (source.stem + "_3dtiles")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if progress_callback:
+            progress_callback(10)
+
+        # 소스 포맷 결정
+        ext = source.suffix.lower()
+        if not ext and options.get("original_format"):
+            ext = "." + options["original_format"]
+
+        # PLY/LAS/LAZ 만 지원
+        if ext not in [".ply", ".las", ".laz"]:
+            return ConversionResult(
+                success=False,
+                error=f"포인트 클라우드 3D Tiles 변환에 지원하지 않는 포맷: {ext}"
+            )
+
+        # 확장자가 없는 파일의 경우 심볼릭 링크 생성
+        temp_link = None
+        input_path = source
+        if not source.suffix and ext:
+            temp_link = self.temp_path / f"pc3dt_{source.stem}{ext}"
+            if temp_link.exists():
+                temp_link.unlink()
+            temp_link.symlink_to(source)
+            input_path = temp_link
+            logger.info("created_temp_symlink_for_3dtiles", source=str(source), link=str(temp_link))
+
+        if progress_callback:
+            progress_callback(20)
+
+        try:
+            # 좌표계 정보 감지
+            coord_info = self._detect_coordinate_system(source, ext.lstrip('.'))
+            color_info = self._detect_color_info(source, ext.lstrip('.'))
+
+            if progress_callback:
+                progress_callback(30)
+
+            # py3dtiles 변환 실행
+            # py3dtiles convert: 포인트클라우드 → 3D Tiles (pnts)
+            cmd = [
+                "py3dtiles", "convert",
+                str(input_path),
+                "--out", str(output_dir),
+                "--overwrite",
+            ]
+
+            # 색상 데이터가 없으면 RGB 비활성화 (기본은 RGB 포함)
+            if not color_info.get("has_color"):
+                cmd.extend(["--no-rgb"])
+
+            # EPSG 코드가 옵션으로 제공되었으면 사용
+            # py3dtiles는 EPSG 숫자만 받음 (예: 4326, 5186)
+            epsg = options.get("epsg")
+            if epsg:
+                try:
+                    epsg_int = int(epsg)
+                except (ValueError, TypeError):
+                    logger.warning("invalid_epsg_code", epsg=epsg)
+                    epsg_int = None
+
+                if epsg_int is not None:
+                    cmd.extend(["--srs_in", str(epsg_int)])
+                    # WGS84가 아닌 경우 WGS84로 변환
+                    if epsg_int != 4326:
+                        cmd.extend(["--srs_out", "4326"])
+            elif coord_info.get("is_korea_tm"):
+                cmd.extend(["--srs_in", "5186", "--srs_out", "4326"])
+            elif coord_info.get("is_geographic"):
+                cmd.extend(["--srs_in", "4326"])
+
+            logger.info("py3dtiles_convert_starting",
+                       cmd=" ".join(cmd),
+                       coord_info=coord_info,
+                       color_info=color_info)
+
+            if progress_callback:
+                progress_callback(40)
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1시간 타임아웃
+            )
+
+            if progress_callback:
+                progress_callback(80)
+
+            if result.returncode != 0:
+                logger.error("py3dtiles_convert_failed",
+                           returncode=result.returncode,
+                           stderr=result.stderr[:1000] if result.stderr else "",
+                           stdout=result.stdout[:1000] if result.stdout else "")
+                return ConversionResult(
+                    success=False,
+                    error=f"3D Tiles 변환 실패: {result.stderr[:500] if result.stderr else 'Unknown error'}"
+                )
+
+            # tileset.json 존재 확인
+            tileset_path = output_dir / "tileset.json"
+            if not tileset_path.exists():
+                return ConversionResult(
+                    success=False,
+                    error="tileset.json이 생성되지 않았습니다."
+                )
+
+            if progress_callback:
+                progress_callback(95)
+
+            # 메타데이터 구성
+            metadata = {
+                "tileset_path": str(tileset_path),
+                "format": "3dtiles",
+                "source_format": ext.lstrip('.'),
+                "point_count": coord_info.get("point_count", 0),
+            }
+
+            if coord_info.get("bbox"):
+                bbox = coord_info["bbox"]
+                metadata["spatialInfo"] = {
+                    "bbox": {
+                        "minX": bbox[0], "minY": bbox[1], "minZ": bbox[2],
+                        "maxX": bbox[3], "maxY": bbox[4], "maxZ": bbox[5]
+                    },
+                    "pointCount": coord_info.get("point_count", 0),
+                    "isGeographic": coord_info.get("is_geographic", False),
+                    "isKoreaTM": coord_info.get("is_korea_tm", False),
+                    "epsg": epsg or (4326 if coord_info.get("is_geographic") else
+                                     5186 if coord_info.get("is_korea_tm") else None),
+                }
+
+            logger.info("pointcloud_to_3dtiles_success",
+                       output_dir=str(output_dir),
+                       point_count=coord_info.get("point_count", 0))
+
+            return ConversionResult(
+                success=True,
+                output_path=str(output_dir),
+                metadata=metadata
+            )
+
+        except subprocess.TimeoutExpired:
+            return ConversionResult(
+                success=False,
+                error="3D Tiles 변환 타임아웃 (1시간 초과)"
+            )
+        except Exception as e:
+            logger.exception("pointcloud_to_3dtiles_error")
+            return ConversionResult(
+                success=False,
+                error=f"3D Tiles 변환 오류: {str(e)}"
+            )
+        finally:
+            if temp_link and temp_link.exists():
+                try:
+                    temp_link.unlink()
+                except Exception:
+                    pass
 
     def _run_pdal_pipeline(
         self,
