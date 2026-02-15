@@ -6,6 +6,7 @@ import {
   getReleasesByStory,
   getRelease,
   getReleaseByShareToken,
+  ReleaseExpiredError,
   revokeRelease,
 } from '@/services/api'
 
@@ -25,7 +26,7 @@ interface ReleaseState {
     storyId: string,
     snapshot: ReleaseSnapshot,
     manifest: ReleaseManifest,
-    options: { label?: string; accessType?: AccessType }
+    options: { label?: string; accessType?: AccessType; passwordHash?: string; expiresAt?: Date }
   ) => Promise<ReleaseData>
   revokeRelease: (id: string) => Promise<void>
   loadRelease: (id: string) => Promise<void>
@@ -138,6 +139,7 @@ export const useReleaseStore = create<ReleaseState>((set) => ({
         error: err instanceof Error ? err.message : 'Release 조회 실패',
         isLoading: false,
       })
+      if (err instanceof ReleaseExpiredError) throw err
       return null
     }
   },

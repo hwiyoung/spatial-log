@@ -1,7 +1,5 @@
 import { create } from 'zustand'
 import {
-  type FileMetadata,
-  type FolderData,
   uploadFile,
   getFiles,
   getFile,
@@ -14,214 +12,16 @@ import {
   deleteFolder,
   getStorageUsage,
   isBackendConnected,
-  getFilesByProject,
-  linkFilesToProject,
-  unlinkFilesFromProject,
   getRelatedFiles,
-  updateFileConversionStatus,
+  getAssetUsageCounts,
 } from '@/services/api'
+import { needsConversion } from '@/services/conversionService'
+import { TAG, isSystemTag } from '@/constants/tags'
 import type { FileGroup, UploadOptions } from '@/components/common/FileUpload'
-import {
-  needsConversion,
-  getConversionTypeForFormat,
-  startConversion,
-  getConversionStatus,
-  checkConverterHealth,
-} from '@/services/conversionService'
+import { triggerConversionForFile, buildFileGroupMap } from '@/stores/helpers/conversionHelpers'
+import type { AssetState, UploadProgress } from './assetStore.types'
 
-interface UploadProgress {
-  fileId: string
-  fileName: string
-  progress: number
-  status: 'pending' | 'uploading' | 'complete' | 'error'
-  error?: string
-}
-
-// 파일 변환을 백그라운드에서 트리거하고 상태를 폴링하는 헬퍼 함수
-async function triggerConversionForFile(
-  fileId: string,
-  storagePath: string,
-  format: string,
-  originalName: string,
-  onUpdate?: () => Promise<void>,
-  conversionOptions?: UploadOptions
-): Promise<void> {
-  try {
-    // 변환 서비스 상태 확인
-    const health = await checkConverterHealth()
-    if (health.status !== 'healthy') {
-      console.warn('변환 서비스가 사용 불가능합니다:', health.status)
-      return
-    }
-
-    // 변환 타입 결정
-    const conversionType = getConversionTypeForFormat(format)
-    if (!conversionType) {
-      console.warn(`지원하지 않는 변환 포맷: ${format}`)
-      return
-    }
-
-    // DB에 pending 상태 저장
-    await updateFileConversionStatus(fileId, 'pending', 0)
-
-    // 변환 시작 (원본 파일명 + EPSG 코드를 옵션으로 전달)
-    const options: Record<string, unknown> = { original_name: originalName }
-    if (conversionOptions?.epsg) {
-      options.epsg = conversionOptions.epsg
-    }
-    const response = await startConversion({
-      fileId,
-      sourcePath: storagePath,
-      conversionType,
-      options,
-    })
-
-    console.log(`변환 시작: ${fileId}, jobId: ${response.jobId}`)
-
-    // 상태 폴링 시작 (백그라운드)
-    pollConversionStatus(fileId, response.jobId, onUpdate)
-  } catch (err) {
-    console.error('변환 트리거 실패:', err)
-    // 실패 상태 저장
-    await updateFileConversionStatus(
-      fileId,
-      'failed',
-      0,
-      undefined,
-      err instanceof Error ? err.message : '변환 시작 실패'
-    )
-  }
-}
-
-// 변환 상태 폴링 함수
-async function pollConversionStatus(
-  fileId: string,
-  jobId: string,
-  onUpdate?: () => Promise<void>,
-  intervalMs: number = 3000,
-  maxAttempts: number = 600 // 30분 (3초 * 600)
-): Promise<void> {
-  let attempts = 0
-
-  const poll = async () => {
-    if (attempts >= maxAttempts) {
-      console.warn(`변환 타임아웃: ${fileId}`)
-      await updateFileConversionStatus(fileId, 'failed', 0, undefined, '변환 타임아웃')
-      return
-    }
-
-    attempts++
-
-    try {
-      const status = await getConversionStatus(jobId)
-
-      // DB 상태 업데이트
-      await updateFileConversionStatus(
-        fileId,
-        status.status,
-        status.progress,
-        status.outputPath,
-        status.error
-      )
-
-      // 파일 목록 새로고침 (UI 업데이트)
-      onUpdate?.()
-
-      // 완료 또는 실패가 아니면 계속 폴링
-      if (status.status !== 'ready' && status.status !== 'failed') {
-        setTimeout(poll, intervalMs)
-      } else {
-        console.log(`변환 완료: ${fileId}, 상태: ${status.status}`)
-      }
-    } catch (err) {
-      console.error('변환 상태 폴링 오류:', err)
-      // 일시적 오류면 계속 시도
-      if (attempts < maxAttempts) {
-        setTimeout(poll, intervalMs)
-      }
-    }
-  }
-
-  // 첫 폴링 시작
-  setTimeout(poll, intervalMs)
-}
-
-// 파일 그룹 정보를 이름 기반 맵으로 변환
-function buildFileGroupMap(groups?: FileGroup[]): Map<string, { groupId: string; isMain: boolean; mainFileName?: string }> {
-  const map = new Map<string, { groupId: string; isMain: boolean; mainFileName?: string }>()
-  if (!groups || groups.length === 0) return map
-
-  for (const group of groups) {
-    if (group.mainFile) {
-      map.set(group.mainFile.name, { groupId: group.groupId, isMain: true })
-      for (const mtl of group.materialFiles) {
-        map.set(mtl.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
-      }
-      for (const tex of group.textureFiles) {
-        map.set(tex.name, { groupId: group.groupId, isMain: false, mainFileName: group.mainFile.name })
-      }
-    }
-  }
-  return map
-}
-
-interface AssetState {
-  // 데이터
-  files: FileMetadata[]
-  folders: FolderData[]
-  selectedFolderId: string | null
-  selectedFileIds: string[]
-
-  // UI 상태
-  isLoading: boolean
-  error: string | null
-  uploadProgress: UploadProgress[]
-  viewMode: 'grid' | 'list'
-
-  // 스토리지 정보
-  storageUsed: number
-  fileCount: number
-
-  // 백엔드 연결 상태
-  isOnline: boolean
-
-  // 액션
-  initialize: () => Promise<void>
-  refreshFiles: () => Promise<void>
-  refreshFolders: () => Promise<void>
-
-  // 파일 액션
-  uploadFiles: (files: File[], groups?: FileGroup[], conversionOptions?: UploadOptions) => Promise<void>
-  deleteFiles: (ids: string[]) => Promise<void>
-  moveFiles: (ids: string[], folderId: string | null) => Promise<void>
-  renameFile: (id: string, name: string) => Promise<void>
-  getFileBlob: (id: string) => Promise<Blob | null>
-  getFileDownloadUrl: (id: string) => Promise<string | null>
-  getRelatedFileBlobs: (parentFileId: string) => Promise<{ name: string; blob: Blob; type: string }[]>
-
-  // 폴더 액션
-  createFolder: (name: string, parentId?: string | null) => Promise<void>
-  deleteFolder: (id: string) => Promise<void>
-  renameFolder: (id: string, name: string) => Promise<void>
-  selectFolder: (id: string | null) => void
-
-  // 선택 액션
-  selectFile: (id: string, multi?: boolean) => void
-  clearSelection: () => void
-  selectAll: () => void
-
-  // UI 액션
-  setViewMode: (mode: 'grid' | 'list') => void
-  clearError: () => void
-
-  // 프로젝트 연결 액션
-  fetchFilesByProject: (projectId: string) => Promise<FileMetadata[]>
-  linkToProject: (fileIds: string[], projectId: string) => Promise<void>
-  unlinkFromProject: (fileIds: string[]) => Promise<void>
-
-  // 변환 액션
-  retryConversion: (fileId: string) => Promise<void>
-}
+export type { AssetState, UploadProgress } from './assetStore.types'
 
 export const useAssetStore = create<AssetState>((set, get) => ({
   // 초기 상태
@@ -229,6 +29,12 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   folders: [],
   selectedFolderId: null,
   selectedFileIds: [],
+  searchTerm: '',
+  usageCounts: new Map(),
+  formatFilter: null,
+  statusFilter: 'active',
+  tagFilter: [],
+  assetTypeFilter: null,
   isLoading: false,
   error: null,
   uploadProgress: [],
@@ -242,7 +48,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
     set({ isLoading: true, error: null, isOnline: isBackendConnected() })
     try {
       const [files, folders, storage] = await Promise.all([
-        getFiles(),
+        getFiles(undefined, { status: 'all' }),
         getFolders(),
         getStorageUsage(),
       ])
@@ -253,6 +59,10 @@ export const useAssetStore = create<AssetState>((set, get) => ({
         fileCount: storage.files,
         isLoading: false,
       })
+      // 사용처 카운트 비동기 로드
+      getAssetUsageCounts(files.map(f => f.id)).then(counts => {
+        set({ usageCounts: counts })
+      }).catch(err => console.warn('사용처 카운트 로드 실패:', err))
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : '초기화 실패',
@@ -265,7 +75,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   refreshFiles: async () => {
     try {
       const { selectedFolderId } = get()
-      const files = await getFiles(selectedFolderId)
+      const files = await getFiles(selectedFolderId, { status: 'all' })
       const storage = await getStorageUsage()
       set({ files, storageUsed: storage.used, fileCount: storage.files })
     } catch (err) {
@@ -325,7 +135,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
         // 업로드 옵션 설정
         const options = groupInfo ? {
           groupId: groupInfo.groupId,
-          tags: ['group:main'],
+          tags: [TAG.GROUP_MAIN],
         } : undefined
 
         set((state) => ({
@@ -385,7 +195,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
         await uploadFile(file, selectedFolderId, {
           groupId: groupInfo.groupId,
           parentFileId,
-          tags: [file.name.toLowerCase().endsWith('.mtl') ? 'group:material' : 'group:texture'],
+          tags: [file.name.toLowerCase().endsWith('.mtl') ? TAG.GROUP_MATERIAL : TAG.GROUP_TEXTURE],
         })
       } catch (err) {
         console.warn(`연관 파일 ${file.name} 업로드 실패:`, err)
@@ -471,9 +281,9 @@ export const useAssetStore = create<AssetState>((set, get) => ({
         if (result?.blob) {
           // 파일 타입 결정 (태그에서 추출)
           let type = 'other'
-          if (fileMetadata.tags?.includes('group:material') || fileMetadata.name.toLowerCase().endsWith('.mtl')) {
+          if (fileMetadata.tags?.includes(TAG.GROUP_MATERIAL) || fileMetadata.name.toLowerCase().endsWith('.mtl')) {
             type = 'material'
-          } else if (fileMetadata.tags?.includes('group:texture') || /\.(jpg|jpeg|png|gif|webp|tiff|tif|bmp|dds|ktx|ktx2)$/i.test(fileMetadata.name)) {
+          } else if (fileMetadata.tags?.includes(TAG.GROUP_TEXTURE) || /\.(jpg|jpeg|png|gif|webp|tiff|tif|bmp|dds|ktx|ktx2)$/i.test(fileMetadata.name)) {
             type = 'texture'
           }
           return { name: fileMetadata.name, blob: result.blob, type }
@@ -579,45 +389,61 @@ export const useAssetStore = create<AssetState>((set, get) => ({
     set({ error: null })
   },
 
-  // 프로젝트별 파일 조회
-  fetchFilesByProject: async (projectId: string) => {
-    try {
-      const files = await getFilesByProject(projectId)
-      return files
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : '프로젝트 파일 조회 실패' })
-      return []
+  // 검색/필터
+  setSearchTerm: (term: string) => set({ searchTerm: term }),
+  setFormatFilter: (format: string | null) => set({ formatFilter: format }),
+  setStatusFilter: (status: string) => set({ statusFilter: status }),
+  setTagFilter: (tags: string[]) => set({ tagFilter: tags }),
+  setAssetTypeFilter: (type: string | null) => set({ assetTypeFilter: type }),
+
+  getFilteredFiles: () => {
+    const { files, searchTerm, formatFilter, statusFilter, tagFilter, assetTypeFilter } = get()
+    let result = files
+
+    // status 필터 (API에서 기본 active만 반환하지만 클라이언트에서 all 조회 시 필터)
+    if (statusFilter && statusFilter !== 'all') {
+      result = result.filter(f => f.status === statusFilter)
     }
+
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase()
+      result = result.filter(f =>
+        f.name.toLowerCase().includes(lower) ||
+        f.description?.toLowerCase().includes(lower) ||
+        f.tags?.some(t => t.toLowerCase().includes(lower))
+      )
+    }
+
+    if (formatFilter) {
+      result = result.filter(f => f.format === formatFilter)
+    }
+
+    if (assetTypeFilter) {
+      result = result.filter(f => f.assetType === assetTypeFilter)
+    }
+
+    if (tagFilter.length > 0) {
+      result = result.filter(f =>
+        tagFilter.every(tag => f.tags?.includes(tag))
+      )
+    }
+
+    return result
   },
 
-  // 파일을 프로젝트에 연결
-  linkToProject: async (fileIds: string[], projectId: string) => {
-    set({ isLoading: true, error: null })
-    try {
-      await linkFilesToProject(fileIds, projectId)
-      await get().refreshFiles()
-      set({ isLoading: false })
-    } catch (err) {
-      set({
-        error: err instanceof Error ? err.message : '프로젝트 연결 실패',
-        isLoading: false,
-      })
+  getAllTags: () => {
+    const { files } = get()
+    const tagSet = new Set<string>()
+    for (const f of files) {
+      if (f.tags) {
+        for (const t of f.tags) {
+          if (!isSystemTag(t)) {
+            tagSet.add(t)
+          }
+        }
+      }
     }
-  },
-
-  // 파일의 프로젝트 연결 해제
-  unlinkFromProject: async (fileIds: string[]) => {
-    set({ isLoading: true, error: null })
-    try {
-      await unlinkFilesFromProject(fileIds)
-      await get().refreshFiles()
-      set({ isLoading: false })
-    } catch (err) {
-      set({
-        error: err instanceof Error ? err.message : '프로젝트 연결 해제 실패',
-        isLoading: false,
-      })
-    }
+    return Array.from(tagSet).sort()
   },
 
   // 변환 재시도

@@ -25,6 +25,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Supabase 미설정 시 인증 우회 (로컬 스토리지 모드)
     if (!isSupabaseConfigured() || !supabase) {
+      if (import.meta.env.PROD) {
+        console.warn('[AUTH] Supabase 미설정 — 프로덕션 환경에서 인증 없이 실행 중입니다. VITE_SUPABASE_ANON_KEY 환경변수를 확인하세요.')
+      }
       setLoading(false)
       return
     }

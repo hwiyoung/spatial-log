@@ -9,6 +9,7 @@ import { formatFileSize } from '@/utils/storage'
 import { is3DFormat } from '@/constants/formats'
 import { getConvertedFileInfo, revokeBlobUrl } from '@/utils/previewHelpers'
 import type { FileMetadata } from '@/services/api'
+import { getRelativeTime } from '@/utils/dateHelpers'
 
 // 통합 활동 피드 아이템 타입
 type ActivityItem =
@@ -20,19 +21,6 @@ const AXIS_CONFIG = {
   asset: { icon: Database, label: 'Assets', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
   story: { icon: BookOpen, label: 'Story', color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20' },
   publish: { icon: Globe, label: 'Publish', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
-}
-
-function getRelativeTime(date: Date): string {
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '방금 전'
-  if (minutes < 60) return `${minutes}분 전`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}시간 전`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}일 전`
-  return date.toLocaleDateString('ko-KR')
 }
 
 export default function Dashboard() {

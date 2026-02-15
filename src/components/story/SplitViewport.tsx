@@ -75,7 +75,7 @@ export default function SplitViewport({
             modelUrl={leftUrl || undefined}
             modelFormat={leftFormat}
           />
-          <div className="absolute bottom-2 left-2 px-2 py-1 bg-blue-500/20 border border-blue-500/40 rounded text-[10px] text-blue-300 backdrop-blur-sm">
+          <div className="absolute bottom-2 left-2 px-2 py-1 bg-blue-500/20 border border-blue-500/40 rounded text-xs text-blue-300 backdrop-blur-sm">
             {leftLabel}
           </div>
         </div>
@@ -94,7 +94,7 @@ export default function SplitViewport({
             modelUrl={rightUrl || undefined}
             modelFormat={rightFormat}
           />
-          <div className="absolute bottom-2 right-2 px-2 py-1 bg-purple-500/20 border border-purple-500/40 rounded text-[10px] text-purple-300 backdrop-blur-sm">
+          <div className="absolute bottom-2 right-2 px-2 py-1 bg-purple-500/20 border border-purple-500/40 rounded text-xs text-purple-300 backdrop-blur-sm">
             {rightLabel}
           </div>
         </div>

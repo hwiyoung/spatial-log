@@ -3,7 +3,7 @@
  */
 import { useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Globe, Lock, Loader2, Copy, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Globe, Lock, Loader2, Copy, AlertTriangle, Eye } from 'lucide-react'
 import { useReleaseStore } from '@/stores/releaseStore'
 import ReleaseViewer from '@/components/release/ReleaseViewer'
 
@@ -86,6 +86,13 @@ export default function PublishDetail() {
           {isRevoked && (
             <span className="px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-400">
               revoked
+            </span>
+          )}
+
+          {currentRelease.viewCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+              <Eye size={12} />
+              {currentRelease.viewCount}회 조회
             </span>
           )}
         </div>

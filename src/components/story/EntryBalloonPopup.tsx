@@ -3,10 +3,12 @@
  * 타입별 콘텐츠: spatial(파일정보), visual(썸네일), document(다운로드), note(텍스트)
  */
 import { useState, useEffect, useRef } from 'react'
-import { X, Edit2, Download, ExternalLink, Box, Image, FileText, StickyNote, MapPin } from 'lucide-react'
+import { X, Edit2, Download, ExternalLink, MapPin } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
-import type { SceneEntryData, SceneEntryType } from '@/types/story'
+import type { SceneEntryData } from '@/types/story'
 import type { FileMetadata } from '@/services/api'
+import { sanitizeUrl } from '@/utils/urlHelpers'
+import { ENTRY_TYPE_CONFIG, FORMAT_BADGE_COLORS } from '@/constants/entries'
 
 interface EntryBalloonPopupProps {
   entry: SceneEntryData
@@ -15,26 +17,6 @@ interface EntryBalloonPopupProps {
   onClose: () => void
   onEdit: (entryId: string) => void
   readOnly?: boolean
-}
-
-const TYPE_CONFIG: Record<SceneEntryType, { icon: typeof Box; color: string; label: string }> = {
-  spatial: { icon: Box, color: 'text-blue-400', label: '3D 데이터' },
-  visual: { icon: Image, color: 'text-green-400', label: '이미지' },
-  document: { icon: FileText, color: 'text-purple-400', label: '문서' },
-  note: { icon: StickyNote, color: 'text-amber-400', label: '메모' },
-}
-
-const FORMAT_BADGE_COLORS: Record<string, string> = {
-  gltf: 'bg-blue-500/20 text-blue-300',
-  glb: 'bg-blue-500/20 text-blue-300',
-  obj: 'bg-cyan-500/20 text-cyan-300',
-  fbx: 'bg-indigo-500/20 text-indigo-300',
-  ply: 'bg-sky-500/20 text-sky-300',
-  las: 'bg-teal-500/20 text-teal-300',
-  e57: 'bg-teal-500/20 text-teal-300',
-  '3dtiles': 'bg-violet-500/20 text-violet-300',
-  splat: 'bg-fuchsia-500/20 text-fuchsia-300',
-  image: 'bg-green-500/20 text-green-300',
 }
 
 export default function EntryBalloonPopup({
@@ -50,7 +32,7 @@ export default function EntryBalloonPopup({
   const popupRef = useRef<HTMLDivElement>(null)
   const [adjustedPos, setAdjustedPos] = useState(position)
 
-  const config = TYPE_CONFIG[entry.entryType] ?? TYPE_CONFIG.note
+  const config = ENTRY_TYPE_CONFIG[entry.entryType] ?? ENTRY_TYPE_CONFIG.note
   const Icon = config.icon
 
   // Load thumbnail for visual entries
@@ -145,7 +127,7 @@ export default function EntryBalloonPopup({
         <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
           <div className="flex items-center gap-1.5">
             <Icon size={14} className={config.color} />
-            <span className="text-xs font-medium text-slate-300">{config.label}</span>
+            <span className="text-xs font-medium text-slate-300">{config.koLabel}</span>
           </div>
           <button
             onClick={onClose}
@@ -164,10 +146,10 @@ export default function EntryBalloonPopup({
               </div>
               {file && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${FORMAT_BADGE_COLORS[file.format] ?? 'bg-slate-700 text-slate-300'}`}>
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${FORMAT_BADGE_COLORS[file.format] ?? 'bg-slate-700 text-slate-300'}`}>
                     {file.format.toUpperCase()}
                   </span>
-                  <span className="text-[10px] text-slate-500">{formatSize(file.size)}</span>
+                  <span className="text-xs text-slate-500">{formatSize(file.size)}</span>
                 </div>
               )}
             </div>
@@ -195,10 +177,10 @@ export default function EntryBalloonPopup({
               </div>
               {file && (
                 <div className="flex items-center gap-2">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${FORMAT_BADGE_COLORS[file.format] ?? 'bg-slate-700 text-slate-300'}`}>
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${FORMAT_BADGE_COLORS[file.format] ?? 'bg-slate-700 text-slate-300'}`}>
                     {file.format.toUpperCase()}
                   </span>
-                  <span className="text-[10px] text-slate-500">{formatSize(file.size)}</span>
+                  <span className="text-xs text-slate-500">{formatSize(file.size)}</span>
                 </div>
               )}
               <button
@@ -219,14 +201,14 @@ export default function EntryBalloonPopup({
               {entry.body && (
                 <div className="text-xs text-slate-400 line-clamp-3">{entry.body}</div>
               )}
-              {entry.url && (
+              {entry.url && sanitizeUrl(entry.url) && (
                 <a
-                  href={entry.url}
+                  href={sanitizeUrl(entry.url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
                 >
-                  <ExternalLink size={10} />
+                  <ExternalLink size={12} />
                   <span className="truncate">{entry.url}</span>
                 </a>
               )}
@@ -238,8 +220,8 @@ export default function EntryBalloonPopup({
 
           {/* GPS */}
           {entry.gps && (
-            <div className="flex items-center gap-1 text-[10px] text-green-400/70 mt-2">
-              <MapPin size={9} />
+            <div className="flex items-center gap-1 text-xs text-green-400/70 mt-2">
+              <MapPin size={12} />
               {entry.gps.latitude.toFixed(5)}, {entry.gps.longitude.toFixed(5)}
             </div>
           )}
@@ -250,9 +232,9 @@ export default function EntryBalloonPopup({
           <div className="flex items-center justify-end gap-1 px-3 py-2 border-t border-slate-700/50">
             <button
               onClick={() => onEdit(entry.id)}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors"
             >
-              <Edit2 size={10} />
+              <Edit2 size={12} />
               편집
             </button>
           </div>

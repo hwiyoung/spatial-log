@@ -65,6 +65,9 @@ export interface ReleaseData {
   accessType: AccessType
   shareToken: string | null
   status: ReleaseStatus
+  passwordProtected: boolean
+  expiresAt: Date | null
+  viewCount: number
   createdAt: Date
 }
 

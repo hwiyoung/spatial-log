@@ -7,7 +7,7 @@ import { useState, useCallback, useEffect } from 'react'
 import {
   MapPin, ChevronRight,
   Globe, Lock, Calendar, Layers, Database as DatabaseIcon,
-  Box, Image, FileText, StickyNote,
+  AlertTriangle,
 } from 'lucide-react'
 import CesiumWorkspaceCanvas from '@/components/story/CesiumWorkspaceCanvas'
 import EntryBalloonPopup from '@/components/story/EntryBalloonPopup'
@@ -17,23 +17,13 @@ import { formatFileSize } from '@/utils/storage'
 import type { ReleaseData } from '@/types/story'
 import type { SceneEntryData, SceneData, SceneEntryType } from '@/types/story'
 import type { FileMetadata } from '@/services/api'
+import { getEntryTypeConfig } from '@/constants/entries'
 
 type TabKey = 'overview' | 'scene' | 'assets'
 
 interface ReleaseViewerProps {
   release: ReleaseData
   isShared?: boolean
-}
-
-const ENTRY_TYPE_CONFIG: Record<SceneEntryType, { icon: typeof Box; color: string; label: string }> = {
-  spatial: { icon: Box, color: 'text-blue-400', label: '3D 데이터' },
-  visual: { icon: Image, color: 'text-green-400', label: '이미지' },
-  document: { icon: FileText, color: 'text-purple-400', label: '문서' },
-  note: { icon: StickyNote, color: 'text-amber-400', label: '메모' },
-}
-
-function getEntryTypeConfig(type: string) {
-  return ENTRY_TYPE_CONFIG[type as SceneEntryType] ?? ENTRY_TYPE_CONFIG.note
 }
 
 export default function ReleaseViewer({ release, isShared = false }: ReleaseViewerProps) {
@@ -107,8 +97,19 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
       }))
   )
 
+  const missingAssetCount = assetEntries.filter(e => !e.file).length
+
   return (
     <div className="flex flex-col h-full">
+      {/* Published 배너 */}
+      <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border-b border-emerald-500/20 flex-shrink-0">
+        <Lock size={14} className="text-emerald-400" />
+        <span className="text-xs text-emerald-400 font-medium">
+          Published v{release.version} · {new Date(release.createdAt).toLocaleDateString('ko-KR')}
+        </span>
+        <span className="ml-auto text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">읽기 전용</span>
+      </div>
+
       {/* 탭 바 */}
       <div className="flex border-b border-slate-700 bg-slate-900/50 flex-shrink-0">
         {tabs.map(tab => (
@@ -138,7 +139,7 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                   발행일
                 </div>
                 <div className="text-white text-sm">
-                  {release.createdAt.toLocaleDateString('ko-KR', {
+                  {new Date(release.createdAt).toLocaleDateString('ko-KR', {
                     year: 'numeric', month: 'long', day: 'numeric',
                   })}
                 </div>
@@ -185,7 +186,7 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                     const Icon = cfg.icon
                     return (
                       <div key={type} className="flex items-center gap-1 text-xs">
-                        <Icon size={10} className={cfg.color} />
+                        <Icon size={12} className={cfg.color} />
                         <span className="text-slate-400">{count}</span>
                       </div>
                     )
@@ -193,6 +194,21 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                 </div>
               )}
             </div>
+
+            {/* 누락 에셋 경고 */}
+            {missingAssetCount > 0 && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 flex items-start gap-3">
+                <AlertTriangle size={16} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-sm font-medium text-yellow-400">
+                    에셋 {missingAssetCount}개를 불러올 수 없습니다
+                  </div>
+                  <p className="text-xs text-yellow-300/70 mt-1">
+                    원본 파일이 삭제되었거나 접근할 수 없습니다. 에셋 목록 탭에서 상세 내역을 확인하세요.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Scene 트리 */}
             <div>
@@ -202,7 +218,7 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                   <div key={scene.id} className="bg-slate-800/30 rounded-lg p-3">
                     <div className="text-sm font-medium text-white mb-0.5">{scene.title}</div>
                     {scene.zoneLabel && (
-                      <div className="text-[10px] text-blue-400/70 mb-2">{scene.zoneLabel}</div>
+                      <div className="text-xs text-blue-400/70 mb-2">{scene.zoneLabel}</div>
                     )}
                     <div className="space-y-1 pl-3">
                       {(scene.entries ?? []).map(entry => {
@@ -215,7 +231,7 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                             className="flex items-center gap-2 text-xs text-slate-400 py-1 px-2 rounded hover:bg-slate-700/50 cursor-pointer transition-colors"
                           >
                             <Icon size={12} className={cfg.color} />
-                            <span className="flex-1 truncate">{entry.title || cfg.label}</span>
+                            <span className="flex-1 truncate">{entry.title || cfg.koLabel}</span>
                             {entry.gps && (
                               <MapPin size={10} className="text-green-400" />
                             )}
@@ -253,7 +269,7 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                 >
                   <div className="font-medium truncate">{scene.title}</div>
                   {scene.zoneLabel && (
-                    <div className="text-[10px] text-blue-400/70 truncate">{scene.zoneLabel}</div>
+                    <div className="text-xs text-blue-400/70 truncate">{scene.zoneLabel}</div>
                   )}
                   <div className="text-xs text-slate-500 mt-0.5">
                     {(scene.entries ?? []).length} entries
@@ -317,7 +333,7 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                             <div className="flex items-center gap-2">
                               <Icon size={14} className={cfg.color + ' flex-shrink-0'} />
                               <span className="text-sm text-slate-200 truncate">
-                                {entry.title || cfg.label}
+                                {entry.title || cfg.koLabel}
                               </span>
                             </div>
                             {entry.body && (
@@ -364,22 +380,34 @@ export default function ReleaseViewer({ release, isShared = false }: ReleaseView
                     {assetEntries.map(entry => {
                       const cfg = getEntryTypeConfig(entry.entryType)
                       const Icon = cfg.icon
+                      const isMissing = !entry.file
                       return (
                         <tr
                           key={entry.id}
-                          className="border-b border-slate-800 hover:bg-slate-800/50 cursor-pointer"
+                          className={`border-b hover:bg-slate-800/50 cursor-pointer ${
+                            isMissing
+                              ? 'border-red-500/30 bg-red-500/5'
+                              : 'border-slate-800'
+                          }`}
                           onClick={() => handleEntryClick(entry)}
                         >
                           <td className="py-2.5 pr-4">
                             <div className="flex items-center gap-2">
-                              <Icon size={14} className={cfg.color + ' flex-shrink-0'} />
-                              <span className="truncate max-w-[200px]">
+                              {isMissing ? (
+                                <AlertTriangle size={14} className="text-red-400 flex-shrink-0" />
+                              ) : (
+                                <Icon size={14} className={cfg.color + ' flex-shrink-0'} />
+                              )}
+                              <span className={`truncate max-w-[200px] ${isMissing ? 'text-red-300' : ''}`}>
                                 {entry.file?.name || entry.title || '알 수 없음'}
                               </span>
+                              {isMissing && (
+                                <span className="text-xs text-red-400/70 flex-shrink-0">원본 없음</span>
+                              )}
                             </div>
                           </td>
                           <td className="py-2.5 pr-4">
-                            <span className="text-xs text-slate-500">{cfg.label}</span>
+                            <span className="text-xs text-slate-500">{cfg.koLabel}</span>
                           </td>
                           <td className="py-2.5 pr-4">
                             <span className="px-1.5 py-0.5 bg-slate-700 rounded text-xs">

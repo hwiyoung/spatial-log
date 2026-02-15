@@ -22,8 +22,13 @@ export type Database = {
           format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
           folder_id: string | null
           project_id: string | null
-          storage_path: string
+          storage_path: string | null
           thumbnail_path: string | null
+          description: string | null
+          status: string
+          asset_type: string
+          url: string | null
+          body: string | null
           gps_latitude: number | null
           gps_longitude: number | null
           gps_altitude: number | null
@@ -76,8 +81,13 @@ export type Database = {
           format: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
           folder_id?: string | null
           project_id?: string | null
-          storage_path: string
+          storage_path?: string | null
           thumbnail_path?: string | null
+          description?: string | null
+          status?: string
+          asset_type?: string
+          url?: string | null
+          body?: string | null
           gps_latitude?: number | null
           gps_longitude?: number | null
           gps_altitude?: number | null
@@ -105,7 +115,12 @@ export type Database = {
           format?: 'gltf' | 'glb' | 'obj' | 'fbx' | 'ply' | 'las' | 'e57' | '3dtiles' | 'splat' | 'image' | 'other'
           folder_id?: string | null
           project_id?: string | null
-          storage_path?: string
+          storage_path?: string | null
+          description?: string | null
+          status?: string
+          asset_type?: string
+          url?: string | null
+          body?: string | null
           thumbnail_path?: string | null
           gps_latitude?: number | null
           gps_longitude?: number | null
@@ -402,6 +417,9 @@ export type Database = {
           access_type: string
           share_token: string | null
           status: string
+          password_hash: string | null
+          expires_at: string | null
+          view_count: number
           created_at: string
         }
         Insert: {
@@ -415,6 +433,9 @@ export type Database = {
           access_type?: string
           share_token?: string | null
           status?: string
+          password_hash?: string | null
+          expires_at?: string | null
+          view_count?: number
           created_at?: string
         }
         Update: {
@@ -428,6 +449,9 @@ export type Database = {
           access_type?: string
           share_token?: string | null
           status?: string
+          password_hash?: string | null
+          expires_at?: string | null
+          view_count?: number
           created_at?: string
         }
       }

@@ -156,13 +156,13 @@ export default function StoryList() {
                       <h3 className="text-sm font-medium text-white truncate">{story.title}</h3>
                     )}
                     <div className="flex items-center gap-2 mt-2">
-                      <span className={`px-2 py-0.5 text-[10px] rounded ${badge.color}`}>
+                      <span className={`px-2 py-0.5 text-xs rounded ${badge.color}`}>
                         {badge.label}
                       </span>
-                      <span className="text-[10px] text-slate-500">
+                      <span className="text-xs text-slate-500">
                         {new Date(story.updatedAt).toLocaleDateString('ko-KR')}
                       </span>
-                      <span className="text-[10px] text-slate-500">
+                      <span className="text-xs text-slate-500">
                         {getSceneCount(story)} Scene
                       </span>
                     </div>

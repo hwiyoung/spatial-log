@@ -1,53 +1,47 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   Grid,
   List,
   FolderPlus,
   UploadCloud,
-  Folder,
-  MoreVertical,
   Box,
   Trash2,
   Edit2,
   Check,
   X,
-  HardDrive,
   Loader2,
-  MapPin,
   Download,
   Eye,
   Shield,
   Files,
   CheckSquare,
-  Square,
   Terminal,
-  RefreshCw,
   Globe,
+  Search,
+  Tag,
+  Link,
+  StickyNote,
+  Plus,
 } from 'lucide-react'
 import { useAssetStore } from '@/stores/assetStore'
 import { Modal, Input, FileUpload, type FileGroup, type UploadOptions } from '@/components/common'
-import ThreeCanvas from '@/components/viewer/ThreeCanvas'
 import { GeoViewer } from '@/components/viewer'
 import IntegrityChecker from '@/components/admin/IntegrityChecker'
 import DevConsole from '@/components/admin/DevConsole'
 import { formatFileSize } from '@/utils/storage'
-import { is3DFormat, isGeoViewableFormat } from '@/constants/formats'
-import { getFileIconProps, getFormatBgColor } from '@/utils/fileFormatUtils'
-import { fetchBlobWithProgress, getConvertedFileInfo, isGeographicFile, revokeBlobUrl } from '@/utils/previewHelpers'
+import { isGeoViewableFormat } from '@/constants/formats'
 import type { FileMetadata, FolderData } from '@/services/api'
-import { getFileMetadata } from '@/services/api'
-import { ConversionStatusBadge } from '@/components/common/ConversionStatus'
-import { needsConversion } from '@/services/conversionService'
-import type { ConversionStatus } from '@/services/conversionService'
+import { updateFile, createLinkAsset, createNoteAsset } from '@/services/api'
+import TagEditModal from '@/components/assets/TagEditModal'
+import FolderSidebar from '@/components/assets/FolderSidebar'
+import AssetGrid from '@/components/assets/AssetGrid'
+import AssetList from '@/components/assets/AssetList'
+import PreviewModal from '@/components/assets/PreviewModal'
+import DeleteConfirmModal from '@/components/assets/DeleteConfirmModal'
+import { useAssetPreview } from '@/hooks/useAssetPreview'
 
 // 탭 타입
 type TabType = 'files' | 'admin'
-
-// 포맷별 아이콘 컴포넌트
-function FileIcon({ format, size = 24 }: { format: FileMetadata['format']; size?: number }) {
-  const { icon: Icon, className } = getFileIconProps(format)
-  return <Icon size={size} className={className} />
-}
 
 export default function Assets() {
   const {
@@ -71,8 +65,37 @@ export default function Assets() {
     clearSelection,
     setViewMode,
     getFileBlob,
-    getRelatedFileBlobs,
+    searchTerm,
+    formatFilter,
+    statusFilter,
+    assetTypeFilter,
+    tagFilter,
+    setSearchTerm,
+    setFormatFilter,
+    setStatusFilter,
+    setAssetTypeFilter,
+    setTagFilter,
+    getFilteredFiles,
+    getAllTags,
+    usageCounts,
   } = useAssetStore()
+
+  // Preview hook
+  const {
+    previewFile,
+    previewUrl,
+    previewActualFormat,
+    isLoadingPreview,
+    downloadProgress,
+    previewRelatedFiles,
+    geoViewerFile,
+    geoViewerUrl,
+    geoViewerDataType,
+    handlePreview,
+    closePreview,
+    handleGeoView,
+    closeGeoViewer,
+  } = useAssetPreview()
 
   // 탭 상태
   const [activeTab, setActiveTab] = useState<TabType>('files')
@@ -89,22 +112,21 @@ export default function Assets() {
   const [editingFolderName, setEditingFolderName] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; type: 'file' | 'folder'; id: string } | null>(null)
 
-  // 3D 미리보기 상태
-  const [previewFile, setPreviewFile] = useState<FileMetadata | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [previewActualFormat, setPreviewActualFormat] = useState<string | null>(null) // 실제 미리보기 포맷 (변환된 경우 다를 수 있음)
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
-  const [downloadProgress, setDownloadProgress] = useState<{ loaded: number; total: number } | null>(null)
-  const [previewRelatedFiles, setPreviewRelatedFiles] = useState<{ name: string; blob: Blob; type: 'material' | 'texture' | 'other' }[]>([])
-
-  // 지리좌표 가시화 상태 (Cesium)
-  const [geoViewerFile, setGeoViewerFile] = useState<FileMetadata | null>(null)
-  const [geoViewerUrl, setGeoViewerUrl] = useState<string | null>(null)
-  const [geoViewerDataType, setGeoViewerDataType] = useState<'ply' | '3dtiles' | 'glb'>('glb')
-
-
   // 다중 선택 모드
   const [multiSelectMode, setMultiSelectMode] = useState(false)
+
+  // 태그 편집 상태
+  const [tagEditFileIds, setTagEditFileIds] = useState<string[]>([])
+  const [showTagEditModal, setShowTagEditModal] = useState(false)
+
+  // 링크/노트 에셋 등록
+  const [showLinkModal, setShowLinkModal] = useState(false)
+  const [showNoteModal, setShowNoteModal] = useState(false)
+  const [showAddDropdown, setShowAddDropdown] = useState(false)
+  const [linkName, setLinkName] = useState('')
+  const [linkUrl, setLinkUrl] = useState('')
+  const [noteName, setNoteName] = useState('')
+  const [noteBody, setNoteBody] = useState('')
 
   // 개발자 콘솔
   const [showDevConsole, setShowDevConsole] = useState(false)
@@ -207,11 +229,53 @@ export default function Assets() {
     }
   }, [isDeleting])
 
+  // 태그 편집
+  const openTagEdit = useCallback((fileIds: string[]) => {
+    setTagEditFileIds(fileIds)
+    setShowTagEditModal(true)
+    setContextMenu(null)
+  }, [])
+
+  const handleTagSave = useCallback(async (fileIds: string[], tags: string[]) => {
+    for (const id of fileIds) {
+      await updateFile(id, { tags })
+    }
+    await useAssetStore.getState().refreshFiles()
+  }, [])
+
   // 컨텍스트 메뉴
   const handleContextMenu = useCallback((e: React.MouseEvent, type: 'file' | 'folder', id: string) => {
     e.preventDefault()
     setContextMenu({ x: e.clientX, y: e.clientY, type, id })
   }, [])
+
+  // 링크 에셋 생성
+  const handleCreateLink = useCallback(async () => {
+    if (!linkName.trim() || !linkUrl.trim()) return
+    try {
+      await createLinkAsset(linkName.trim(), linkUrl.trim(), { folderId: selectedFolderId })
+      await useAssetStore.getState().refreshFiles()
+      setShowLinkModal(false)
+      setLinkName('')
+      setLinkUrl('')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '링크 생성 실패')
+    }
+  }, [linkName, linkUrl, selectedFolderId])
+
+  // 노트 에셋 생성
+  const handleCreateNote = useCallback(async () => {
+    if (!noteName.trim() || !noteBody.trim()) return
+    try {
+      await createNoteAsset(noteName.trim(), noteBody.trim(), { folderId: selectedFolderId })
+      await useAssetStore.getState().refreshFiles()
+      setShowNoteModal(false)
+      setNoteName('')
+      setNoteBody('')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '노트 생성 실패')
+    }
+  }, [noteName, noteBody, selectedFolderId])
 
   // 파일 다운로드 - Blob을 사용하여 API key 문제 회피
   const handleDownload = useCallback(async (file: FileMetadata) => {
@@ -236,183 +300,6 @@ export default function Assets() {
     }
   }, [getFileBlob])
 
-  // 지리좌표 기반 가시화 (Cesium)
-  const handleGeoView = useCallback(async (file: FileMetadata) => {
-    if (file.conversionStatus !== 'ready' || !file.convertedPath) {
-      alert('지리 좌표 가시화는 변환이 완료된 파일만 지원합니다.')
-      return
-    }
-
-    const info = getConvertedFileInfo(file)
-    if (!info) {
-      alert('지리 좌표 가시화를 지원하지 않는 파일 형식입니다.')
-      return
-    }
-
-    console.log('GeoView:', { file: file.name, dataUrl: info.url, dataType: info.geoDataType, spatialInfo: file.spatialInfo })
-
-    setGeoViewerFile(file)
-    setGeoViewerUrl(info.url)
-    setGeoViewerDataType(info.geoDataType)
-  }, [])
-
-  // 이전 미리보기 정리 헬퍼
-  const clearPreviousPreview = useCallback(async () => {
-    if (previewUrl) {
-      revokeBlobUrl(previewUrl)
-      setPreviewUrl(null)
-      setPreviewFile(null)
-      setPreviewRelatedFiles([])
-      await new Promise(resolve => setTimeout(resolve, 150))
-    }
-  }, [previewUrl])
-
-  // 변환된 파일로 미리보기 로드
-  const loadConvertedPreview = useCallback(async (
-    file: FileMetadata,
-    convertedUrl: string,
-    format: string
-  ): Promise<boolean> => {
-    await clearPreviousPreview()
-
-    setPreviewFile(file)
-    setIsLoadingPreview(true)
-    setDownloadProgress(null)
-
-    try {
-      const blob = await fetchBlobWithProgress(convertedUrl, (loaded, total) => {
-        setDownloadProgress({ loaded, total })
-      })
-      const blobUrl = URL.createObjectURL(blob) + `#file.${format}`
-      setPreviewUrl(blobUrl)
-      setPreviewActualFormat(format)
-      return true
-    } catch (err) {
-      console.error('변환된 파일 로드 실패:', err)
-      return false
-    } finally {
-      setIsLoadingPreview(false)
-      setDownloadProgress(null)
-    }
-  }, [clearPreviousPreview])
-
-  // 3D 파일 미리보기
-  const handlePreview = useCallback(async (file: FileMetadata) => {
-    if (!is3DFormat(file.format)) {
-      alert('3D 미리보기는 GLTF, GLB, OBJ, FBX, PLY, LAS 파일만 지원합니다.')
-      return
-    }
-
-    // 최신 파일 메타데이터 조회
-    let currentFile = file
-    try {
-      const freshMetadata = await getFileMetadata(file.id)
-      if (freshMetadata) {
-        currentFile = freshMetadata
-      }
-    } catch (err) {
-      console.warn('파일 메타데이터 조회 실패, 캐시된 데이터 사용:', err)
-    }
-
-    // 지리좌표 데이터 자동 감지 → Cesium으로 라우팅
-    if (
-      currentFile.conversionStatus === 'ready' &&
-      currentFile.convertedPath &&
-      ['e57', 'obj', 'ply', 'las'].includes(currentFile.format) &&
-      isGeographicFile(currentFile)
-    ) {
-      console.log('지리좌표 데이터 감지 → Cesium 뷰어로 라우팅:', currentFile.name)
-      handleGeoView(currentFile)
-      return
-    }
-
-    // E57은 변환 필수
-    if (currentFile.format === 'e57') {
-      if (currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
-        const info = getConvertedFileInfo(currentFile)
-        if (info) {
-          const success = await loadConvertedPreview(file, info.url, info.format)
-          if (!success) {
-            alert('변환된 파일을 로드할 수 없습니다.')
-            setPreviewFile(null)
-            setPreviewActualFormat(null)
-          }
-        }
-      } else if (currentFile.conversionStatus === 'converting' || currentFile.conversionStatus === 'pending') {
-        alert(`${currentFile.format.toUpperCase()} 파일이 변환 중입니다. (${currentFile.conversionProgress || 0}%)\n잠시 후 다시 시도해주세요.`)
-      } else if (currentFile.conversionStatus === 'failed') {
-        alert(`${currentFile.format.toUpperCase()} 변환 실패: ${currentFile.conversionError || '알 수 없는 오류'}`)
-      } else {
-        alert('E57 파일은 변환 후 미리보기가 가능합니다.\n\n변환 서비스가 실행 중이면 자동으로 변환됩니다.')
-      }
-      return
-    }
-
-    // OBJ: 변환 완료 시 GLB 사용 시도, 실패 시 원본 OBJ 직접 로드
-    if (currentFile.format === 'obj' && currentFile.conversionStatus === 'ready' && currentFile.convertedPath) {
-      const info = getConvertedFileInfo(currentFile)
-      if (info) {
-        const success = await loadConvertedPreview(file, info.url, info.format)
-        if (success) return
-        console.warn('변환된 GLB 로드 실패, 원본 OBJ 로드 시도')
-      }
-    }
-
-    // 일반 3D 파일: 원본 Blob 로드
-    await clearPreviousPreview()
-    setPreviewFile(file)
-    setIsLoadingPreview(true)
-
-    try {
-      const blob = await getFileBlob(file.id)
-      if (blob) {
-        const blobUrl = URL.createObjectURL(blob) + `#file.${file.format}`
-        setPreviewUrl(blobUrl)
-        setPreviewActualFormat(file.format)
-
-        // OBJ 파일인 경우 연관 파일 (MTL, 텍스처) 로드
-        if (file.format === 'obj') {
-          try {
-            const relatedBlobs = await getRelatedFileBlobs(file.id)
-            setPreviewRelatedFiles(relatedBlobs.map(f => ({
-              name: f.name,
-              blob: f.blob,
-              type: f.type as 'material' | 'texture' | 'other',
-            })))
-          } catch (relatedErr) {
-            console.warn('연관 파일 로드 실패:', relatedErr)
-          }
-        }
-      } else {
-        alert('파일을 로드할 수 없습니다.')
-        setPreviewFile(null)
-        setPreviewActualFormat(null)
-      }
-    } catch (err) {
-      console.error('미리보기 로드 실패:', err)
-      alert('파일을 로드할 수 없습니다.')
-      setPreviewFile(null)
-      setPreviewActualFormat(null)
-    } finally {
-      setIsLoadingPreview(false)
-    }
-  }, [getFileBlob, getRelatedFileBlobs, handleGeoView, loadConvertedPreview, clearPreviousPreview])
-
-  // 미리보기 닫기
-  const closePreview = useCallback(() => {
-    revokeBlobUrl(previewUrl)
-    setPreviewFile(null)
-    setPreviewUrl(null)
-    setPreviewActualFormat(null)
-    setPreviewRelatedFiles([])
-  }, [previewUrl])
-
-  // 지리좌표 가시화 닫기
-  const closeGeoViewer = useCallback(() => {
-    setGeoViewerFile(null)
-    setGeoViewerUrl(null)
-  }, [])
-
   // 컨텍스트 메뉴 닫기
   useEffect(() => {
     const handleClick = () => setContextMenu(null)
@@ -431,16 +318,12 @@ export default function Assets() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [previewFile, closePreview])
 
-  // 현재 폴더의 파일만 필터링
+  // 필터링된 파일 목록
+  const filteredFiles = getFilteredFiles()
   const currentFiles = selectedFolderId === null
-    ? files
-    : files.filter(f => f.folderId === selectedFolderId)
-
-  // 날짜 포맷
-  const formatDate = (date: Date) => {
-    const d = new Date(date)
-    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })
-  }
+    ? filteredFiles
+    : filteredFiles.filter(f => f.folderId === selectedFolderId)
+  const allTags = useMemo(() => getAllTags(), [files]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex-1 flex flex-col h-full">
@@ -448,7 +331,7 @@ export default function Assets() {
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">데이터 보관함</h1>
+            <h1 className="text-2xl font-bold text-white">Assets</h1>
             <p className="text-slate-500 text-sm mt-1">
               {fileCount}개 파일 · {formatFileSize(storageUsed)} 사용 중
             </p>
@@ -496,6 +379,13 @@ export default function Assets() {
                     <span className="text-sm">다운로드</span>
                   </button>
                 )}
+                <button
+                  onClick={() => openTagEdit(selectedFileIds)}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg border border-blue-600/30"
+                >
+                  <Tag size={14} />
+                  <span className="text-sm">태그 편집</span>
+                </button>
                 <button
                   onClick={handleDeleteSelected}
                   className="flex items-center space-x-1 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg border border-red-600/30"
@@ -562,6 +452,33 @@ export default function Assets() {
                   <UploadCloud size={18} />
                   <span>파일 업로드</span>
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowAddDropdown(!showAddDropdown)}
+                    className="flex items-center p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700"
+                    title="링크/노트 추가"
+                  >
+                    <Plus size={18} />
+                  </button>
+                  {showAddDropdown && (
+                    <div className="absolute right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 z-50 w-36">
+                      <button
+                        onClick={() => { setShowLinkModal(true); setShowAddDropdown(false) }}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-white hover:bg-slate-700"
+                      >
+                        <Link size={14} className="text-blue-400" />
+                        <span>링크 추가</span>
+                      </button>
+                      <button
+                        onClick={() => { setShowNoteModal(true); setShowAddDropdown(false) }}
+                        className="flex items-center gap-2 w-full px-4 py-2 text-sm text-white hover:bg-slate-700"
+                      >
+                        <StickyNote size={14} className="text-amber-400" />
+                        <span>노트 추가</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             )
           )}
@@ -588,79 +505,85 @@ export default function Assets() {
       ) : (
       <div className="flex-1 flex min-h-0 bg-slate-900/50 rounded-xl border border-slate-700 overflow-hidden">
         {/* 폴더 트리 */}
-        <div className="w-60 bg-slate-900 border-r border-slate-700 p-4 flex-shrink-0">
-          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">폴더</h3>
-          <ul className="space-y-1">
-            {/* 전체 파일 */}
-            <li
-              onClick={() => selectFolder(null)}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-                selectedFolderId === null
-                  ? 'bg-blue-600/10 text-blue-400'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Folder size={16} className={selectedFolderId === null ? 'fill-blue-400/20' : ''} />
-              <span>전체 파일</span>
-              <span className="ml-auto text-xs text-slate-500">{files.length}</span>
-            </li>
-
-            {/* 동적 폴더 목록 */}
-            {folders.map((folder) => (
-              <li
-                key={folder.id}
-                onClick={() => selectFolder(folder.id)}
-                onContextMenu={(e) => handleContextMenu(e, 'folder', folder.id)}
-                className={`flex items-center space-x-2 px-3 py-2 rounded-lg cursor-pointer transition-colors group ${
-                  selectedFolderId === folder.id
-                    ? 'bg-blue-600/10 text-blue-400'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Folder size={16} className={selectedFolderId === folder.id ? 'fill-blue-400/20' : ''} />
-                {editingFolderId === folder.id ? (
-                  <input
-                    type="text"
-                    value={editingFolderName}
-                    onChange={(e) => setEditingFolderName(e.target.value)}
-                    onBlur={finishEditingFolder}
-                    onKeyDown={(e) => e.key === 'Enter' && finishEditingFolder()}
-                    className="flex-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-sm text-white"
-                    autoFocus
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <>
-                    <span className="flex-1 truncate">{folder.name}</span>
-                    <span className="text-xs text-slate-500">
-                      {files.filter(f => f.folderId === folder.id).length}
-                    </span>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-
-          {/* 스토리지 정보 */}
-          <div className="mt-6 pt-4 border-t border-slate-800">
-            <div className="flex items-center space-x-2 text-slate-500 mb-2">
-              <HardDrive size={14} />
-              <span className="text-xs">스토리지</span>
-            </div>
-            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded-full"
-                style={{ width: `${Math.min((storageUsed / (5 * 1024 * 1024 * 1024)) * 100, 100)}%` }}
-              />
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              {formatFileSize(storageUsed)} / 5 GB
-            </p>
-          </div>
-        </div>
+        <FolderSidebar
+          folders={folders}
+          files={files}
+          selectedFolderId={selectedFolderId}
+          editingFolderId={editingFolderId}
+          editingFolderName={editingFolderName}
+          storageUsed={storageUsed}
+          selectFolder={selectFolder}
+          handleContextMenu={handleContextMenu}
+          startEditingFolder={startEditingFolder}
+          finishEditingFolder={finishEditingFolder}
+          setEditingFolderName={setEditingFolderName}
+        />
 
         {/* 파일 그리드/리스트 */}
         <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
+          {/* 검색/필터 바 */}
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 max-w-xs">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                placeholder="검색..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <select
+              value={assetTypeFilter ?? ''}
+              onChange={(e) => setAssetTypeFilter(e.target.value || null)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-blue-500"
+            >
+              <option value="">전체 타입</option>
+              <option value="file">파일</option>
+              <option value="link">링크</option>
+              <option value="note">노트</option>
+            </select>
+            <select
+              value={formatFilter ?? ''}
+              onChange={(e) => setFormatFilter(e.target.value || null)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-blue-500"
+            >
+              <option value="">전체 포맷</option>
+              <option value="gltf">glTF</option>
+              <option value="glb">GLB</option>
+              <option value="obj">OBJ</option>
+              <option value="fbx">FBX</option>
+              <option value="ply">PLY</option>
+              <option value="las">LAS</option>
+              <option value="e57">E57</option>
+              <option value="3dtiles">3D Tiles</option>
+              <option value="splat">Splat</option>
+              <option value="image">Image</option>
+            </select>
+            {allTags.length > 0 && (
+              <select
+                value={tagFilter[0] ?? ''}
+                onChange={(e) => setTagFilter(e.target.value ? [e.target.value] : [])}
+                className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">전체 태그</option>
+                {allTags.map(tag => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+              </select>
+            )}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-blue-500"
+            >
+              <option value="active">활성</option>
+              <option value="hidden">숨김</option>
+              <option value="archived">보관</option>
+              <option value="all">전체</option>
+            </select>
+          </div>
+
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
@@ -679,276 +602,31 @@ export default function Assets() {
               </button>
             </div>
           ) : viewMode === 'grid' ? (
-            // 그리드 뷰
-            <div className="grid grid-cols-5 gap-4">
-              {currentFiles.map((file) => (
-                <div
-                  key={file.id}
-                  onClick={(e) => handleFileClick(e, file.id)}
-                  onDoubleClick={() => {
-                    if (!multiSelectMode && is3DFormat(file.format)) {
-                      handlePreview(file)
-                    }
-                  }}
-                  onContextMenu={(e) => handleContextMenu(e, 'file', file.id)}
-                  className={`group bg-slate-800 rounded-lg p-3 border cursor-pointer transition-all hover:shadow-lg ${
-                    selectedFileIds.includes(file.id)
-                      ? 'border-blue-500 ring-1 ring-blue-500'
-                      : 'border-slate-700 hover:border-slate-500'
-                  }`}
-                >
-                  <div className={`aspect-square rounded-md mb-3 ${getFormatBgColor(file.format)} flex items-center justify-center relative overflow-hidden`}>
-                    {file.thumbnailUrl ? (
-                      <img src={file.thumbnailUrl} alt={file.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <FileIcon format={file.format} />
-                    )}
-
-                    {/* 체크박스 (다중 선택 모드 또는 선택된 항목이 있을 때) */}
-                    {(multiSelectMode || selectedFileIds.length > 0) && (
-                      <button
-                        onClick={(e) => handleCheckboxToggle(e, file.id)}
-                        className="absolute top-2 right-2 p-1 bg-slate-900/80 rounded hover:bg-slate-700 z-10"
-                      >
-                        {selectedFileIds.includes(file.id) ? (
-                          <CheckSquare size={16} className="text-blue-400" />
-                        ) : (
-                          <Square size={16} className="text-slate-400" />
-                        )}
-                      </button>
-                    )}
-
-                    {/* 포맷 배지 */}
-                    <span className="absolute top-2 left-2 px-1.5 py-0.5 bg-slate-900/80 rounded text-[10px] font-medium text-white uppercase">
-                      {file.format}
-                    </span>
-
-                    {/* GPS 위치 표시 */}
-                    {file.gps && (
-                      <span
-                        className="absolute bottom-2 left-2 p-1 bg-green-600/80 rounded text-white"
-                        title={`위치: ${file.gps.latitude.toFixed(6)}, ${file.gps.longitude.toFixed(6)}`}
-                      >
-                        <MapPin size={10} />
-                      </span>
-                    )}
-
-                    {/* 변환 상태 표시 */}
-                    {file.conversionStatus && file.conversionStatus !== 'ready' && (
-                      <div className="absolute bottom-2 right-2">
-                        <ConversionStatusBadge
-                          status={file.conversionStatus as ConversionStatus}
-                          progress={file.conversionProgress}
-                          error={file.conversionError}
-                          compact
-                        />
-                      </div>
-                    )}
-
-                    {/* 변환 필요 표시 (변환되지 않은 파일) */}
-                    {!file.conversionStatus && needsConversion(file.format) && (
-                      <span
-                        className="absolute bottom-2 right-2 p-1 bg-cyan-600/80 rounded text-white"
-                        title="변환 가능"
-                      >
-                        <RefreshCw size={10} />
-                      </span>
-                    )}
-
-                    {/* 호버 액션 */}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                      {is3DFormat(file.format) && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handlePreview(file)
-                          }}
-                          className="bg-slate-900/80 p-1.5 rounded hover:bg-green-600 text-white"
-                          title="3D 미리보기"
-                        >
-                          <Eye size={12} />
-                        </button>
-                      )}
-                      {/* 지리좌표 가시화 버튼 (변환 완료된 파일만) */}
-                      {file.conversionStatus === 'ready' && isGeoViewableFormat(file.format) && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleGeoView(file)
-                          }}
-                          className="bg-slate-900/80 p-1.5 rounded hover:bg-cyan-600 text-white"
-                          title="지리좌표 기반 가시화 (Cesium)"
-                        >
-                          <Globe size={12} />
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDownload(file)
-                        }}
-                        className="bg-slate-900/80 p-1.5 rounded hover:bg-blue-600 text-white"
-                        title="다운로드"
-                      >
-                        <Download size={12} />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          handleContextMenu(e, 'file', file.id)
-                        }}
-                        className="bg-slate-900/80 p-1.5 rounded hover:bg-blue-600 text-white"
-                        title="더 보기"
-                      >
-                        <MoreVertical size={12} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="px-1">
-                    <h4 className="text-sm font-medium text-white truncate mb-1">{file.name}</h4>
-                    <div className="flex justify-between text-[10px] text-slate-400">
-                      <span>{formatFileSize(file.size)}</span>
-                      <span>{formatDate(file.createdAt)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {/* 업로드 존 */}
-              <div
-                onClick={() => setShowUploadModal(true)}
-                className="border-2 border-dashed border-slate-700 rounded-lg flex flex-col items-center justify-center text-slate-500 hover:border-blue-500 hover:text-blue-400 hover:bg-blue-500/5 cursor-pointer transition-all aspect-square"
-              >
-                <UploadCloud size={32} className="mb-2" />
-                <span className="text-xs">파일 추가</span>
-              </div>
-            </div>
+            <AssetGrid
+              currentFiles={currentFiles}
+              selectedFileIds={selectedFileIds}
+              multiSelectMode={multiSelectMode}
+              usageCounts={usageCounts}
+              onFileClick={handleFileClick}
+              onCheckboxToggle={handleCheckboxToggle}
+              onPreview={handlePreview}
+              onGeoView={handleGeoView}
+              onDownload={handleDownload}
+              onContextMenu={handleContextMenu}
+              onShowUploadModal={() => setShowUploadModal(true)}
+            />
           ) : (
-            // 리스트 뷰
-            <div className="space-y-1">
-              {/* 헤더 */}
-              <div className="grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-slate-500 uppercase border-b border-slate-800">
-                <span className="col-span-1"></span>
-                <span className="col-span-3">이름</span>
-                <span className="col-span-2">포맷</span>
-                <span className="col-span-2">상태</span>
-                <span className="col-span-2">크기</span>
-                <span className="col-span-2">수정일</span>
-              </div>
-
-              {currentFiles.map((file) => (
-                <div
-                  key={file.id}
-                  onClick={(e) => handleFileClick(e, file.id)}
-                  onDoubleClick={() => {
-                    if (!multiSelectMode && is3DFormat(file.format)) {
-                      handlePreview(file)
-                    }
-                  }}
-                  onContextMenu={(e) => handleContextMenu(e, 'file', file.id)}
-                  className={`grid grid-cols-12 gap-4 px-4 py-3 rounded-lg cursor-pointer transition-colors ${
-                    selectedFileIds.includes(file.id)
-                      ? 'bg-blue-600/10 border border-blue-500'
-                      : 'hover:bg-slate-800 border border-transparent'
-                  }`}
-                >
-                  {/* 체크박스 */}
-                  <div className="col-span-1 flex items-center justify-center">
-                    {(multiSelectMode || selectedFileIds.length > 0) && (
-                      <button
-                        onClick={(e) => handleCheckboxToggle(e, file.id)}
-                        className="p-1 hover:bg-slate-700 rounded"
-                      >
-                        {selectedFileIds.includes(file.id) ? (
-                          <CheckSquare size={18} className="text-blue-400" />
-                        ) : (
-                          <Square size={18} className="text-slate-500" />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                  <div className="col-span-3 flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded flex items-center justify-center ${getFormatBgColor(file.format)}`}>
-                      {file.thumbnailUrl ? (
-                        <img src={file.thumbnailUrl} alt="" className="w-full h-full object-cover rounded" />
-                      ) : (
-                        <FileIcon format={file.format} />
-                      )}
-                    </div>
-                    <span className="text-sm text-white truncate">{file.name}</span>
-                  </div>
-                  <span className="col-span-2 text-sm text-slate-400 uppercase flex items-center">{file.format}</span>
-                  <div className="col-span-2 flex items-center">
-                    {file.conversionStatus ? (
-                      <ConversionStatusBadge
-                        status={file.conversionStatus as ConversionStatus}
-                        progress={file.conversionProgress}
-                        error={file.conversionError}
-                        compact
-                      />
-                    ) : needsConversion(file.format) ? (
-                      <span className="text-xs px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded flex items-center gap-1">
-                        <RefreshCw size={10} />
-                        변환 가능
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-500">-</span>
-                    )}
-                  </div>
-                  <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatFileSize(file.size)}</span>
-                  <span className="col-span-2 text-sm text-slate-400 flex items-center">{formatDate(file.createdAt)}</span>
-                  <div className="col-span-1 flex items-center justify-end space-x-1">
-                    {is3DFormat(file.format) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handlePreview(file)
-                        }}
-                        className="p-1 text-slate-500 hover:text-green-400 hover:bg-slate-700 rounded"
-                        title="3D 미리보기"
-                      >
-                        <Eye size={14} />
-                      </button>
-                    )}
-                    {/* 지리좌표 가시화 버튼 (변환 완료된 파일만) */}
-                    {file.conversionStatus === 'ready' && isGeoViewableFormat(file.format) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleGeoView(file)
-                        }}
-                        className="p-1 text-slate-500 hover:text-cyan-400 hover:bg-slate-700 rounded"
-                        title="지리좌표 기반 가시화"
-                      >
-                        <Globe size={14} />
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDownload(file)
-                      }}
-                      className="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded"
-                      title="다운로드"
-                    >
-                      <Download size={14} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        handleContextMenu(e, 'file', file.id)
-                      }}
-                      className="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded"
-                      title="더 보기"
-                    >
-                      <MoreVertical size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <AssetList
+              currentFiles={currentFiles}
+              selectedFileIds={selectedFileIds}
+              multiSelectMode={multiSelectMode}
+              onFileClick={handleFileClick}
+              onCheckboxToggle={handleCheckboxToggle}
+              onPreview={handlePreview}
+              onGeoView={handleGeoView}
+              onDownload={handleDownload}
+              onContextMenu={handleContextMenu}
+            />
           )}
         </div>
       </div>
@@ -1091,6 +769,13 @@ export default function Assets() {
                 <span>다운로드</span>
               </button>
               <button
+                onClick={() => openTagEdit([contextMenu.id])}
+                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-white hover:bg-slate-700"
+              >
+                <Tag size={14} />
+                <span>태그 편집</span>
+              </button>
+              <button
                 onClick={() => {
                   const file = files.find(f => f.id === contextMenu.id)
                   if (file) {
@@ -1110,159 +795,27 @@ export default function Assets() {
       )}
 
       {/* 삭제 확인 모달 */}
-      <Modal
+      <DeleteConfirmModal
         isOpen={showDeleteConfirmModal}
-        onClose={cancelDelete}
-        title="파일 삭제 확인"
-      >
-        <div className="space-y-4">
-          {isDeleting ? (
-            // 삭제 진행 중
-            <div className="py-6">
-              <div className="flex flex-col items-center gap-4">
-                <Loader2 size={40} className="text-red-400 animate-spin" />
-                <p className="text-white font-medium">파일 삭제 중...</p>
-                <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-red-500 transition-all duration-300"
-                    style={{ width: `${deleteProgress}%` }}
-                  />
-                </div>
-                <p className="text-slate-400 text-sm">{deleteProgress}% 완료</p>
-              </div>
-            </div>
-          ) : (
-            // 삭제 확인
-            <>
-              <div className="flex items-start gap-3 p-4 bg-red-900/20 border border-red-800/50 rounded-lg">
-                <Trash2 className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-red-200 font-medium">
-                    {filesToDelete.length}개 파일을 삭제하시겠습니까?
-                  </p>
-                  <p className="text-red-300/70 text-sm mt-1">
-                    이 작업은 되돌릴 수 없습니다. 파일이 Storage와 DB에서 영구적으로 삭제됩니다.
-                  </p>
-                </div>
-              </div>
-
-              {/* 삭제할 파일 목록 */}
-              <div className="max-h-60 overflow-y-auto bg-slate-900 rounded-lg border border-slate-700">
-                {filesToDelete.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 last:border-b-0"
-                  >
-                    <FileIcon format={file.format} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white truncate">{file.name}</p>
-                      <p className="text-xs text-slate-500">{formatFileSize(file.size)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* 총 용량 */}
-              <div className="flex justify-between items-center px-4 py-2 bg-slate-800 rounded-lg">
-                <span className="text-slate-400 text-sm">총 용량</span>
-                <span className="text-white font-medium">
-                  {formatFileSize(filesToDelete.reduce((sum, f) => sum + f.size, 0))}
-                </span>
-              </div>
-
-              {/* 버튼 */}
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  onClick={cancelDelete}
-                  className="px-4 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                >
-                  취소
-                </button>
-                <button
-                  onClick={executeDelete}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
-                >
-                  <Trash2 size={16} />
-                  <span>{filesToDelete.length}개 파일 삭제</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </Modal>
+        filesToDelete={filesToDelete}
+        isDeleting={isDeleting}
+        deleteProgress={deleteProgress}
+        onDelete={executeDelete}
+        onCancel={cancelDelete}
+      />
 
       {/* 3D 미리보기 모달 */}
       {previewFile && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={closePreview}>
-          <div className="bg-slate-900 rounded-xl border border-slate-700 w-full max-w-5xl h-[80vh] shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-            {/* 헤더 */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-700">
-              <div className="flex items-center gap-3">
-                <Box size={20} className="text-blue-400" />
-                <div>
-                  <h2 className="text-lg font-semibold text-white">{previewFile.name}</h2>
-                  <p className="text-xs text-slate-400">
-                    {previewFile.format.toUpperCase()} · {formatFileSize(previewFile.size)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleDownload(previewFile)}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg"
-                >
-                  <Download size={14} />
-                  다운로드
-                </button>
-                <button
-                  onClick={closePreview}
-                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            {/* 3D 뷰어 */}
-            <div className="flex-1 relative">
-              {isLoadingPreview ? (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-3 text-slate-400">
-                    <Loader2 size={40} className="animate-spin" />
-                    <span>모델 로딩 중...</span>
-                    {downloadProgress && downloadProgress.total > 0 && (
-                      <div className="w-48">
-                        <div className="flex justify-between text-xs mb-1">
-                          <span>다운로드</span>
-                          <span>{Math.round((downloadProgress.loaded / downloadProgress.total) * 100)}%</span>
-                        </div>
-                        <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-500 transition-all duration-300"
-                            style={{ width: `${(downloadProgress.loaded / downloadProgress.total) * 100}%` }}
-                          />
-                        </div>
-                        <div className="text-xs mt-1 text-center">
-                          {(downloadProgress.loaded / 1024 / 1024).toFixed(1)} / {(downloadProgress.total / 1024 / 1024).toFixed(1)} MB
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : previewUrl ? (
-                <ThreeCanvas
-                  modelUrl={previewUrl}
-                  modelFormat={previewActualFormat || previewFile?.format}
-                  relatedFiles={previewRelatedFiles}
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-slate-500">
-                  <span>파일을 로드할 수 없습니다</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <PreviewModal
+          previewFile={previewFile}
+          previewUrl={previewUrl}
+          previewActualFormat={previewActualFormat}
+          isLoadingPreview={isLoadingPreview}
+          downloadProgress={downloadProgress}
+          previewRelatedFiles={previewRelatedFiles}
+          onClose={closePreview}
+          onDownload={handleDownload}
+        />
       )}
 
       {/* 지리좌표 기반 가시화 (Cesium) */}
@@ -1283,6 +836,83 @@ export default function Assets() {
         onClose={() => setShowDevConsole(false)}
         onRefresh={initialize}
       />
+
+      {/* 태그 편집 모달 */}
+      <TagEditModal
+        isOpen={showTagEditModal}
+        onClose={() => setShowTagEditModal(false)}
+        fileIds={tagEditFileIds}
+        currentTags={
+          tagEditFileIds.length === 1
+            ? (files.find(f => f.id === tagEditFileIds[0])?.tags ?? [])
+            : tagEditFileIds.reduce<string[]>((acc, id, idx) => {
+                const tags = files.find(f => f.id === id)?.tags ?? []
+                return idx === 0 ? tags : acc.filter(t => tags.includes(t))
+              }, [])
+        }
+        allTags={allTags}
+        onSave={handleTagSave}
+      />
+
+      {/* 링크 추가 모달 */}
+      <Modal isOpen={showLinkModal} onClose={() => setShowLinkModal(false)} title="링크 추가">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">이름</label>
+            <input
+              type="text"
+              value={linkName}
+              onChange={(e) => setLinkName(e.target.value)}
+              placeholder="링크 이름"
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">URL</label>
+            <input
+              type="url"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setShowLinkModal(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg hover:bg-slate-700">취소</button>
+            <button onClick={handleCreateLink} disabled={!linkName.trim() || !linkUrl.trim()} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">추가</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 노트 추가 모달 */}
+      <Modal isOpen={showNoteModal} onClose={() => setShowNoteModal(false)} title="노트 추가">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">제목</label>
+            <input
+              type="text"
+              value={noteName}
+              onChange={(e) => setNoteName(e.target.value)}
+              placeholder="노트 제목"
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">내용</label>
+            <textarea
+              value={noteBody}
+              onChange={(e) => setNoteBody(e.target.value)}
+              placeholder="노트 내용..."
+              rows={5}
+              className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setShowNoteModal(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg hover:bg-slate-700">취소</button>
+            <button onClick={handleCreateNote} disabled={!noteName.trim() || !noteBody.trim()} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50">추가</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -111,6 +111,12 @@ services:
 
   kong:
     image: kong:2.8.1
+    entrypoint: >
+      /bin/sh -c "
+      sed -e 's|SUPABASE_ANON_KEY|'\"$$ANON_KEY\"'|g'
+          -e 's|SUPABASE_SERVICE_KEY|'\"$$SERVICE_ROLE_KEY\"'|g'
+          /var/lib/kong/kong.yml.template > /var/lib/kong/kong.yml
+      && /docker-entrypoint.sh kong docker-start"
     ports:
       - "8100:8000"   # Main API endpoint
     environment:
@@ -123,7 +129,7 @@ services:
       ANON_KEY: ${ANON_KEY}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
     volumes:
-      - ./supabase/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml.template:ro
     depends_on:
       - auth
       - rest

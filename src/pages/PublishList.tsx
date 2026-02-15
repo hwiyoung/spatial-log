@@ -9,19 +9,7 @@ import {
 } from 'lucide-react'
 import { useReleaseStore } from '@/stores/releaseStore'
 import type { ReleaseData } from '@/types/story'
-
-function getRelativeTime(date: Date): string {
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '방금 전'
-  if (minutes < 60) return `${minutes}분 전`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}시간 전`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}일 전`
-  return date.toLocaleDateString('ko-KR')
-}
+import { getRelativeTime } from '@/utils/dateHelpers'
 
 export default function PublishList() {
   const navigate = useNavigate()
@@ -118,6 +106,14 @@ export default function PublishList() {
                       }`}>
                         {isRevoked ? 'revoked' : 'active'}
                       </span>
+
+                      {/* 조회수 */}
+                      {release.viewCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+                          <Eye size={12} />
+                          {release.viewCount}
+                        </span>
+                      )}
 
                       {/* Manifest */}
                       <span className="text-xs text-slate-500">

@@ -7,10 +7,10 @@ _transform: true
 consumers:
   - username: ANON
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWxvY2FsIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjE4OTM0NTYwMDB9.EEon5KbzDtHnOMFM8C_HEK02hU2X5D0E6XC6_zzLv0o
+      - key: SUPABASE_ANON_KEY
   - username: SERVICE_ROLE
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtbG9jYWwiLCJpYXQiOjE3MDQwNjcyMDAsImV4cCI6MTg5MzQ1NjAwMH0.e4hfWWumAmQh6Rydj5yKT8oRMgp5ixO6C8eGcOPPMoA
+      - key: SUPABASE_SERVICE_KEY
 
 ###
 ### Access Control List
@@ -95,11 +95,6 @@ services:
           allow:
             - admin
             - anon
-      - name: request-transformer
-        config:
-          add:
-            headers:
-              - Authorization:Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWxvY2FsIiwiaWF0IjoxNzA0MDY3MjAwLCJleHAiOjE4OTM0NTYwMDB9.EEon5KbzDtHnOMFM8C_HEK02hU2X5D0E6XC6_zzLv0o
 
   ## Storage routes
   - name: storage-v1

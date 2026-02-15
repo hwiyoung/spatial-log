@@ -278,7 +278,7 @@ export default function StoryWorkspace({ onClose }: StoryWorkspaceProps) {
           <div className="relative">
             <button
               onClick={() => setShowStatusMenu(!showStatusMenu)}
-              className={`px-2 py-0.5 text-[10px] rounded cursor-pointer ${statusColor}`}
+              className={`px-2 py-0.5 text-xs rounded cursor-pointer ${statusColor}`}
             >
               {statusLabel}
             </button>
@@ -412,7 +412,7 @@ export default function StoryWorkspace({ onClose }: StoryWorkspaceProps) {
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
                 <div className="bg-slate-900 border border-slate-600 rounded-xl shadow-2xl p-4 min-w-[240px]">
                   <div className="text-sm text-white font-medium mb-1">이 위치에 Entry 추가</div>
-                  <div className="text-[10px] text-slate-500 mb-3">
+                  <div className="text-xs text-slate-500 mb-3">
                     {pendingMapGps.latitude.toFixed(6)}, {pendingMapGps.longitude.toFixed(6)}
                   </div>
                   <div className="grid grid-cols-2 gap-2">

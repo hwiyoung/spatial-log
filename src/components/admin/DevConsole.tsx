@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import type { FileMetadata } from '@/services/api'
+import { formatDate } from '@/utils/dateHelpers'
 
 interface StoragePathInfo {
   dbId: string
@@ -42,15 +43,7 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleString('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+// formatDate(date, 'datetime') — dateHelpers에서 import
 
 function FileStorageInfo({ file }: { file: FileMetadata }) {
   const [expanded, setExpanded] = useState(false)
@@ -211,7 +204,7 @@ function FileStorageInfo({ file }: { file: FileMetadata }) {
             </div>
             <div>
               <div className="text-slate-400 mb-0.5">Created</div>
-              <div className="text-white font-mono text-[11px]">{formatDate(storageInfo.createdAt)}</div>
+              <div className="text-white font-mono text-[11px]">{formatDate(storageInfo.createdAt, 'datetime')}</div>
             </div>
             <div>
               <div className="text-slate-400 mb-0.5">Format</div>
@@ -224,8 +217,8 @@ function FileStorageInfo({ file }: { file: FileMetadata }) {
             <div className="pt-2 border-t border-slate-700">
               <div className="text-slate-400 mb-1">Tags</div>
               <div className="flex flex-wrap gap-1">
-                {storageInfo.tags.map((tag, i) => (
-                  <span key={i} className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] text-slate-300">
+                {storageInfo.tags.map((tag) => (
+                  <span key={tag} className="px-1.5 py-0.5 bg-slate-700 rounded text-[10px] text-slate-300">
                     {tag}
                   </span>
                 ))}

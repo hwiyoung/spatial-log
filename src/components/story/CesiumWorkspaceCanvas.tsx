@@ -29,6 +29,7 @@ import {
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import type { SpatialInfo } from '@/services/api'
 import type { SceneEntryData, SceneEntryType } from '@/types/story'
+import { ENTRY_TYPE_CONFIG } from '@/constants/entries'
 
 interface CesiumWorkspaceCanvasProps {
   dataUrl?: string
@@ -44,19 +45,12 @@ interface CesiumWorkspaceCanvasProps {
   onFileDrop?: (data: { fileId: string; format: string; name: string; gps?: { latitude: number; longitude: number } | null }, dropGps: { latitude: number; longitude: number } | null) => void
 }
 
-const ENTRY_TYPE_COLORS: Record<SceneEntryType, Color> = {
-  spatial: Color.fromCssColorString('#3b82f6'),   // blue
-  visual: Color.fromCssColorString('#22c55e'),     // green
-  document: Color.fromCssColorString('#a855f7'),   // purple
-  note: Color.fromCssColorString('#f59e0b'),       // amber
-}
-
-const ENTRY_TYPE_LABELS: Record<SceneEntryType, string> = {
-  spatial: '3D 데이터',
-  visual: '이미지',
-  document: '문서',
-  note: '메모',
-}
+// ENTRY_TYPE_CONFIG에서 Cesium Color 객체 파생
+const ENTRY_TYPE_COLORS: Record<SceneEntryType, Color> = Object.fromEntries(
+  (Object.keys(ENTRY_TYPE_CONFIG) as SceneEntryType[]).map(
+    key => [key, Color.fromCssColorString(ENTRY_TYPE_CONFIG[key].hexColor)]
+  )
+) as Record<SceneEntryType, Color>
 
 function createMarkerCanvas(color: Color = ENTRY_TYPE_COLORS.spatial, isSelected: boolean = false): HTMLCanvasElement {
   const size = isSelected ? 32 : 24
@@ -314,7 +308,7 @@ export default function CesiumWorkspaceCanvas({
       const isSelected = entry.id === selectedEntryId
       const existing = entitiesRef.current.get(entry.id)
       const markerColor = ENTRY_TYPE_COLORS[entry.entryType] ?? ENTRY_TYPE_COLORS.note
-      const labelText = entry.title || ENTRY_TYPE_LABELS[entry.entryType] || '엔트리'
+      const labelText = entry.title || ENTRY_TYPE_CONFIG[entry.entryType]?.koLabel || '엔트리'
 
       if (existing) {
         if (existing.billboard) {

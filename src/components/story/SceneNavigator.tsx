@@ -4,31 +4,17 @@
 import { useState } from 'react'
 import {
   Plus, ChevronUp, ChevronDown, Trash2, ChevronRight,
-  Search, MapPin, Image, Box, FileText, StickyNote, GripVertical,
+  Search, MapPin, Box, GripVertical,
 } from 'lucide-react'
 import { useStoryStore } from '@/stores/storyStore'
 import { useAssetStore } from '@/stores/assetStore'
 import { detectEntryTypeFromFormat } from '@/services/api'
 import { formatFileSize } from '@/utils/storage'
 import type { FileMetadata } from '@/services/api'
-import type { SceneEntryType } from '@/types/story'
+import { ENTRY_TYPE_CONFIG } from '@/constants/entries'
 
 interface SceneNavigatorProps {
   onAssetSelect?: (file: FileMetadata) => void
-}
-
-const ENTRY_TYPE_ICON: Record<SceneEntryType, typeof Box> = {
-  spatial: Box,
-  visual: Image,
-  document: FileText,
-  note: StickyNote,
-}
-
-const ENTRY_TYPE_ICON_COLOR: Record<SceneEntryType, string> = {
-  spatial: 'text-blue-400',
-  visual: 'text-green-400',
-  document: 'text-purple-400',
-  note: 'text-amber-400',
 }
 
 export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
@@ -102,8 +88,8 @@ export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
 
   const getAssetIcon = (format: string) => {
     const entryType = detectEntryTypeFromFormat(format)
-    const IconComponent = ENTRY_TYPE_ICON[entryType]
-    const iconColor = ENTRY_TYPE_ICON_COLOR[entryType]
+    const IconComponent = ENTRY_TYPE_CONFIG[entryType].icon
+    const iconColor = ENTRY_TYPE_CONFIG[entryType].color
     return <IconComponent size={12} className={iconColor} />
   }
 
@@ -147,8 +133,17 @@ export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
       {/* Scene 목록 */}
       <div className="flex-1 overflow-auto">
         {scenes.length === 0 ? (
-          <div className="p-4 text-center text-slate-500 text-xs">
-            Scene을 추가하여 시작하세요
+          <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+            <Box size={32} className="text-slate-600 mb-3" />
+            <p className="text-sm text-slate-400 mb-1">첫 Scene을 만들어 시작하세요</p>
+            <p className="text-xs text-slate-500 mb-3">Scene은 공간 단위로 에셋을 구성합니다</p>
+            <button
+              onClick={() => setShowAddScene(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors"
+            >
+              <Plus size={14} />
+              Scene 추가
+            </button>
           </div>
         ) : (
           <div className="p-2 space-y-1">
@@ -168,9 +163,9 @@ export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-white truncate">{scene.title}</div>
                     {scene.zoneLabel && (
-                      <div className="text-[10px] text-blue-400/70 truncate">{scene.zoneLabel}</div>
+                      <div className="text-xs text-blue-400 truncate">{scene.zoneLabel}</div>
                     )}
-                    <div className="text-[10px] text-slate-500">{entryCount}개 엔트리</div>
+                    <div className="text-xs text-slate-500">{entryCount}개 엔트리</div>
                   </div>
 
                   {/* 정렬 + 삭제 버튼 (hover) */}
@@ -226,7 +221,7 @@ export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
                 placeholder="에셋 검색..."
                 value={assetSearch}
                 onChange={(e) => setAssetSearch(e.target.value)}
-                className="w-full pl-7 pr-2 py-1 bg-slate-800 border border-slate-600 rounded text-[11px] text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full pl-7 pr-2 py-1 bg-slate-800 border border-slate-600 rounded text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
               />
             </div>
 
@@ -241,17 +236,17 @@ export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
                   onDragStart={(e) => handleDragStart(e, file)}
                 >
                   <div className="flex-shrink-0 opacity-0 group-hover:opacity-50 cursor-grab">
-                    <GripVertical size={10} className="text-slate-500" />
+                    <GripVertical size={12} className="text-slate-500" />
                   </div>
                   <div className="flex-shrink-0">
                     {getAssetIcon(file.format)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-slate-200 truncate">{file.name}</div>
-                    <div className="flex items-center gap-1 text-[9px] text-slate-500">
+                    <div className="text-xs text-slate-200 truncate">{file.name}</div>
+                    <div className="flex items-center gap-1 text-xs text-slate-500">
                       <span className="uppercase">{file.format}</span>
                       <span>{formatFileSize(file.size)}</span>
-                      {file.gps && <MapPin size={8} className="text-green-400" />}
+                      {file.gps && <MapPin size={12} className="text-green-400" />}
                     </div>
                   </div>
                   {activeSceneId && (
@@ -269,7 +264,14 @@ export default function SceneNavigator({ onAssetSelect }: SceneNavigatorProps) {
                 </div>
               ))}
               {filteredAssets.length === 0 && (
-                <div className="text-center text-[10px] text-slate-500 py-4">에셋 없음</div>
+                <div className="text-center py-4">
+                  <p className="text-xs text-slate-500 mb-1">
+                    {assetSearch ? '검색 결과 없음' : '등록된 에셋이 없습니다'}
+                  </p>
+                  {!assetSearch && (
+                    <p className="text-xs text-slate-600">Assets 페이지에서 파일을 업로드하세요</p>
+                  )}
+                </div>
               )}
             </div>
           </div>

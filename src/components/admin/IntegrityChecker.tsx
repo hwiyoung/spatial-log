@@ -20,6 +20,7 @@ import {
   type IntegrityLog,
 } from '@/services/integrityService'
 import { isBackendConnected } from '@/services/api'
+import { formatDate } from '@/utils/dateHelpers'
 
 export default function IntegrityChecker() {
   const [isChecking, setIsChecking] = useState(false)
@@ -107,16 +108,7 @@ export default function IntegrityChecker() {
     }
   }
 
-  // 날짜 포맷
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleString('ko-KR', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
+  // formatDate(date, 'mixed') — dateHelpers에서 import
 
   const hasIssues = report && (report.orphanedDbRecords.length > 0 || report.orphanedStorageFiles.length > 0)
 
@@ -243,7 +235,7 @@ export default function IntegrityChecker() {
                   <div key={record.id} className="flex items-center gap-4 px-4 py-3 border-b border-slate-700/50 last:border-0">
                     <span className="text-sm text-white truncate flex-1">{record.name}</span>
                     <span className="text-xs text-slate-500 truncate max-w-xs">{record.storagePath}</span>
-                    <span className="text-xs text-slate-500">{formatDate(record.createdAt)}</span>
+                    <span className="text-xs text-slate-500">{formatDate(record.createdAt, 'mixed')}</span>
                   </div>
                 ))}
               </div>
@@ -269,8 +261,8 @@ export default function IntegrityChecker() {
                 </button>
               </div>
               <div className="max-h-60 overflow-y-auto">
-                {report.orphanedStorageFiles.map((path, idx) => (
-                  <div key={idx} className="flex items-center gap-4 px-4 py-3 border-b border-slate-700/50 last:border-0">
+                {report.orphanedStorageFiles.map((path) => (
+                  <div key={path} className="flex items-center gap-4 px-4 py-3 border-b border-slate-700/50 last:border-0">
                     <span className="text-sm text-white truncate">{path}</span>
                   </div>
                 ))}
@@ -291,7 +283,7 @@ export default function IntegrityChecker() {
             {logs.map((log) => (
               <div key={log.id} className="flex items-center gap-4 px-4 py-3">
                 <StatusIcon status={log.status} />
-                <span className="text-sm text-white">{formatDate(log.createdAt)}</span>
+                <span className="text-sm text-white">{formatDate(log.createdAt, 'mixed')}</span>
                 <span className="text-sm text-slate-400">
                   정상: {log.validFiles} | 고아 레코드: {log.orphanedRecords} | 고아 파일: {log.orphanedFiles}
                 </span>

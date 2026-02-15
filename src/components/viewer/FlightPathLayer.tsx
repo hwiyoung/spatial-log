@@ -7,26 +7,10 @@
 import { useMemo } from 'react'
 import { Polyline, CircleMarker, Popup } from 'react-leaflet'
 import type { FlightPathPoint } from '@/services/api'
+import { formatDate } from '@/utils/dateHelpers'
 
 interface FlightPathLayerProps {
   points: FlightPathPoint[]
-}
-
-// 날짜 포맷
-function formatDateTime(datetime: string): string {
-  try {
-    const d = new Date(datetime)
-    return d.toLocaleString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  } catch {
-    return datetime
-  }
 }
 
 // 날짜만 추출 (YYYY-MM-DD)
@@ -125,7 +109,7 @@ export default function FlightPathLayer({ points }: FlightPathLayerProps) {
             <Popup>
               <div className="text-xs space-y-1" style={{ minWidth: '160px' }}>
                 <p className="font-medium text-slate-900">{point.fileName}</p>
-                <p className="text-slate-600">{formatDateTime(point.datetime)}</p>
+                <p className="text-slate-600">{formatDate(point.datetime, 'full')}</p>
                 <p className="text-slate-500 font-mono text-[10px]">
                   {point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}
                   {point.altitude !== undefined && ` (${point.altitude.toFixed(1)}m)`}

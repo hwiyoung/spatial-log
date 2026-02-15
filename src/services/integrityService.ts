@@ -305,6 +305,16 @@ export async function checkFileIntegrity(fileId: string): Promise<{
 
   const fileData = data as Pick<FileRow, 'id' | 'storage_path'>
 
+  // storage_path가 없으면 (링크/노트 에셋) storage 확인 불필요
+  if (!fileData.storage_path) {
+    return {
+      exists: true,
+      dbRecord: true,
+      storageFile: true,
+      storagePath: null,
+    }
+  }
+
   // Storage 파일 확인
   const { data: storageData, error: storageError } = await supabase.storage
     .from(STORAGE_BUCKET)

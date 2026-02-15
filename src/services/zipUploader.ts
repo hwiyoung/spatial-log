@@ -4,6 +4,7 @@
 import JSZip from 'jszip'
 import { getSupabaseClient, isSupabaseConfigured, STORAGE_BUCKET } from '@/lib/supabase'
 import type { FileFormat, FileRow, InsertTables } from '@/lib/database.types'
+import { generateId } from '@/utils/storage'
 
 // 연관 파일 그룹 타입
 export interface RelatedFileGroup {
@@ -64,24 +65,12 @@ function classifyFile(filename: string): 'model' | 'material' | 'texture' | 'oth
   return 'other'
 }
 
-// UUID 생성 함수
-function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-
 /**
  * ZIP 파일을 파싱하여 연관 파일 그룹으로 변환
  */
 export async function parseZipFile(zipFile: File): Promise<RelatedFileGroup> {
   const zip = await JSZip.loadAsync(zipFile)
-  const groupId = generateUUID()
+  const groupId = generateId()
 
   let mainFile: RelatedFileGroup['mainFile'] | null = null
   const relatedFiles: RelatedFileGroup['relatedFiles'] = []
@@ -197,7 +186,7 @@ export async function uploadFileGroup(
     uploadedCount++
 
     // 2. DB에 메인 파일 레코드 생성
-    const mainFileId = generateUUID()
+    const mainFileId = generateId()
     const mainFileInsert: InsertTables<'files'> = {
       id: mainFileId,
       name: group.mainFile.name,
@@ -241,7 +230,7 @@ export async function uploadFileGroup(
 
       // 연관 파일 DB 레코드 생성 (선택적)
       const relatedFileInsert: InsertTables<'files'> = {
-        id: generateUUID(),
+        id: generateId(),
         name: related.name,
         mime_type: getMimeType(related.name),
         format: 'other' as FileFormat,

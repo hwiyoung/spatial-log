@@ -17,6 +17,7 @@ import {
   deleteSceneEntry,
   reorderEntries,
   getSceneCountsByStories,
+  validateStoryAssets,
 } from '@/services/api'
 
 interface StoryState {
@@ -28,6 +29,7 @@ interface StoryState {
   activeSceneId: string | null
   activeEntryId: string | null
   sceneCounts: Map<string, number>  // storyId → scene count (목록용)
+  missingAssetIds: Set<string>      // 누락된 에셋 fileId 목록
 
   // UI 상태
   isLoading: boolean
@@ -77,6 +79,7 @@ export const useStoryStore = create<StoryState>((set, get) => ({
   activeSceneId: null,
   activeEntryId: null,
   sceneCounts: new Map(),
+  missingAssetIds: new Set(),
   isLoading: false,
   error: null,
 
@@ -118,8 +121,16 @@ export const useStoryStore = create<StoryState>((set, get) => ({
         entries: entriesMap,
         activeSceneId: firstSceneId,
         activeEntryId: null,
+        missingAssetIds: new Set(),
         isLoading: false,
       })
+
+      // 비동기: 누락 에셋 검증
+      validateStoryAssets(id).then(missing => {
+        if (get().currentStory?.id === id && missing.length > 0) {
+          set({ missingAssetIds: new Set(missing) })
+        }
+      }).catch(err => console.warn('에셋 검증 실패:', err))
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : 'Story 로드 실패',
@@ -360,6 +371,9 @@ export const useStoryStore = create<StoryState>((set, get) => ({
       await reorderEntries(sceneId, orderedIds)
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Entry 순서 변경 실패' })
+      // 실패 시 원본 데이터로 롤백
+      const { currentStory } = get()
+      if (currentStory) await get().loadStory(currentStory.id)
     }
   },
 
