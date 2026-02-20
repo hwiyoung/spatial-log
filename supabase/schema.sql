@@ -84,13 +84,18 @@ CREATE TABLE IF NOT EXISTS public.folders (
 CREATE TABLE IF NOT EXISTS public.files (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(500) NOT NULL,
-  mime_type VARCHAR(100) NOT NULL,
-  size BIGINT NOT NULL,
+  mime_type VARCHAR(100) NOT NULL DEFAULT '',
+  size BIGINT NOT NULL DEFAULT 0,
   format file_format NOT NULL DEFAULT 'other',
   folder_id UUID REFERENCES public.folders(id) ON DELETE SET NULL,
   project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
   storage_path TEXT,
   thumbnail_path TEXT,
+  description TEXT,
+  status TEXT DEFAULT 'active',
+  asset_type TEXT DEFAULT 'file',
+  url TEXT,
+  body TEXT,
   gps_latitude DOUBLE PRECISION,
   gps_longitude DOUBLE PRECISION,
   gps_altitude DOUBLE PRECISION,
@@ -116,13 +121,20 @@ CREATE TABLE IF NOT EXISTS public.files (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 기존 테이블에 변환 컬럼 추가 (이미 테이블이 존재하는 경우)
+-- 기존 테이블에 컬럼 추가 (이미 테이블이 존재하는 경우)
 DO $$ BEGIN
+  -- 3D 변환 컬럼
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_status VARCHAR(20);
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_progress INTEGER DEFAULT 0;
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS converted_path TEXT;
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS conversion_error TEXT;
   ALTER TABLE public.files ADD COLUMN IF NOT EXISTS metadata JSONB;
+  -- 에셋 확장 컬럼 (003)
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS description TEXT;
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS asset_type TEXT DEFAULT 'file';
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS url TEXT;
+  ALTER TABLE public.files ADD COLUMN IF NOT EXISTS body TEXT;
 EXCEPTION
   WHEN duplicate_column THEN null;
 END $$;
@@ -250,11 +262,19 @@ DROP POLICY IF EXISTS "Users can view own folders" ON public.folders;
 DROP POLICY IF EXISTS "Users can insert own folders" ON public.folders;
 DROP POLICY IF EXISTS "Users can update own folders" ON public.folders;
 DROP POLICY IF EXISTS "Users can delete own folders" ON public.folders;
+DROP POLICY IF EXISTS "Authenticated users can view folders" ON public.folders;
+DROP POLICY IF EXISTS "Authenticated users can insert folders" ON public.folders;
+DROP POLICY IF EXISTS "Authenticated users can update folders" ON public.folders;
+DROP POLICY IF EXISTS "Authenticated users can delete folders" ON public.folders;
 
 DROP POLICY IF EXISTS "Users can view own files" ON public.files;
 DROP POLICY IF EXISTS "Users can insert own files" ON public.files;
 DROP POLICY IF EXISTS "Users can update own files" ON public.files;
 DROP POLICY IF EXISTS "Users can delete own files" ON public.files;
+DROP POLICY IF EXISTS "Authenticated users can view files" ON public.files;
+DROP POLICY IF EXISTS "Authenticated users can insert files" ON public.files;
+DROP POLICY IF EXISTS "Authenticated users can update files" ON public.files;
+DROP POLICY IF EXISTS "Authenticated users can delete files" ON public.files;
 
 DROP POLICY IF EXISTS "Users can view own annotations" ON public.annotations;
 DROP POLICY IF EXISTS "Users can insert own annotations" ON public.annotations;
@@ -271,25 +291,25 @@ CREATE POLICY "Users can update own projects" ON public.projects
 CREATE POLICY "Users can delete own projects" ON public.projects
   FOR DELETE USING (auth.uid() = user_id);
 
--- RLS Policies for Folders
-CREATE POLICY "Users can view own folders" ON public.folders
-  FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own folders" ON public.folders
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own folders" ON public.folders
-  FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete own folders" ON public.folders
-  FOR DELETE USING (auth.uid() = user_id);
+-- RLS Policies for Folders (팀 공유: 인증된 사용자 전체 접근)
+CREATE POLICY "Authenticated users can view folders" ON public.folders
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can insert folders" ON public.folders
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can update folders" ON public.folders
+  FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can delete folders" ON public.folders
+  FOR DELETE USING (auth.role() = 'authenticated');
 
--- RLS Policies for Files
-CREATE POLICY "Users can view own files" ON public.files
-  FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert own files" ON public.files
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update own files" ON public.files
-  FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete own files" ON public.files
-  FOR DELETE USING (auth.uid() = user_id);
+-- RLS Policies for Files (팀 공유: 인증된 사용자 전체 접근)
+CREATE POLICY "Authenticated users can view files" ON public.files
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can insert files" ON public.files
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can update files" ON public.files
+  FOR UPDATE USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can delete files" ON public.files
+  FOR DELETE USING (auth.role() = 'authenticated');
 
 -- RLS Policies for Annotations
 CREATE POLICY "Users can view own annotations" ON public.annotations
@@ -347,8 +367,8 @@ CREATE TABLE IF NOT EXISTS public.scene_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   scene_id UUID NOT NULL REFERENCES public.scenes(id) ON DELETE CASCADE,
   file_id UUID REFERENCES public.files(id) ON DELETE SET NULL,
-  entry_type TEXT NOT NULL DEFAULT 'asset'
-    CHECK (entry_type IN ('asset', 'memo')),
+  entry_type TEXT NOT NULL DEFAULT 'note'
+    CHECK (entry_type IN ('spatial', 'visual', 'document', 'note')),
   title TEXT,
   body TEXT,
   gps_latitude DOUBLE PRECISION,
@@ -373,8 +393,25 @@ CREATE TABLE IF NOT EXISTS public.releases (
   share_token TEXT UNIQUE,
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'revoked')),
+  password_hash TEXT,
+  expires_at TIMESTAMPTZ,
+  view_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 기존 releases 테이블에 컬럼 추가 (이미 테이블이 존재하는 경우)
+DO $$ BEGIN
+  ALTER TABLE public.releases ADD COLUMN IF NOT EXISTS password_hash TEXT;
+  ALTER TABLE public.releases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+  ALTER TABLE public.releases ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;
+EXCEPTION
+  WHEN duplicate_column THEN null;
+END $$;
+
+-- 기존 scene_entries CHECK 제약조건 업데이트
+ALTER TABLE public.scene_entries DROP CONSTRAINT IF EXISTS scene_entries_entry_type_check;
+ALTER TABLE public.scene_entries ADD CONSTRAINT scene_entries_entry_type_check
+  CHECK (entry_type IN ('spatial', 'visual', 'document', 'note'));
 
 -- Story indexes
 CREATE INDEX IF NOT EXISTS idx_stories_user_id ON public.stories(user_id);
