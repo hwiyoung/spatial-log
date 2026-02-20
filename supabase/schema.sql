@@ -576,18 +576,28 @@ DROP POLICY IF EXISTS "Allow authenticated read access" ON storage.objects;
 DROP POLICY IF EXISTS "Allow authenticated uploads" ON storage.objects;
 DROP POLICY IF EXISTS "Allow authenticated deletes" ON storage.objects;
 DROP POLICY IF EXISTS "Allow anon uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Users can read own files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can upload own files" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete own files" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can read files" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can upload to own folder" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can delete files" ON storage.objects;
 
--- 인증된 사용자 읽기 정책
-CREATE POLICY "Allow authenticated read access"
+-- 팀 공유: 인증된 사용자는 모든 파일 조회 가능
+CREATE POLICY "Authenticated users can read files"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'spatial-files' AND auth.role() = 'authenticated');
 
--- 인증된 사용자 업로드 정책
-CREATE POLICY "Allow authenticated uploads"
+-- 업로드: 사용자 자신의 폴더에만 허용 (경로 첫 세그먼트 = user_id)
+CREATE POLICY "Authenticated users can upload to own folder"
 ON storage.objects FOR INSERT
-WITH CHECK (bucket_id = 'spatial-files' AND auth.role() = 'authenticated');
+WITH CHECK (
+  bucket_id = 'spatial-files'
+  AND auth.role() = 'authenticated'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
 
--- 인증된 사용자 삭제 정책
-CREATE POLICY "Allow authenticated deletes"
+-- 팀 공유: 인증된 사용자는 파일 삭제 가능 (DB 정책과 일치)
+CREATE POLICY "Authenticated users can delete files"
 ON storage.objects FOR DELETE
 USING (bucket_id = 'spatial-files' AND auth.role() = 'authenticated');
