@@ -92,8 +92,8 @@ CREATE TABLE IF NOT EXISTS public.files (
   storage_path TEXT,
   thumbnail_path TEXT,
   description TEXT,
-  status TEXT DEFAULT 'active',
-  asset_type TEXT DEFAULT 'file',
+  status TEXT NOT NULL DEFAULT 'active',
+  asset_type TEXT NOT NULL DEFAULT 'file',
   url TEXT,
   body TEXT,
   gps_latitude DOUBLE PRECISION,
@@ -245,7 +245,9 @@ CREATE TRIGGER trigger_annotations_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
 -- Row Level Security (RLS) 활성화
--- 인증된 사용자만 자신의 데이터에 접근 가능
+-- files/folders: 팀 공유 (인증된 사용자 전체 접근)
+-- stories/scenes/scene_entries: 소유자 기반 접근
+-- projects/annotations: 소유자 기반 접근
 ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.files ENABLE ROW LEVEL SECURITY;
@@ -357,6 +359,8 @@ CREATE TABLE IF NOT EXISTS public.scenes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
+  zone_label TEXT,
+  summary TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -371,6 +375,7 @@ CREATE TABLE IF NOT EXISTS public.scene_entries (
     CHECK (entry_type IN ('spatial', 'visual', 'document', 'note')),
   title TEXT,
   body TEXT,
+  url TEXT,
   gps_latitude DOUBLE PRECISION,
   gps_longitude DOUBLE PRECISION,
   spatial_anchor JSONB,
@@ -398,6 +403,21 @@ CREATE TABLE IF NOT EXISTS public.releases (
   view_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 기존 scenes 테이블에 컬럼 추가 (이미 테이블이 존재하는 경우)
+DO $$ BEGIN
+  ALTER TABLE public.scenes ADD COLUMN IF NOT EXISTS zone_label TEXT;
+  ALTER TABLE public.scenes ADD COLUMN IF NOT EXISTS summary TEXT;
+EXCEPTION
+  WHEN duplicate_column THEN null;
+END $$;
+
+-- 기존 scene_entries 테이블에 컬럼 추가 (이미 테이블이 존재하는 경우)
+DO $$ BEGIN
+  ALTER TABLE public.scene_entries ADD COLUMN IF NOT EXISTS url TEXT;
+EXCEPTION
+  WHEN duplicate_column THEN null;
+END $$;
 
 -- 기존 releases 테이블에 컬럼 추가 (이미 테이블이 존재하는 경우)
 DO $$ BEGIN
