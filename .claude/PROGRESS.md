@@ -44,22 +44,26 @@
 CLAUDE.md의 개발 워크플로우(Phase A~F) 적용.
 
 ### Step 1: 인프라 기동
-- [ ] docker-compose up -d
-- [ ] PostgreSQL + pgSTAC 마이그레이션 확인
-- [ ] STAC API (localhost:8080) 응답 확인
-- [ ] MinIO 콘솔 (localhost:9001) + sams-archive 버킷 확인
-- [ ] Redis (localhost:6379) 확인
-- [ ] Frontend + Nginx 기동 확인
+- [x] docker-compose up -d
+- [x] PostgreSQL + pgSTAC 마이그레이션 확인
+- [x] STAC API (localhost:8080) 응답 확인
+- [x] MinIO 콘솔 (localhost:9001) + sams-archive 버킷 확인
+- [x] Redis (localhost:6379) 확인
+- [x] Frontend + Nginx 기동 확인
 
-### Step 2: 파이프라인 — detect.py
-- [ ] 파일 유형 자동 판별 함수 구현
-- [ ] PLY 양면성, 파노라마 추정, unknown 처리
-- [ ] 테스트 작성 (tests/test_detect.py)
+### Step 2: 파이프라인 — detect.py + bundle.py
+- [x] 파일 유형 자동 판별 함수 구현
+- [x] PLY 양면성, 파노라마 추정, unknown 처리
+- [x] 테스트 작성 (tests/test_detect.py) — 23 tests
+- [x] 0단계 파일 그룹핑 (bundle.py) — OBJ/MTL/텍스처 참조 파싱, 이미지 세트, 3D Tiles
+- [x] 테스트 작성 (tests/test_bundle.py) — 10 tests
+- [x] 개발용 테스트 페이지 (http://localhost:7800/api/test)
 
 ### Step 3: 파이프라인 — extract.py
 - [ ] 유형별 메타데이터 추출 (laspy, rasterio, trimesh, ffprobe, Pillow, PyPDF)
 - [ ] dispatch 함수 (extract_metadata)
 - [ ] 테스트 작성 (tests/test_extract.py)
+- ⚠️ extract.py는 bundle 결과를 받아서 동작해야 함
 
 ### Step 4: 파이프라인 — inherit.py + suggest.py
 - [ ] Collection 기본값 상속

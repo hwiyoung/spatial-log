@@ -139,6 +139,7 @@ Claude Code:
 
 ### Step 2: 자동 채움 파이프라인 ⭐ (최우선)
 - `sams-api/sams/pipeline/` 디렉토리에 구현
+- bundle.py: 파일 그룹핑 (OBJ 참조 파싱, 이미지 세트, 3D Tiles)
 - detect.py: 파일 유형 자동 판별
 - extract.py: 유형별 메타데이터 추출 (laspy, rasterio, trimesh, ffprobe, Pillow, PyPDF)
 - inherit.py: Collection 기본값 상속
@@ -146,6 +147,7 @@ Claude Code:
 - thumbnail.py: 썸네일 생성 (비동기)
 - 참조: `docs/autofill_pipeline_spec.md` (전체)
 - 테스트: `tests/fixtures/`의 샘플 파일로 각 유형 추출 결과 확인
+- 개발용 테스트 페이지: `http://localhost:7800/api/test` (파이프라인 결과 실데이터 확인용)
 
 ### Step 3: SAMS API 뼈대
 - FastAPI 앱 (`sams-api/sams/main.py`)
@@ -164,6 +166,7 @@ Claude Code:
 ### Step 5: Worker (Celery)
 - 썸네일 생성 비동기 처리
 - 완료 시 STAC Item의 thumbnail Asset 업데이트
+- ⚠️ bundle.py는 Step 2에서 이미 구현됨. Step 5는 통합만.
 
 ### Step 6: Frontend
 - React SPA, 4페이지 (Explorer, Detail, Project, Upload)

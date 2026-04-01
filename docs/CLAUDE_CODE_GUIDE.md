@@ -32,46 +32,55 @@ claude
 ```
 Step 1: 인프라 기동.
 
-docker-compose.yml을 확인하고, docker-compose up -d로 인프라를 기동해줘.
+docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동해줘.
+포트 충돌이 있을 수 있으니 먼저 `ss -tlnp`로 사용 중인 포트를 확인해줘.
+주요 포트: DB→7432, Nginx→7800, 나머지는 표준 포트 사용.
+
+참고 사항:
+- stac-fastapi 이미지는 `latest` 태그 사용
+- pgstac-migrate는 ghcr.io 이미지가 아니라 `pypgstac` pip install 방식으로 마이그레이션
+- .env에 `COMPOSE_PROJECT_NAME=sams`가 설정되어 있음
+
 다음 서비스가 정상 동작하는지 확인:
-1. PostgreSQL (port 5432)
+1. PostgreSQL (port 7432)
 2. STAC API (http://localhost:8080/ 에서 JSON 응답)
-3. MinIO (http://localhost:9001/ 콘솔 접근, sams-archive 버킷 존재)
-4. Redis (port 6379)
+3. SAMS API (http://localhost:8000/health 에서 health check)
+4. MinIO (http://localhost:9001/ 콘솔 접근, sams-archive 버킷 존재)
+5. Nginx (http://localhost:7800/)
+6. Redis (port 6379)
 
 문제가 있으면 수정해줘.
 ```
 
 ### 확인 포인트
+- `docker compose ps` → 컨테이너 이름이 `sams-*`로 표시, 모두 healthy/running
 - `curl http://localhost:8080/` → STAC Landing Page JSON
-- MinIO 콘솔에서 `sams-archive` 버킷 확인
-- `docker-compose ps`에서 모든 컨테이너 healthy/running
+- `curl http://localhost:8000/health` → SAMS API health check 응답
+- `http://localhost:7800/api/test` → 테스트 페이지 확인
+- MinIO 콘솔 `http://localhost:9001/`에서 `sams-archive` 버킷 확인
 
 ---
 
-## Step 2: 자동 채움 파이프라인 — detect.py
+## Step 2: 자동 채움 파이프라인 — bundle.py + detect.py (COMPLETED)
 
-### 프롬프트
-```
-Step 2: 자동 채움 파이프라인의 detect.py 구현.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/autofill_pipeline_spec.md 섹션 3을 읽고, sams-api/sams/pipeline/detect.py를 구현해줘.
+### 구현 내용
 
-기능:
-- 파일 경로를 받아 data_category를 반환
-- 확장자 기반 판별 + PLY 양면성 처리 + 파노라마 추정
-- 판별 실패 시 "unknown" 반환
+**bundle.py (Stage 0: 파일 그룹핑)**
+- OBJ → MTL → texture 참조 파싱으로 3D 모델 번들 구성
+- 이미지 세트 (>5장) 자동 그룹핑
+- 3D Tiles (tileset.json) 번들 인식
 
-테스트도 작성해줘 (tests/test_detect.py).
-테스트용 샘플 파일이 없으면 빈 파일이나 최소 헤더를 가진 파일을 fixtures에 만들어.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**detect.py (Stage 1: 유형 판별)**
+- 확장자 매핑 기반 data_category 판별
+- PLY 양면성 처리 (포인트클라우드 vs 3D 모델)
+- GeoTIFF 판별
+- 파노라마 추정
 
 ### 확인 포인트
-- `pytest tests/test_detect.py` 통과
-- .laz → pointcloud, .obj → 3d_model, .tif → orthoimage 등 정상 판별
+- `pytest tests/test_bundle.py tests/test_detect.py` → 33개 테스트 통과
+- `http://localhost:7800/api/test` → 실제 데이터 테스트 페이지에서 확인
 
 ---
 
@@ -84,9 +93,13 @@ CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
 
 docs/autofill_pipeline_spec.md 섹션 4를 읽고, sams-api/sams/pipeline/extract.py를 구현해줘.
 
+bundle.py에서 생성한 번들 정보를 활용해야 함.
+예: OBJ 번들에 포함된 MTL/texture 파일 정보로 has_texture, texture_count, material_count를 결정.
+
 유형별 추출 함수를 만들어:
 - extract_pointcloud(filepath) → dict (laspy 사용)
-- extract_3dmodel(filepath) → dict (trimesh 사용)
+- extract_3dmodel(filepath, bundled_files=None) → dict (trimesh 사용)
+  bundled_files가 있으면 has_texture, texture_count, material_count를 번들에서 결정
 - extract_orthoimage(filepath) → dict (rasterio 사용)
 - extract_image(filepath) → dict (Pillow + piexif 사용)
 - extract_video(filepath) → dict (ffprobe 사용)
@@ -94,12 +107,15 @@ docs/autofill_pipeline_spec.md 섹션 4를 읽고, sams-api/sams/pipeline/extrac
 - extract_document(filepath) → dict (PyPDF 사용)
 
 그리고 dispatch 함수:
-- extract_metadata(filepath, data_category) → dict
-  category에 따라 적절한 함수 호출. 실패 시 빈 dict + 에러 로그.
+- extract_metadata(filepath, data_category, bundled_files=None) → dict
+  category에 따라 적절한 함수 호출. bundled_files는 선택적 인자로 전달.
+  실패 시 빈 dict + 에러 로그.
 
 각 함수에서 추출 가능한 필드와 추출 불가능한 필드를 명세 문서의 표와 대조해줘.
 테스트도 작성 (tests/test_extract.py). 실제 라이브러리 없이도 돌아가는 
 단위 테스트 + 실제 파일이 있을 때 돌아가는 통합 테스트를 분리해줘.
+
+테스트 페이지(http://localhost:7800/api/test)에서 추출된 메타데이터도 확인 가능하도록 업데이트해줘.
 
 완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
 ```
@@ -107,6 +123,7 @@ docs/autofill_pipeline_spec.md 섹션 4를 읽고, sams-api/sams/pipeline/extrac
 ### 확인 포인트
 - `pytest tests/test_extract.py` 통과
 - 실제 LAS/TIFF 파일이 있으면 추출 결과가 명세와 일치하는지 확인
+- `http://localhost:7800/api/test`에서 추출된 메타데이터 확인
 
 ---
 
@@ -145,11 +162,13 @@ Step 5: 파이프라인 통합.
 CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
 
 sams-api/sams/pipeline/__init__.py에 analyze 함수를 구현해줘.
+bundle.py는 이미 구현되어 있으므로, 기존 모듈을 연결하는 것이 핵심.
 
 async def analyze(file_paths: list[str], collection_id: str) -> Manifest:
-    1. 각 파일에 대해 detect → extract → inherit 순서로 실행
-    2. 전체 파일 목록에 대해 suggest로 관계 제안
-    3. 결과를 Manifest 형태로 조합하여 반환
+    1. 파일 목록에 대해 bundle로 그룹핑
+    2. 각 번들/파일에 대해 detect → extract(bundled_files 포함) → inherit 순서로 실행
+    3. 전체 파일 목록에 대해 suggest로 관계 제안
+    4. 결과를 Manifest 형태로 조합하여 반환
 
 Manifest Pydantic 모델은 sams/models/manifest.py에 정의.
 docs/system_architecture.md 섹션 3.2의 /api/upload/analyze 응답 형식을 따라.

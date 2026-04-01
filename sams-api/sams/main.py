@@ -33,6 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 개발용 테스트 라우터 (운영 배포 시 제거)
+from sams.routers.test import router as test_router
+app.include_router(test_router, prefix="/api", tags=["test"])
+
 # TODO: 라우터 등록
 # from sams.routers import upload, collections, items, search, files
 # app.include_router(upload.router, prefix="/api/upload", tags=["upload"])

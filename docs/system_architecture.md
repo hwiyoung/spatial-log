@@ -63,8 +63,6 @@ stac-fastapi는 STAC 표준 엔드포인트만 제공한다. 벌크 업로드, �
 ## 2. docker-compose.yml
 
 ```yaml
-version: "3.9"
-
 services:
   # ── Database ──
   db:
@@ -76,7 +74,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "7432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sams -d samsdb"]
       interval: 5s
@@ -84,7 +82,7 @@ services:
 
   # ── pgSTAC Migration ──
   pgstac-migrate:
-    image: ghcr.io/stac-utils/pgstac:v0.9.1
+    image: python:3.11-slim
     environment:
       PGHOST: db
       PGDATABASE: samsdb
@@ -93,12 +91,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["migrate"]
+    command: >
+      bash -c "
+        pip install --quiet pypgstac[psycopg]==0.9.1 &&
+        pypgstac migrate
+      "
     restart: "no"
 
   # ── STAC API ──
   stac-api:
-    image: ghcr.io/stac-utils/stac-fastapi-pgstac:v3.0.0
+    image: ghcr.io/stac-utils/stac-fastapi-pgstac:latest
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: "8080"
@@ -137,6 +139,7 @@ services:
       - redis
     volumes:
       - upload_tmp:/tmp/uploads
+      - ./sams-api:/app
 
   # ── Worker ──
   worker:
@@ -159,6 +162,7 @@ services:
       - redis
     volumes:
       - upload_tmp:/tmp/uploads
+      - ./sams-api:/app
 
   # ── MinIO (S3) ──
   minio:
@@ -173,6 +177,22 @@ services:
     volumes:
       - miniodata:/data
 
+  # ── MinIO Init (버킷 자동 생성) ──
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb local/sams-archive --ignore-existing;
+      echo 'Bucket sams-archive created';
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+
   # ── Redis ──
   redis:
     image: redis:7-alpine
@@ -186,15 +206,17 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
-    environment:
-      REACT_APP_SAMS_API: /api
-      REACT_APP_STAC_API: /stac
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - sams-api
 
   # ── Nginx ──
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
+      - "7800:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -213,7 +235,9 @@ volumes:
 
 ```bash
 # 환경변수 설정 (.env 파일)
-echo "DB_PASSWORD=your_secure_password" > .env
+# COMPOSE_PROJECT_NAME=sams 가 설정되어 있어 컨테이너명이 sams-* 로 생성됨
+echo "COMPOSE_PROJECT_NAME=sams" > .env
+echo "DB_PASSWORD=your_secure_password" >> .env
 echo "MINIO_ROOT_USER=minioadmin" >> .env
 echo "MINIO_ROOT_PASSWORD=your_minio_password" >> .env
 
