@@ -27,7 +27,7 @@ export default function EntryBalloonPopup({
   onEdit,
   readOnly = false,
 }: EntryBalloonPopupProps) {
-  const { getFileBlob } = useAssetStore()
+  const { getFileBlob, getFileDownloadUrl } = useAssetStore()
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
   const [adjustedPos, setAdjustedPos] = useState(position)
@@ -92,14 +92,32 @@ export default function EntryBalloonPopup({
   const handleDownload = async () => {
     if (!file) return
     try {
+      // file 에셋: Signed URL로 브라우저가 직접 다운로드
+      if (file.assetType === 'file') {
+        const signedUrl = await getFileDownloadUrl(file.id)
+        if (signedUrl) {
+          const a = document.createElement('a')
+          a.href = signedUrl
+          a.download = file.name
+          document.body.appendChild(a)
+          a.click()
+          setTimeout(() => document.body.removeChild(a), 200)
+          return
+        }
+      }
+      // link/note 또는 signed URL 실패 시 blob fallback
       const blob = await getFileBlob(file.id)
       if (blob) {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
         a.download = file.name
+        document.body.appendChild(a)
         a.click()
-        URL.revokeObjectURL(url)
+        setTimeout(() => {
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+        }, 200)
       }
     } catch {
       // ignore

@@ -43,6 +43,9 @@ export const supabase = _supabaseClient
 // 스토리지 버킷 이름
 export const STORAGE_BUCKET = 'spatial-files'
 
+// Anon key (Kong API gateway 직접 접근 시 필요)
+export const SUPABASE_ANON_KEY = supabaseAnonKey ?? ''
+
 // 파일 URL 생성
 export function getPublicFileUrl(path: string): string | null {
   if (!supabase) return null

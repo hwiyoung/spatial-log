@@ -65,6 +65,7 @@ export default function Assets() {
     clearSelection,
     setViewMode,
     getFileBlob,
+    getFileDownloadUrl,
     searchTerm,
     formatFilter,
     statusFilter,
@@ -277,28 +278,46 @@ export default function Assets() {
     }
   }, [noteName, noteBody, selectedFolderId])
 
-  // 파일 다운로드 - Blob을 사용하여 API key 문제 회피
+  // 파일 다운로드 - Signed URL로 브라우저 네이티브 다운로드 (즉시 시작, 진행률 표시)
   const handleDownload = useCallback(async (file: FileMetadata) => {
     try {
-      // 항상 Blob으로 직접 다운로드 (API key 문제 회피)
-      const blob = await getFileBlob(file.id)
-      if (!blob) {
-        alert('파일을 다운로드할 수 없습니다.')
+      // link/note는 작으므로 blob 방식 유지
+      if (file.assetType === 'link' || file.assetType === 'note') {
+        const blob = await getFileBlob(file.id)
+        if (!blob) {
+          alert('파일을 다운로드할 수 없습니다.')
+          return
+        }
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = file.name
+        document.body.appendChild(a)
+        a.click()
+        setTimeout(() => {
+          document.body.removeChild(a)
+          URL.revokeObjectURL(blobUrl)
+        }, 200)
         return
       }
-      const blobUrl = URL.createObjectURL(blob)
+
+      // file 에셋: Signed URL로 브라우저가 직접 다운로드
+      const signedUrl = await getFileDownloadUrl(file.id)
+      if (!signedUrl) {
+        alert('다운로드 URL을 생성할 수 없습니다.')
+        return
+      }
       const a = document.createElement('a')
-      a.href = blobUrl
+      a.href = signedUrl
       a.download = file.name
       document.body.appendChild(a)
       a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(blobUrl)
+      setTimeout(() => document.body.removeChild(a), 200)
     } catch (err) {
       console.error('다운로드 실패:', err)
       alert('파일 다운로드 중 오류가 발생했습니다.')
     }
-  }, [getFileBlob])
+  }, [getFileBlob, getFileDownloadUrl])
 
   // 컨텍스트 메뉴 닫기
   useEffect(() => {

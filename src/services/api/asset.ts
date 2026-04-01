@@ -1,6 +1,6 @@
 // Asset/File CRUD
 
-import { getSupabaseClient, isSupabaseConfigured, STORAGE_BUCKET } from '@/lib/supabase'
+import { getSupabaseClient, isSupabaseConfigured, STORAGE_BUCKET, SUPABASE_ANON_KEY } from '@/lib/supabase'
 import { saveFile, detectFileFormat, getAllFileMetadata, getFilesByFolder, getFile as localGetFile, updateFileMetadata, deleteFile as localDeleteFile, initDB, getFilesByProject as localGetFilesByProject, linkFilesToProject as localLinkFilesToProject, unlinkFilesFromProject as localUnlinkFilesFromProject } from '@/utils/storage'
 import { extractExifFromFile } from '@/utils/exifParser'
 import { CONVERTER_URL } from '@/constants/config'
@@ -553,11 +553,18 @@ export async function getFileUrl(id: string): Promise<string | null> {
 
   if (!fileData.storage_path) return null
 
-  const { data: urlData } = supabase.storage
+  // 비공개 버킷이므로 서명된 URL 사용 (1시간 유효)
+  // download: true → Content-Disposition: attachment 헤더 포함
+  const { data: signedData, error: signedError } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .getPublicUrl(fileData.storage_path)
+    .createSignedUrl(fileData.storage_path, 3600, { download: true })
 
-  return urlData.publicUrl
+  if (signedError || !signedData?.signedUrl) return null
+
+  // Self-hosted Kong 게이트웨이에 apikey 파라미터 추가
+  // (브라우저 직접 접근 시 SDK 헤더가 없으므로 필요)
+  const separator = signedData.signedUrl.includes('?') ? '&' : '?'
+  return `${signedData.signedUrl}${separator}apikey=${SUPABASE_ANON_KEY}`
 }
 
 /**
