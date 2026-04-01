@@ -265,6 +265,31 @@ STAC 표준으로 처리할 수 없는 SAMS 고유 로직.
 | GET | /api/collections/{id}/dashboard | 대시보드 데이터 (예상 vs 실제, Draft 목록, 최근 등록) |
 | GET | /api/collections/{id}/spatial-summary | 공간 현황 요약 (유형별 bbox 목록) |
 
+##### Collection 확장 필드 JSON 스키마
+
+`extent.spatial.bbox`와 `extent.temporal.interval`은 소속 Item으로부터 자동 계산된다.
+
+```json
+{
+  "id": "bulguksa-2024-survey",
+  "title": "2024 경주 불국사 정밀실측",
+  "description": "...",
+  "project:client": "문화재청",
+  "project:site": "경주 불국사",
+  "project:period_start": "2024-03-01",
+  "project:period_end": "2024-06-30",
+  "project:manager": "홍길동",
+  "project:default_epsg": 5186,
+  "expected_deliverables": [
+    {"category": "pointcloud", "count": 3, "description": "다보탑, 석가탑, 대웅전"}
+  ],
+  "status": "active",
+  "license": "CC-BY-4.0",
+  "created": "2024-03-01T10:00:00Z",
+  "updated": "2024-04-15T14:00:00Z"
+}
+```
+
 #### 업로드 + 자동 채움 ⭐
 
 | 메서드 | 경로 | 설명 |
@@ -275,6 +300,7 @@ STAC 표준으로 처리할 수 없는 SAMS 고유 로직.
 | GET | /api/upload/manifest-template/{collection_id} | Collection 기본값이 채워진 빈 매니페스트 템플릿 (Excel). |
 | POST | /api/upload/manifest-import | Excel 매니페스트 업로드 → 파싱 → 검증 결과 반환. |
 | GET | /api/upload/presigned-url | S3 Presigned URL 발급 (대용량 직접 업로드용). |
+| POST | /api/upload/upload-complete | Presigned URL 직접 업로드 완료 통지. upload_id를 받아 S3에 파일 존재 확인 후 분석 시작. |
 
 ##### /api/upload/analyze 상세
 
@@ -292,6 +318,7 @@ Response:
   "manifest": [
     {
       "file_path": "pointcloud/dabotap_scan.laz",
+      "bundled_files": null,
       "detected_category": "pointcloud",
       "category_confidence": 1.0,
       "auto_extracted": {
@@ -323,15 +350,34 @@ Response:
 }
 ```
 
+**번들 파일의 경우**: 0단계 그룹핑으로 묶인 파일은 `file_path`에 대표 파일(예: `.obj`)이, `bundled_files`에 동반 파일 목록이 들어간다.
+
+```json
+{
+  "file_path": "3dmodel/dabotap.obj",
+  "bundled_files": ["3dmodel/dabotap.mtl", "3dmodel/dabotap_diffuse.png"],
+  "detected_category": "3d_model",
+  ...
+}
+```
+
 #### Item 관리
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
+| PUT | /api/items/{id} | Item 메타데이터 수정. properties 업데이트 후 STAC Item PUT 호출. |
 | PUT | /api/items/{id}/status | Draft→Published 전환 (필수 필드 검증 후) |
 | GET | /api/items/{id}/timeline | 같은 target+category의 시점별 Item 목록 |
 | GET | /api/items/{id}/related | 관계 그래프 데이터 (links 양방향 해석) |
 | POST | /api/items/{id}/links | 관계 추가 (양방향 자동 생성) |
 | DELETE | /api/items/{id}/links/{link_index} | 관계 삭제 (양방향 자동 삭제) |
+
+#### 삭제
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| DELETE | /api/items/{id} | Item 삭제. S3 파일 + STAC Item + 양방향 links 정리. |
+| DELETE | /api/collections/{id} | Collection 삭제 (소속 Item이 0건일 때만 가능). |
 
 #### 검색 보조
 

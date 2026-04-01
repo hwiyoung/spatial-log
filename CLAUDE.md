@@ -18,7 +18,7 @@
 |------|------|-------------|
 | 시스템 아키텍처 | `docs/system_architecture.md` | 프로젝트 구조, docker-compose, API 설계, 스토리지 전략 |
 | 자동 채움 파이프라인 | `docs/autofill_pipeline_spec.md` | 파이프라인 구현 시. 유형별 추출 코드, 라이브러리, 실패 처리 |
-| 메타데이터 설계서 | `docs/stac_metadata_design_v4.xlsx` | STAC Item/Collection 필드 정의. 유형별 필드, 필수/선택, 입력 구역(A/B/C) |
+| 메타데이터 설계서 | `docs/stac_metadata_design_v4.md` | STAC Item/Collection 필드 정의. 유형별 필드, 필수/선택, 입력 구역(A/B/C). xlsx를 마크다운으로 변환한 것. |
 | 시스템 구조 설계서 | `docs/system_structure_design.md` | 4페이지 구조, 역할, 요구사항, Phase 계획 |
 | 사용 시나리오 | `docs/system_use_scenarios.md` | 사용자 동선, AS-IS vs TO-BE |
 
