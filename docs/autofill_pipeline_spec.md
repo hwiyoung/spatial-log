@@ -74,6 +74,7 @@
 | **PLY + 텍스처** | 같은 폴더에 `.ply`와 텍스처 파일이 존재하며, 파일명 prefix가 일치 | OBJ와 동일하게 하나의 Item으로 번들 | PLY가 mesh(face 있음)인 경우에만 텍스처 번들링 적용 |
 | **이미지 폴더** | 폴더 내 이미지 파일(`.jpg`/`.jpeg`/`.png`/`.tif`) 수가 5개 초과 | 하나의 image set Item, `image:image_count` 필드에 전체 수 기록 | 대표 이미지 1장의 EXIF를 메타데이터 대표값으로 사용 |
 | **3D Tiles** | 폴더 내에 `tileset.json` 파일 존재 | 폴더 전체를 하나의 3d_tiles Item으로 번들 | 하위의 `.b3dm`/`.pnts`/`.i3dm` 파일은 개별 Asset으로 등록하지 않음 |
+| **동영상 + SRT** | 같은 폴더에 동영상(`.mp4`/`.mov`)과 같은 파일명의 `.srt` 존재 | 하나의 video Item, SRT는 동반 파일 | DJI 드론 SRT에서 프레임별 GPS 추출 → LineString 경로 |
 
 #### 감지 세부 규칙
 
@@ -136,9 +137,9 @@ JPG/PNG의 해상도 비율이 1.8:1 ~ 2.2:1이고 너비가 6000px 이상이면
 
 ## 4. 2단계: 유형별 메타데이터 자동 추출
 
-### 4.1 포인트 클라우드 (LAS/LAZ)
+### 4.1 포인트 클라우드 (LAS/LAZ/E57)
 
-**라이브러리**: laspy (LAS/LAZ), pye57 (E57)
+**라이브러리**: laspy (LAS/LAZ), E57은 XML 헤더 직접 파싱 (pye57는 빌드 의존성이 무거워 불채택)
 
 **추출 가능 필드**:
 
@@ -172,7 +173,8 @@ def extract_pointcloud_metadata(filepath):
     meta = {
         "pc:count": int(h.point_count),
         "pc:encoding": "LAZ" if filepath.lower().endswith('.laz') else "LAS",
-        "pc:schemas": [{"name": d.name, "size": d.size, "type": d.dtype.name}
+        "pc:schemas": [{"name": d.name, "size": d.num_bytes,
+                        "type": d.dtype.name if d.dtype else str(d.kind)}
                        for d in las.point_format.dimensions],
         "pc:has_rgb": any(d.name.lower() in ('red','green','blue') for d in las.point_format.dimensions),
         "pc:has_intensity": any(d.name.lower() == 'intensity' for d in las.point_format.dimensions),
@@ -209,6 +211,20 @@ def extract_pointcloud_metadata(filepath):
 
     return meta
 ```
+
+#### E57 처리
+
+E57(ASTM E2807) 파일은 바이너리 끝부분에 XML 메타데이터 섹션이 있다. 이 XML을 직접 파싱하여 추출:
+- `pc:count`: `<points recordCount="N">` 속성에서 스캔별 합산
+- `pc:schemas`: `<prototype>` 하위 태그(cartesianX, colorRed, intensity 등)에서 수집
+- `pc:has_rgb` / `pc:has_intensity`: schemas에 해당 필드 존재 여부
+- `bbox`: `<cartesianBounds>` 섹션의 xMin/xMax/yMin/yMax/zMin/zMax
+- `pc:density`: bbox 면적으로 계산
+
+**E57 파싱 주의사항**:
+- 파일이 1024바이트 페이지 단위로 구성되고, 각 페이지 끝 4바이트는 CRC — XML 읽기 시 CRC 건너뛰기 필요
+- XML에 네임스페이스(`xmlns`, `nor:` 접두사)와 바이너리 잔여물(제어 문자)이 섞일 수 있음 — 정제 후 파싱
+- `proj:epsg`: E57에서는 추출 불가 (항상 Collection 기본값 적용)
 
 ### 4.2 3D 모델 (OBJ/PLY/FBX/glTF)
 
@@ -320,7 +336,12 @@ def extract_orthoimage_metadata(filepath):
 | geometry | EXIF GPS 좌표 → Point | ~70% | GPS 태그 있을 때만 |
 | file:size | `os.path.getsize()` | 100% |
 
-**이미지 세트 처리**: 폴더 안에 여러 이미지가 있을 때, 첫 번째 이미지의 EXIF를 대표값으로 사용하고, `image:image_count`에 전체 수를 기록한다. geometry는 GPS 태그가 있는 이미지들의 좌표를 모아 ConvexHull로 Polygon을 생성한다.
+**이미지 세트 처리**: bundle.py에서 5장 초과 이미지가 image_set으로 묶이면, extract_image()가 bundled_files를 받아 다음을 처리한다:
+- `image:image_count`: 전체 이미지 수 (primary + bundled)
+- 대표 이미지(primary)의 EXIF를 메타데이터 대표값으로 사용
+- geometry: 모든 이미지에서 GPS 좌표를 수집 → 3점 이상이면 ConvexHull Polygon, 2점이면 LineString, 1점이면 Point
+
+**EXIF 접근 주의사항**: Pillow의 `getexif()`는 IFD0만 반환한다. FocalLength(0x920A), DateTimeOriginal(0x9003) 등은 **ExifIFD 서브 IFD(0x8769)**에 있으므로 `exif.get_ifd(0x8769)`로 별도 접근해야 한다. 특히 DJI 드론 이미지에서 focal_length가 누락되는 원인이 이것이다.
 
 ### 4.5 동영상 (MP4/MOV)
 
@@ -338,8 +359,39 @@ def extract_orthoimage_metadata(filepath):
 | video:audio_codec | `audio_stream.codec_name` | 100% |
 | datetime | 메타데이터 creation_time | ~70% | 장비에 따라 다름 |
 | file:size | `os.path.getsize()` | 100% |
+| geometry | format.tags.location (ISO 6709) | ~60% | DJI/GoPro 등 촬영 시작 위치 |
+| video:has_geotag | location 태그 또는 SRT 존재 | ~60% | |
 
 **ffprobe는 파일 전체를 읽지 않고 헤더만 파싱하므로 수 GB 파일에도 빠르다.**
+
+#### GPS 위치 추출
+
+동영상의 GPS는 두 가지 소스에서 추출한다:
+
+1. **MP4 location 태그**: ffprobe `format.tags.location` (ISO 6709 형식, `+37.5410+127.0460+100.5/`). 촬영 시작 위치 1점 → Point geometry.
+2. **DJI SRT 텔레메트리**: 동반 `.SRT` 파일에서 프레임별 GPS 추출 → LineString 촬영 경로.
+
+SRT가 있으면 SRT가 우선한다 (경로가 시작점보다 유용).
+
+#### DJI SRT 형식
+
+DJI 드론은 동영상과 같은 이름의 `.SRT` 파일을 자동 생성. 프레임마다 GPS/고도/속도 등을 기록:
+
+```
+1
+00:00:00,000 --> 00:00:00,033
+F/2.8, SS 500, ISO 100, GPS (127.0460, 37.5410, 100.5), ...
+```
+
+지원하는 SRT 변종:
+- `GPS (lon, lat, alt)` — Mini/Air 시리즈
+- `[latitude: N] [longitude: N] [altitude: N]` — Mavic/Phantom 시리즈
+- `[latitude : N] [longtitude : N] [rel_alt: N]` — 최신 펌웨어
+
+추출 결과:
+- `geometry`: LineString (중복 좌표 제거된 경로)
+- `video:track_points`: 경로 포인트 수
+- `video:altitude_range`: [최저 고도, 최고 고도]
 
 ```python
 import subprocess, json
@@ -395,18 +447,24 @@ def extract_video_metadata(filepath):
 
 ### 4.7 문서 (PDF/HWP/DOCX)
 
-**라이브러리**: PyPDF (PDF), python-docx (DOCX)
+**라이브러리**: pypdf (PDF), python-docx (DOCX)
 
-| 필드 | 추출 방법 | 정확도 |
-|------|----------|--------|
-| document:format | 확장자 | 100% |
-| document:pages | PDF 페이지 수 | 100% (PDF) |
-| file:size | `os.path.getsize()` | 100% |
-| document:title | PDF metadata Title | ~30% | 대부분 비어있음 |
-| document:authors | PDF metadata Author | ~30% | |
-| datetime | PDF metadata CreationDate | ~50% | |
+| 필드 | 추출 방법 | 정확도 | 비고 |
+|------|----------|--------|------|
+| document:format | 확장자 | 100% | 모든 문서 |
+| document:pages | PDF 페이지 수 | 100% | PDF만 |
+| document:paragraphs | DOCX 단락 수 | 100% | DOCX만 (정확한 페이지 수는 렌더링 없이 불가) |
+| document:title | PDF/DOCX metadata | ~30% | 대부분 비어있음 |
+| document:authors | PDF/DOCX metadata | ~30% | |
+| datetime | PDF CreationDate / DOCX created | ~50% | |
+| file:size | `os.path.getsize()` | 100% | 모든 문서 |
 
 **문서는 자동 추출이 가장 적은 유형이다.** 파일 내부에 의미 있는 메타데이터가 거의 없기 때문이다. document:type, document:title, document:authors, geometry는 모두 사용자 입력에 의존한다.
+
+**포맷별 지원 수준**:
+- **PDF**: pypdf로 페이지 수, 제목, 저자, 생성일 추출
+- **DOCX**: python-docx로 제목, 저자, 생성일 추출 (단락 수는 페이지 수 근사치)
+- **HWP/XLSX/PPTX**: 확장자 + file:size만 (라이브러리 미성숙 또는 불필요)
 
 ---
 
@@ -562,6 +620,8 @@ def extract_video_metadata(filepath):
 | CRS 추출 실패 (LAS 헤더 없음) | Collection default_epsg 적용 + 노란 경고 |
 | EXIF 없는 이미지 | datetime, camera, GPS 필드를 수동으로 전환 |
 | ffprobe 미설치 | 동영상 메타 추출 건너뛰고, 기본 필드(file:size)만 채움 |
+| E57 XML 파싱 실패 (손상/비표준) | file:size + pc:encoding만 반환 |
+| SRT 파싱 실패 (포맷 불일치) | SRT 무시하고 MP4 location 태그로 fallback |
 | 썸네일 생성 실패 | 기본 아이콘 사용. 나중에 수동 업로드 가능. |
 | 메모리 초과 (매우 큰 파일) | 헤더만 읽도록 제한. 전체 파싱하지 않음. |
 
@@ -574,6 +634,7 @@ def extract_video_metadata(filepath):
 | 라이브러리 | 용도 | pip 설치 |
 |-----------|------|---------|
 | laspy | LAS/LAZ 헤더 파싱 | `pip install laspy[lazrs]` |
+| (E57) | E57 XML 헤더 직접 파싱 | 추가 설치 불필요 (표준 라이브러리) |
 | rasterio | GeoTIFF 파싱 | `pip install rasterio` |
 | trimesh | 3D 모델 파싱 | `pip install trimesh` |
 | Pillow | 이미지 EXIF, 리사이즈 | `pip install Pillow` |
@@ -581,6 +642,7 @@ def extract_video_metadata(filepath):
 | open3d | PC/모델 썸네일 렌더링 | `pip install open3d` |
 | ffmpeg/ffprobe | 동영상 메타 추출 | 시스템 패키지 |
 | PyPDF | PDF 메타 추출 | `pip install pypdf` |
+| python-docx | DOCX 메타 추출 | `pip install python-docx` |
 | pdf2image | PDF 썸네일 | `pip install pdf2image` (+ poppler) |
 
 Docker 이미지에 위 패키지를 모두 사전 설치한다. 시스템 아키텍처 문서의 worker 컨테이너에 반영.

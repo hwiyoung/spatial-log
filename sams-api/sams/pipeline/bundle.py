@@ -90,7 +90,20 @@ def bundle_files(file_paths: list[str]) -> list[FileGroup]:
             group_type="image_set",
         ))
 
-    # 5) 나머지: 단독 파일
+    # 5) 동영상 + SRT 번들: 같은 이름의 .srt 파일을 동반 파일로 묶음
+    video_exts = {".mp4", ".mov", ".avi", ".mkv"}
+    for p in paths:
+        if p.suffix.lower() in video_exts and str(p) not in consumed:
+            srt = _find_companion(p, ".srt", paths, consumed)
+            if srt:
+                consumed.update([str(p), str(srt)])
+                groups.append(FileGroup(
+                    primary_file=str(p),
+                    bundled_files=[str(srt)],
+                    group_type="video_bundle",
+                ))
+
+    # 6) 나머지: 단독 파일
     for p in paths:
         if str(p) not in consumed:
             groups.append(FileGroup(primary_file=str(p), group_type="single"))
@@ -235,6 +248,18 @@ def _ply_has_faces(path: Path) -> bool:
         return "element face" in header
     except OSError:
         return False
+
+
+def _find_companion(primary: Path, ext: str, all_paths: list[Path], consumed: set[str]) -> Path | None:
+    """primary와 같은 stem, 다른 확장자를 가진 동반 파일을 찾는다."""
+    stem_lower = primary.stem.lower()
+    ext_lower = ext.lower()
+    for p in all_paths:
+        if str(p) in consumed or p == primary:
+            continue
+        if p.suffix.lower() == ext_lower and p.stem.lower() == stem_lower:
+            return p
+    return None
 
 
 def _is_under(path: Path, folder: Path) -> bool:

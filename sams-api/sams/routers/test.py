@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from sams.pipeline.detect import detect_category
 from sams.pipeline.bundle import bundle_files
+from sams.pipeline.extract import extract_metadata
 
 router = APIRouter()
 
@@ -54,7 +55,7 @@ async def test_detect_batch(files: list[UploadFile] = File(...)):
         # 2) 번들링
         groups = bundle_files(list(saved.keys()))
 
-        # 3) 각 그룹의 primary_file에 대해 유형 판별
+        # 3) 각 그룹의 primary_file에 대해 유형 판별 + 메타데이터 추출
         bundle_results = []
         for group in groups:
             primary = group.primary_file
@@ -66,6 +67,13 @@ async def test_detect_batch(files: list[UploadFile] = File(...)):
                 bi = saved.get(bf, {"filename": Path(bf).name, "size_bytes": 0})
                 bundled_info.append(bi)
 
+            # 메타데이터 추출
+            extracted = extract_metadata(
+                primary,
+                result.category,
+                bundled_files=group.bundled_files if group.bundled_files else None,
+            )
+
             bundle_results.append({
                 "filename": info["filename"],
                 "size_bytes": info["size_bytes"],
@@ -74,6 +82,7 @@ async def test_detect_batch(files: list[UploadFile] = File(...)):
                 "warning": result.warning,
                 "group_type": group.group_type,
                 "bundled_files": [b["filename"] for b in bundled_info],
+                "extracted_metadata": extracted,
             })
 
         return {"results": bundle_results, "total": len(bundle_results)}
@@ -113,12 +122,18 @@ async def test_page():
   .loading{text-align:center;padding:20px;color:var(--t3);font-size:12px;}
   .summary{padding:12px 16px;background:var(--s2);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--t2);}
   .summary b{color:var(--t1);}
+  .meta-toggle{font-size:10px;color:var(--ac);cursor:pointer;margin-left:8px;text-decoration:underline;}
+  .meta-panel{display:none;margin-top:8px;padding:10px 12px;background:var(--s2);border:1px solid var(--bd);border-radius:6px;font-size:11px;font-family:'Fira Code',monospace;line-height:1.6;}
+  .meta-panel.open{display:block;}
+  .meta-key{color:var(--ac);font-weight:600;}
+  .meta-val{color:var(--t1);}
+  .meta-src{font-size:9px;color:var(--t3);margin-left:4px;}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>SAMS 파일 유형 판별 테스트</h1>
-  <p class="sub">파일을 드래그하거나 클릭하여 업로드하면 자동 채움 파이프라인의 0단계(그룹핑) + 1단계(유형 판별) 결과를 확인합니다.</p>
+  <h1>SAMS 자동 채움 파이프라인 테스트</h1>
+  <p class="sub">파일을 드래그하거나 클릭하여 업로드하면 0단계(그룹핑) + 1단계(유형 판별) + 2단계(메타데이터 추출) 결과를 확인합니다.</p>
 
   <div class="dropzone" id="dropzone">
     <p>파일을 여기에 드래그하세요</p>
@@ -193,7 +208,7 @@ async function upload(files){
     // items
     const GT={single:"단독","3d_model_bundle":"3D모델 번들",image_set:"이미지 세트","3d_tiles":"3D Tiles"};
     const GC={single:"var(--t3)","3d_model_bundle":"#6AAF50",image_set:"#35A5E0","3d_tiles":"#50AAAF"};
-    data.results.forEach(r=>{
+    data.results.forEach((r,idx)=>{
       const c=CATS[r.detected_category]||CATS.unknown;
       const warn=r.warning?`<div class="result-warn">\\u26A0 ${r.warning}</div>`:"";
       const gtLabel=GT[r.group_type]||r.group_type;
@@ -204,13 +219,26 @@ async function upload(files){
       const gtBadge=r.group_type!=="single"
         ?`<span style="padding:2px 6px;border-radius:3px;font-size:9px;background:${gtColor}18;color:${gtColor};margin-left:6px;">${gtLabel}</span>`
         :"";
+      const metaId=`meta-${idx}`;
+      const meta=r.extracted_metadata||{};
+      const metaKeys=Object.keys(meta).filter(k=>!k.startsWith('_'));
+      const metaCount=metaKeys.length;
+      const metaHtml=metaKeys.map(k=>{
+        let v=meta[k];
+        if(typeof v==='object'&&v!==null)v=JSON.stringify(v);
+        return `<div><span class="meta-key">${k}</span>: <span class="meta-val">${v===null?'<em style="color:var(--t3)">null</em>':v}</span></div>`;
+      }).join('');
+      const srcInfo=meta._epsg_source?` · EPSG source: ${meta._epsg_source}`:'';
       resDiv.innerHTML+=`
         <div class="result-item" style="flex-wrap:wrap;">
           <div class="result-icon" style="background:${c.color}18;color:${c.color}">${c.icon}</div>
           <div class="result-body">
-            <div class="result-name">${r.filename}${gtBadge}</div>
-            <div class="result-meta">${formatSize(r.size_bytes)} · confidence: ${(r.confidence*100).toFixed(0)}%</div>
+            <div class="result-name">${r.filename}${gtBadge}
+              ${metaCount>0?`<span class="meta-toggle" onclick="document.getElementById('${metaId}').classList.toggle('open')">\\u25B6 메타데이터 (${metaCount})</span>`:''}
+            </div>
+            <div class="result-meta">${formatSize(r.size_bytes)} · confidence: ${(r.confidence*100).toFixed(0)}%${srcInfo}</div>
             ${warn}${bundled}
+            <div id="${metaId}" class="meta-panel">${metaHtml||'<em style="color:var(--t3)">추출된 메타데이터 없음</em>'}</div>
           </div>
           <div class="result-cat" style="background:${c.color}18;color:${c.color}">${c.label}</div>
         </div>`;

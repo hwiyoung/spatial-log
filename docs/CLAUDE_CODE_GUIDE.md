@@ -71,6 +71,7 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 - OBJ → MTL → texture 참조 파싱으로 3D 모델 번들 구성
 - 이미지 세트 (>5장) 자동 그룹핑
 - 3D Tiles (tileset.json) 번들 인식
+- 동영상 + SRT 텔레메트리 번들 (같은 파일명 매칭)
 
 **detect.py (Stage 1: 유형 판별)**
 - 확장자 매핑 기반 data_category 판별
@@ -84,46 +85,31 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 3: 자동 채움 파이프라인 — extract.py
+## Step 3: 자동 채움 파이프라인 — extract.py (COMPLETED)
 
-### 프롬프트
-```
-Step 3: 자동 채움 파이프라인의 extract.py 구현.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/autofill_pipeline_spec.md 섹션 4를 읽고, sams-api/sams/pipeline/extract.py를 구현해줘.
+### 구현 내용
 
-bundle.py에서 생성한 번들 정보를 활용해야 함.
-예: OBJ 번들에 포함된 MTL/texture 파일 정보로 has_texture, texture_count, material_count를 결정.
-
-유형별 추출 함수를 만들어:
-- extract_pointcloud(filepath) → dict (laspy 사용)
-- extract_3dmodel(filepath, bundled_files=None) → dict (trimesh 사용)
-  bundled_files가 있으면 has_texture, texture_count, material_count를 번들에서 결정
-- extract_orthoimage(filepath) → dict (rasterio 사용)
-- extract_image(filepath) → dict (Pillow + piexif 사용)
-- extract_video(filepath) → dict (ffprobe 사용)
-- extract_panorama(filepath) → dict (Pillow 사용)
-- extract_document(filepath) → dict (PyPDF 사용)
-
-그리고 dispatch 함수:
-- extract_metadata(filepath, data_category, bundled_files=None) → dict
-  category에 따라 적절한 함수 호출. bundled_files는 선택적 인자로 전달.
-  실패 시 빈 dict + 에러 로그.
-
-각 함수에서 추출 가능한 필드와 추출 불가능한 필드를 명세 문서의 표와 대조해줘.
-테스트도 작성 (tests/test_extract.py). 실제 라이브러리 없이도 돌아가는 
-단위 테스트 + 실제 파일이 있을 때 돌아가는 통합 테스트를 분리해줘.
-
-테스트 페이지(http://localhost:7800/api/test)에서 추출된 메타데이터도 확인 가능하도록 업데이트해줘.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**extract.py (Stage 2: 유형별 메타데이터 추출)**
+- `extract_metadata()`: 디스패치 함수 (category별 적절한 추출기 호출, bundled_files 전달)
+- `extract_pointcloud()`: LAS/LAZ(laspy) + E57(XML 헤더 파싱) — point count, bbox, CRS, schemas, density
+- `extract_3dmodel()`: OBJ/PLY/FBX/glTF — trimesh로 vertex/face count, bounding volume, 번들 기반 텍스처 정보
+- `extract_3dtiles()`: tileset.json 파싱 — version, geometric_error, tile_format, region→bbox
+- `extract_orthoimage()`: GeoTIFF — rasterio로 CRS, shape, GSD, bands, bbox
+- `extract_image()`: JPG/PNG — Pillow EXIF(IFD0 + ExifIFD)로 카메라, focal_length, GPS, 촬영 시간
+  - 이미지 세트: bundled_files → image:image_count + GPS ConvexHull → Polygon geometry
+- `extract_panorama()`: 비율 기반 equirectangular 추정 + EXIF
+- `extract_video()`: ffprobe로 codec, resolution, fps, duration, audio + ISO 6709 GPS
+  - DJI SRT 텔레메트리: 프레임별 GPS → LineString 촬영 경로 + 고도 범위
+- `extract_document()`: PDF(pypdf) 페이지/제목/저자 + DOCX(python-docx) 제목/저자/생성일
+- `_read_exif()`: image/panorama 공통 EXIF 헬퍼 (ExifIFD 서브 IFD 접근)
+- Graceful degradation: 라이브러리 미설치/파일 손상 시에도 file:size 반환
 
 ### 확인 포인트
-- `pytest tests/test_extract.py` 통과
-- 실제 LAS/TIFF 파일이 있으면 추출 결과가 명세와 일치하는지 확인
-- `http://localhost:7800/api/test`에서 추출된 메타데이터 확인
+- `pytest tests/ -m "not integration"` → 82개 통과 (+ 1 skipped: pypdf 로컬 미설치)
+- `http://localhost:7800/api/test`에서 추출된 메타데이터 확인 (접기/펼치기 UI)
+- 실제 파일 검증: DJI 이미지(focal_length, GPS), E57(28M points, 13 fields), LAS(schemas, bbox)
 
 ---
 
