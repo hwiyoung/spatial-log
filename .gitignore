@@ -17,6 +17,9 @@ miniodata/
 .vscode/
 .idea/
 
+# Claude Code
+.claude/
+
 # Environment
 .env
 
