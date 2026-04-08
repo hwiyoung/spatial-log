@@ -131,20 +131,21 @@ Claude Code:
 
 아래 순서대로 진행한다. 각 단계가 완료되면 다음 단계로 넘어간다.
 
-### Step 1: 인프라 기동
+### Step 1: 인프라 기동 ✅
 - docker-compose.yml로 DB + pgSTAC + STAC API + MinIO + Redis 기동
 - `docker-compose up -d` 후 STAC API (`http://localhost:8080/`)가 응답하는지 확인
 - MinIO 버킷(`sams-archive`) 생성
 - 참조: `docs/system_architecture.md` 섹션 2
 
-### Step 2: 자동 채움 파이프라인 ⭐ (최우선)
+### Step 2: 자동 채움 파이프라인 ⭐ (최우선) — 진행 중
 - `sams-api/sams/pipeline/` 디렉토리에 구현
-- bundle.py: 파일 그룹핑 (OBJ 참조 파싱, 이미지 세트, 3D Tiles)
-- detect.py: 파일 유형 자동 판별
-- extract.py: 유형별 메타데이터 추출 (laspy, rasterio, trimesh, ffprobe, Pillow, PyPDF)
-- inherit.py: Collection 기본값 상속
-- suggest.py: 관계 자동 제안
-- thumbnail.py: 썸네일 생성 (비동기)
+- ✅ bundle.py: 파일 그룹핑 (OBJ 참조 파싱, 이미지 세트, 3D Tiles)
+- ✅ detect.py: 파일 유형 자동 판별
+- ✅ extract.py: 유형별 메타데이터 추출 (laspy, rasterio, trimesh, ffprobe, Pillow, PyPDF)
+- ✅ inherit.py: Collection 기본값 상속
+- ✅ suggest.py: 관계 자동 제안
+- ⬜ thumbnail.py: 썸네일 생성 (비동기) — Step 5(Worker)에서 구현 예정
+- ⬜ `analyze()` 통합 함수: 위 모듈들을 연결하는 진입점 — 다음 단계
 - 참조: `docs/autofill_pipeline_spec.md` (전체)
 - 테스트: `tests/fixtures/`의 샘플 파일로 각 유형 추출 결과 확인
 - 개발용 테스트 페이지: `http://localhost:7800/api/test` (파이프라인 결과 실데이터 확인용)

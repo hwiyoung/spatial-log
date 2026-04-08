@@ -113,30 +113,30 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 4: 자동 채움 파이프라인 — inherit.py + suggest.py
+## Step 4: 자동 채움 파이프라인 — inherit.py + suggest.py (COMPLETED)
 
-### 프롬프트
-```
-Step 4: 파이프라인의 inherit.py와 suggest.py 구현.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/autofill_pipeline_spec.md 섹션 5, 6을 읽고 구현해줘.
+### 구현 내용
 
-inherit.py:
-- apply_collection_defaults(extracted_meta, collection) → merged_meta
+**inherit.py (Stage 3: Collection 기본값 상속)**
+- `apply_collection_defaults(extracted_meta, collection_defaults)` → merged dict
 - 우선순위: 파일 추출값 > Collection 기본값 > 빈 칸
-- Collection에서 상속하는 필드: project:name, project:site, proj:epsg (추출값 없을 때), license
+- 상속 필드: title→project:name, project:site, project:default_epsg→proj:epsg, license, id→collection
+- `_sources` dict로 각 값의 출처 추적 ("file", "collection_default")
 
-suggest.py:
-- suggest_links(files_in_batch, existing_items) → list[suggested_link]
-- 파일명 공통 키워드로 같은 target 추정
-- 유형 계보 추론 (PC → 3D Model → 3D Tiles)
-- 각 제안에 confidence 값 포함
+**suggest.py (Stage 4: 관계 자동 제안)**
+- `suggest_links(items: list[BatchItem])` → list[SuggestedLink]
+- target 매칭: 사용자 입력 > 파일명 키워드 추출 > 상위 폴더명
+- 파일명 키워드 추출: 숫자/유형 접미사(scan, model, ortho, flight 등) 제거 후 공통 부분
+- 유형 계보: PC→3D Model, Image→3D Model, 3D Model→3D Tiles (derived_from, 70%)
+- 같은 target 다른 유형: related (80%)
+- document→나머지: describedby (50%)
+- 중복 제거 + confidence 내림차순 정렬
 
-테스트도 작성.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+### 확인 포인트
+- `pytest tests/test_inherit.py tests/test_suggest.py -v` → 38개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 120개 통과 (기존 테스트 영향 없음)
 
 ---
 
