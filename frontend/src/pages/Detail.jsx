@@ -235,7 +235,10 @@ function FilesTab({ assets }) {
 function RelationsTab({ related, collectionId, itemId, onRefresh }) {
   const navigate = useNavigate()
   const [showAdd, setShowAdd] = useState(false)
-  const [addForm, setAddForm] = useState({ rel: 'related', target_item_id: '' })
+  const [rel, setRel] = useState('related')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [selectedTarget, setSelectedTarget] = useState(null)
   const [adding, setAdding] = useState(false)
 
   const relColors = {
@@ -244,17 +247,34 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
     prev: '#9055C8', next: '#9055C8',
   }
 
+  // 검색 (같은 Collection 내 Item, 자기 자신 제외)
+  useEffect(() => {
+    if (!showAdd) return
+    const timer = setTimeout(async () => {
+      try {
+        const { searchApi } = await import('../services/api')
+        const params = { collections: [collectionId], limit: 20 }
+        if (searchQuery.trim()) params.q = searchQuery.trim()
+        const res = await searchApi.search(params)
+        const items = (res.data?.features || []).filter(f => f.id !== itemId)
+        setSearchResults(items)
+      } catch { setSearchResults([]) }
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [searchQuery, showAdd, collectionId, itemId])
+
   async function handleAddLink() {
-    if (!addForm.target_item_id.trim()) return
+    if (!selectedTarget) return
     setAdding(true)
     try {
       await itemApi.addLink(`${collectionId}/${itemId}`, {
-        rel: addForm.rel,
+        rel,
         target_collection_id: collectionId,
-        target_item_id: addForm.target_item_id.trim(),
+        target_item_id: selectedTarget.id,
       })
       setShowAdd(false)
-      setAddForm({ rel: 'related', target_item_id: '' })
+      setSelectedTarget(null)
+      setSearchQuery('')
       if (onRefresh) onRefresh()
     } catch (err) {
       alert('관계 추가 실패: ' + (err.response?.data?.detail || err.message))
@@ -275,7 +295,7 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
 
   return (
     <div>
-      {/* 관계 추가 버튼 */}
+      {/* 관계 추가 */}
       <div style={{ marginBottom: 12 }}>
         {!showAdd ? (
           <button onClick={() => setShowAdd(true)} style={{
@@ -287,45 +307,98 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
         ) : (
           <div style={{
             padding: 14, background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--ac)',
-            display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap',
           }}>
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>관계 유형</div>
-              <select
-                value={addForm.rel}
-                onChange={e => setAddForm(prev => ({ ...prev, rel: e.target.value }))}
-                style={{
-                  padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
-                  background: 'var(--s2)', color: 'var(--t1)', fontSize: 13,
-                }}
-              >
-                <option value="related">related</option>
-                <option value="derived_from">derived_from</option>
-                <option value="describedby">describedby</option>
-                <option value="prev">prev</option>
-                <option value="next">next</option>
-              </select>
+            {/* 관계 유형 */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>관계 유형</div>
+                <select
+                  value={rel}
+                  onChange={e => setRel(e.target.value)}
+                  style={{
+                    padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
+                    background: 'var(--s2)', color: 'var(--t1)', fontSize: 13,
+                  }}
+                >
+                  <option value="related">related (관련)</option>
+                  <option value="derived_from">derived_from (파생 원본)</option>
+                  <option value="describedby">describedby (설명 문서)</option>
+                  <option value="prev">prev (이전 시점)</option>
+                  <option value="next">next (다음 시점)</option>
+                </select>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+                <button onClick={handleAddLink} disabled={adding || !selectedTarget} style={{
+                  padding: '6px 14px', borderRadius: 4, border: 'none',
+                  background: selectedTarget ? 'var(--ac)' : 'var(--bd)',
+                  color: '#fff', fontSize: 13, cursor: selectedTarget ? 'pointer' : 'default',
+                }}>{adding ? '추가 중...' : '추가'}</button>
+                <button onClick={() => { setShowAdd(false); setSelectedTarget(null); setSearchQuery('') }} style={{
+                  padding: '6px 14px', borderRadius: 4, border: '1px solid var(--bd)',
+                  background: 'transparent', color: 'var(--t3)', fontSize: 13, cursor: 'pointer',
+                }}>취소</button>
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>대상 Item ID</div>
-              <input
-                value={addForm.target_item_id}
-                onChange={e => setAddForm(prev => ({ ...prev, target_item_id: e.target.value }))}
-                placeholder="예: bg-dabotap-3d-20240315"
-                style={{
-                  width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
-                  background: 'var(--s2)', color: 'var(--t1)', fontSize: 13, outline: 'none',
-                }}
-              />
+
+            {/* 선택된 대상 표시 */}
+            {selectedTarget && (
+              <div style={{
+                padding: '8px 12px', background: 'rgba(74,114,255,0.06)', border: '1px solid var(--ac)',
+                borderRadius: 6, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span style={{ fontSize: 13, color: 'var(--ac)' }}>
+                  {getCategoryInfo(selectedTarget.properties?.data_category).icon}
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--t1)', flex: 1 }}>
+                  {selectedTarget.properties?.description || selectedTarget.id}
+                </span>
+                <span onClick={() => setSelectedTarget(null)} style={{ color: 'var(--t3)', cursor: 'pointer', fontSize: 12 }}>✕</span>
+              </div>
+            )}
+
+            {/* Item 검색 */}
+            <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>대상 Item 검색</div>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="키워드로 검색... (비워두면 전체 표시)"
+              style={{
+                width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
+                background: 'var(--s2)', color: 'var(--t1)', fontSize: 13, outline: 'none',
+                marginBottom: 6,
+              }}
+            />
+            <div style={{
+              maxHeight: 200, overflow: 'auto', borderRadius: 6,
+              border: '1px solid var(--bd)', background: 'var(--s2)',
+            }}>
+              {searchResults.map(item => {
+                const p = item.properties || {}
+                const cat = getCategoryInfo(p.data_category)
+                const isSelected = selectedTarget?.id === item.id
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedTarget(item)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '6px 10px', cursor: 'pointer',
+                      background: isSelected ? 'rgba(74,114,255,0.08)' : 'transparent',
+                      borderBottom: '1px solid var(--bd)',
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: cat.color }}>{cat.icon}</span>
+                    <span style={{ fontSize: 13, color: 'var(--t1)', flex: 1 }}>{p.description || item.id}</span>
+                    <span style={{ fontSize: 11, color: 'var(--t3)' }}>{cat.label}</span>
+                  </div>
+                )
+              })}
+              {searchResults.length === 0 && (
+                <div style={{ padding: 12, textAlign: 'center', color: 'var(--t3)', fontSize: 12 }}>
+                  검색 결과 없음
+                </div>
+              )}
             </div>
-            <button onClick={handleAddLink} disabled={adding} style={{
-              padding: '6px 14px', borderRadius: 4, border: 'none',
-              background: 'var(--ac)', color: '#fff', fontSize: 13, cursor: 'pointer',
-            }}>{adding ? '추가 중...' : '추가'}</button>
-            <button onClick={() => setShowAdd(false)} style={{
-              padding: '6px 14px', borderRadius: 4, border: '1px solid var(--bd)',
-              background: 'transparent', color: 'var(--t3)', fontSize: 13, cursor: 'pointer',
-            }}>취소</button>
           </div>
         )}
       </div>
