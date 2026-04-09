@@ -126,7 +126,7 @@ export default function Explorer() {
             <div style={{
               position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
               padding: '4px 12px', background: 'var(--s1)', borderRadius: 4,
-              fontSize: 11, color: 'var(--t2)', border: '1px solid var(--bd)',
+              fontSize: 13, color: 'var(--t2)', border: '1px solid var(--bd)',
             }}>
               검색 중...
             </div>

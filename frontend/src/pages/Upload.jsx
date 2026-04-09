@@ -17,7 +17,7 @@ export default function Upload() {
   return (
     <div style={{ height: '100%', overflow: 'auto', background: 'var(--bg)' }}>
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px 24px' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--t1)', marginBottom: 16 }}>데이터 업로드</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', marginBottom: 16 }}>데이터 업로드</div>
 
         {/* 모드 탭 */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 20 }}>
@@ -29,7 +29,7 @@ export default function Upload() {
               key={t.id}
               onClick={() => setMode(t.id)}
               style={{
-                padding: '8px 20px', borderRadius: '8px 8px 0 0', cursor: 'pointer', fontSize: 12,
+                padding: '8px 20px', borderRadius: '8px 8px 0 0', cursor: 'pointer', fontSize: 14,
                 background: mode === t.id ? 'var(--s1)' : 'transparent',
                 color: mode === t.id ? 'var(--ac)' : 'var(--t3)',
                 border: mode === t.id ? '1px solid var(--bd)' : '1px solid transparent',
@@ -129,7 +129,7 @@ function BulkUpload() {
               onChange={e => setSelectedCollection(e.target.value)}
               style={{
                 width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--bd)',
-                background: 'var(--s2)', color: 'var(--t1)', fontSize: 12,
+                background: 'var(--s2)', color: 'var(--t1)', fontSize: 14,
               }}
             >
               <option value="">Collection을 선택하세요 (선택사항)</option>
@@ -147,7 +147,7 @@ function BulkUpload() {
             style={{
               marginTop: 16, padding: '10px 24px', borderRadius: 6, border: 'none',
               background: files.length ? 'var(--ac)' : 'var(--bd)',
-              color: '#fff', fontSize: 13, fontWeight: 600, cursor: files.length ? 'pointer' : 'default',
+              color: '#fff', fontSize: 15, fontWeight: 600, cursor: files.length ? 'pointer' : 'default',
               opacity: analyzing ? 0.5 : 1,
             }}
           >
@@ -160,7 +160,7 @@ function BulkUpload() {
         <div>
           {/* 요약 */}
           <div style={{
-            padding: 12, background: 'var(--s2)', borderRadius: 8, marginBottom: 14, fontSize: 11, color: 'var(--t2)',
+            padding: 12, background: 'var(--s2)', borderRadius: 8, marginBottom: 14, fontSize: 13, color: 'var(--t2)',
           }}>
             전체 <b style={{ color: 'var(--t1)' }}>{manifest.summary.total_files}</b>개 Item
             {' · '}자동 채움: <b style={{ color: 'var(--ac)' }}>{manifest.summary.auto_filled_percentage}%</b>
@@ -177,11 +177,11 @@ function BulkUpload() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setStep(1)} style={{
               padding: '8px 16px', borderRadius: 6, border: '1px solid var(--bd)',
-              background: 'transparent', color: 'var(--t2)', fontSize: 12, cursor: 'pointer',
+              background: 'transparent', color: 'var(--t2)', fontSize: 14, cursor: 'pointer',
             }}>← 이전</button>
             <button onClick={handleRegister} disabled={registering} style={{
               padding: '8px 20px', borderRadius: 6, border: 'none',
-              background: 'var(--ac)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: 'var(--ac)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
               opacity: registering ? 0.5 : 1,
             }}>{registering ? '등록 중...' : 'Draft로 등록'}</button>
           </div>
@@ -191,18 +191,18 @@ function BulkUpload() {
       {step === 3 && (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', marginBottom: 8 }}>등록 완료</div>
-          <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--t1)', marginBottom: 8 }}>등록 완료</div>
+          <div style={{ fontSize: 14, color: 'var(--t3)', marginBottom: 20 }}>
             Draft 상태로 등록되었습니다. Project 페이지에서 확인하고 Published로 전환하세요.
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
             <button onClick={() => navigate('/project')} style={{
               padding: '8px 20px', borderRadius: 6, border: 'none',
-              background: 'var(--ac)', color: '#fff', fontSize: 12, cursor: 'pointer',
+              background: 'var(--ac)', color: '#fff', fontSize: 14, cursor: 'pointer',
             }}>Project로 이동</button>
             <button onClick={() => { setStep(1); setFiles([]); setManifest(null) }} style={{
               padding: '8px 20px', borderRadius: 6, border: '1px solid var(--bd)',
-              background: 'transparent', color: 'var(--t2)', fontSize: 12, cursor: 'pointer',
+              background: 'transparent', color: 'var(--t2)', fontSize: 14, cursor: 'pointer',
             }}>추가 업로드</button>
           </div>
         </div>
@@ -256,7 +256,7 @@ function SingleUpload() {
           onChange={e => setSelectedCollection(e.target.value)}
           style={{
             width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--bd)',
-            background: 'var(--s2)', color: 'var(--t1)', fontSize: 12,
+            background: 'var(--s2)', color: 'var(--t1)', fontSize: 14,
           }}
         >
           <option value="">Collection을 선택하세요 (선택사항)</option>
@@ -270,7 +270,7 @@ function SingleUpload() {
       {file && !result && (
         <button onClick={handleAnalyze} disabled={analyzing} style={{
           marginTop: 16, padding: '10px 24px', borderRadius: 6, border: 'none',
-          background: 'var(--ac)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+          background: 'var(--ac)', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
           opacity: analyzing ? 0.5 : 1,
         }}>{analyzing ? '분석 중...' : '분석'}</button>
       )}
@@ -279,7 +279,7 @@ function SingleUpload() {
       {result && result.manifest?.[0] && (
         <div style={{ marginTop: 16 }}>
           <ManifestRow item={result.manifest[0]} index={0} expanded />
-          <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 12 }}>
+          <div style={{ fontSize: 13, color: 'var(--t3)', marginTop: 12 }}>
             매니페스트를 확인한 후 벌크 업로드에서 등록하거나, 직접 API를 호출하여 등록할 수 있습니다.
           </div>
         </div>
@@ -322,10 +322,10 @@ function Dropzone({ files, onFilesChange, single }) {
           background: over ? 'rgba(74,114,255,0.03)' : 'transparent',
         }}
       >
-        <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 4 }}>
+        <div style={{ fontSize: 15, color: 'var(--t2)', marginBottom: 4 }}>
           파일을 여기에 드래그하세요
         </div>
-        <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+        <div style={{ fontSize: 13, color: 'var(--t3)' }}>
           또는 클릭하여 선택 {single ? '(파일 1개)' : '(여러 파일 가능)'}
         </div>
       </div>
@@ -343,7 +343,7 @@ function Dropzone({ files, onFilesChange, single }) {
           {files.map((f, i) => (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px',
-              fontSize: 11, color: 'var(--t2)',
+              fontSize: 13, color: 'var(--t2)',
             }}>
               <span>📄</span>
               <span style={{ flex: 1 }}>{f.name}</span>
@@ -366,35 +366,35 @@ function ManifestRow({ item, index, expanded: defaultExpanded }) {
       border: '1px solid var(--bd)', marginBottom: 6,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 14, color: cat.color }}>{cat.icon}</span>
-        <span style={{ flex: 1, fontSize: 12, color: 'var(--t1)' }}>{item.file_path}</span>
+        <span style={{ fontSize: 16, color: cat.color }}>{cat.icon}</span>
+        <span style={{ flex: 1, fontSize: 14, color: 'var(--t1)' }}>{item.file_path}</span>
         <span style={{
-          padding: '2px 8px', borderRadius: 4, fontSize: 9, fontWeight: 600,
+          padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
           background: cat.color + '12', color: cat.color,
         }}>{cat.label} ({(item.category_confidence * 100).toFixed(0)}%)</span>
         <span
           onClick={() => setExpanded(!expanded)}
-          style={{ fontSize: 10, color: 'var(--ac)', cursor: 'pointer' }}
+          style={{ fontSize: 12, color: 'var(--ac)', cursor: 'pointer' }}
         >{expanded ? '▼ 접기' : '▶ 상세'}</span>
       </div>
 
       {/* 필수 빈 필드 */}
       {item.required_empty?.length > 0 && (
-        <div style={{ fontSize: 10, color: 'var(--err)', marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: 'var(--err)', marginTop: 4 }}>
           ⚠ 수동 입력 필요: {item.required_empty.join(', ')}
         </div>
       )}
 
       {/* 관계 제안 */}
       {item.suggested_links?.length > 0 && (
-        <div style={{ fontSize: 10, color: 'var(--t2)', marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: 'var(--t2)', marginTop: 4 }}>
           🔗 관계 제안: {item.suggested_links.map(l => `${l.rel} → ${l.target_file.split('/').pop()}`).join(', ')}
         </div>
       )}
 
       {/* 확장: 추출 메타데이터 */}
       {expanded && (
-        <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--s1)', borderRadius: 6, fontSize: 10 }}>
+        <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--s1)', borderRadius: 6, fontSize: 12 }}>
           {Object.entries(item.auto_extracted || {}).map(([key, val]) => (
             <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
               <span style={{ color: 'var(--ac)' }}>{key}</span>
@@ -429,13 +429,13 @@ function StepIndicator({ current, steps }) {
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{
               width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, fontWeight: 600,
+              fontSize: 12, fontWeight: 600,
               background: isDone ? 'var(--ok)' : isActive ? 'var(--ac)' : 'var(--s2)',
               color: isDone || isActive ? '#fff' : 'var(--t3)',
             }}>
               {isDone ? '✓' : num}
             </div>
-            <span style={{ fontSize: 11, color: isActive ? 'var(--ac)' : 'var(--t3)' }}>{label}</span>
+            <span style={{ fontSize: 13, color: isActive ? 'var(--ac)' : 'var(--t3)' }}>{label}</span>
             {i < steps.length - 1 && <div style={{ width: 30, height: 1, background: 'var(--bd)' }} />}
           </div>
         )
@@ -445,7 +445,7 @@ function StepIndicator({ current, steps }) {
 }
 
 function Label({ children }) {
-  return <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 4 }}>{children}</div>
+  return <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 4 }}>{children}</div>
 }
 
 function flattenExtracted(obj) {

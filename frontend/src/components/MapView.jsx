@@ -67,7 +67,7 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
       el.style.cssText = `
         width: 24px; height: 24px; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
-        font-size: 12px; cursor: pointer;
+        font-size: 14px; cursor: pointer;
         background: ${cat.color}30;
         border: 2px solid ${cat.color};
         color: ${cat.color};

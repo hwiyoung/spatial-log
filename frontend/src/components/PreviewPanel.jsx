@@ -25,14 +25,14 @@ export default function PreviewPanel({ item, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <span style={{
-          padding: '2px 10px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+          padding: '2px 10px', borderRadius: 4, fontSize: 12, fontWeight: 600,
           background: cat.color + '12', color: cat.color,
         }}>
           {cat.icon} {cat.label}
         </span>
         <span
           onClick={onClose}
-          style={{ fontSize: 14, color: 'var(--t3)', cursor: 'pointer' }}
+          style={{ fontSize: 16, color: 'var(--t3)', cursor: 'pointer' }}
         >
           ✕
         </span>
@@ -51,7 +51,7 @@ export default function PreviewPanel({ item, onClose }) {
         </div>
 
         {/* 제목 */}
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
           {props.description || item.id}
         </div>
 
@@ -84,7 +84,7 @@ export default function PreviewPanel({ item, onClose }) {
           <div style={{
             padding: '8px 12px', background: 'var(--s2)',
             borderRadius: 6, border: '1px solid var(--bd)', marginBottom: 12,
-            fontSize: 10, color: 'var(--t3)', fontFamily: 'monospace',
+            fontSize: 12, color: 'var(--t3)', fontFamily: 'monospace',
           }}>
             bbox: [{item.bbox.map(v => typeof v === 'number' ? v.toFixed(4) : v).join(', ')}]
           </div>
@@ -101,7 +101,7 @@ export default function PreviewPanel({ item, onClose }) {
           style={{
             flex: 1, padding: '8px 0', borderRadius: 6, border: 'none',
             background: 'var(--ac)', color: '#fff',
-            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            fontSize: 14, fontWeight: 600, cursor: 'pointer',
           }}
         >
           상세 보기 →
@@ -114,7 +114,7 @@ export default function PreviewPanel({ item, onClose }) {
 function Tag({ label, color }) {
   return (
     <span style={{
-      padding: '2px 8px', borderRadius: 4, fontSize: 10,
+      padding: '2px 8px', borderRadius: 4, fontSize: 12,
       background: color ? color + '10' : 'var(--s2)',
       color: color || 'var(--t2)',
       border: `1px solid ${color ? color + '30' : 'var(--bd)'}`,
@@ -126,9 +126,9 @@ function Tag({ label, color }) {
 
 function MetaRow({ label, value }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 11 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 13 }}>
       <span style={{ color: 'var(--t3)' }}>{label}</span>
-      <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 10 }}>{value || '—'}</span>
+      <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 12 }}>{value || '—'}</span>
     </div>
   )
 }

@@ -65,7 +65,7 @@ export default function Detail() {
         {/* 뒤로가기 */}
         <div
           onClick={() => navigate('/')}
-          style={{ fontSize: 12, color: 'var(--ac)', cursor: 'pointer', marginBottom: 16 }}
+          style={{ fontSize: 14, color: 'var(--ac)', cursor: 'pointer', marginBottom: 16 }}
         >
           ← Explorer로 돌아가기
         </div>
@@ -85,12 +85,12 @@ export default function Detail() {
           </div>
           <div style={{ flex: 1 }}>
             <span style={{
-              padding: '2px 10px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+              padding: '2px 10px', borderRadius: 4, fontSize: 12, fontWeight: 600,
               background: cat.color + '12', color: cat.color, marginBottom: 8, display: 'inline-block',
             }}>
               {cat.icon} {cat.label}
             </span>
-            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
               {props.description || itemId}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -111,7 +111,7 @@ export default function Detail() {
             padding: '10px 16px', background: 'rgba(240,180,42,0.06)', border: '1px solid rgba(240,180,42,0.15)',
             borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
-            <span style={{ fontSize: 11, color: 'var(--warn)' }}>📝 편집 모드</span>
+            <span style={{ fontSize: 13, color: 'var(--warn)' }}>📝 편집 모드</span>
             <div>
               <Btn label="취소" onClick={() => setEditMode(false)} />
               <Btn label="저장" primary onClick={() => setEditMode(false)} />
@@ -128,7 +128,7 @@ export default function Detail() {
               key={t.id}
               onClick={() => setTab(t.id)}
               style={{
-                padding: '8px 16px', fontSize: 12, cursor: 'pointer',
+                padding: '8px 16px', fontSize: 14, cursor: 'pointer',
                 color: tab === t.id ? 'var(--ac)' : 'var(--t3)',
                 borderBottom: tab === t.id ? '2px solid var(--ac)' : '2px solid transparent',
               }}
@@ -140,7 +140,7 @@ export default function Detail() {
             <div
               onClick={() => setEditMode(true)}
               style={{
-                padding: '8px 16px', fontSize: 12, cursor: 'pointer',
+                padding: '8px 16px', fontSize: 14, cursor: 'pointer',
                 color: 'var(--t3)', marginLeft: 'auto',
               }}
             >
@@ -152,7 +152,7 @@ export default function Detail() {
         {/* 탭 콘텐츠 */}
         {tab === 'meta' && <MetaTab props={props} item={item} />}
         {tab === 'files' && <FilesTab assets={assets} />}
-        {tab === 'relations' && <RelationsTab related={related} collectionId={collectionId} />}
+        {tab === 'relations' && <RelationsTab related={related} collectionId={collectionId} itemId={itemId} onRefresh={loadItem} />}
         {tab === 'timeline' && <TimelineTab timeline={timeline} currentId={itemId} collectionId={collectionId} />}
       </div>
     </div>
@@ -179,7 +179,7 @@ function MetaTab({ props, item }) {
         <div key={group.title} style={{
           padding: 16, background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--bd)',
         }}>
-          <div style={{ fontSize: 11, color: 'var(--ac)', fontWeight: 600, marginBottom: 10 }}>
+          <div style={{ fontSize: 13, color: 'var(--ac)', fontWeight: 600, marginBottom: 10 }}>
             {group.title}
           </div>
           {group.keys.map(key => {
@@ -188,9 +188,9 @@ function MetaTab({ props, item }) {
             if (val == null) return null
             if (typeof val === 'object') val = JSON.stringify(val)
             return (
-              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 11 }}>
+              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
                 <span style={{ color: 'var(--t3)' }}>{key}</span>
-                <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 10, maxWidth: '60%', textAlign: 'right', wordBreak: 'break-all' }}>
+                <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 12, maxWidth: '60%', textAlign: 'right', wordBreak: 'break-all' }}>
                   {String(val)}
                 </span>
               </div>
@@ -213,15 +213,15 @@ function FilesTab({ assets }) {
           display: 'flex', alignItems: 'center', gap: 12,
           padding: '10px 14px', background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--bd)',
         }}>
-          <div style={{ fontSize: 18 }}>📄</div>
+          <div style={{ fontSize: 20 }}>📄</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--t1)' }}>{asset.title || key}</div>
-            <div style={{ fontSize: 10, color: 'var(--t3)' }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--t1)' }}>{asset.title || key}</div>
+            <div style={{ fontSize: 12, color: 'var(--t3)' }}>
               {asset.type || 'unknown'} · {(asset.roles || []).join(', ')}
             </div>
           </div>
           <a href={asset.href} style={{
-            padding: '4px 12px', borderRadius: 4, fontSize: 10,
+            padding: '4px 12px', borderRadius: 4, fontSize: 12,
             background: 'var(--ac)', color: '#fff', textDecoration: 'none',
           }}>
             다운로드
@@ -232,9 +232,11 @@ function FilesTab({ assets }) {
   )
 }
 
-function RelationsTab({ related, collectionId }) {
+function RelationsTab({ related, collectionId, itemId, onRefresh }) {
   const navigate = useNavigate()
-  if (related.length === 0) return <Empty msg="연관 데이터가 없습니다." />
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ rel: 'related', target_item_id: '' })
+  const [adding, setAdding] = useState(false)
 
   const relColors = {
     derived_from: '#E87830', has_derived: '#E87830',
@@ -242,29 +244,130 @@ function RelationsTab({ related, collectionId }) {
     prev: '#9055C8', next: '#9055C8',
   }
 
+  async function handleAddLink() {
+    if (!addForm.target_item_id.trim()) return
+    setAdding(true)
+    try {
+      await itemApi.addLink(`${collectionId}/${itemId}`, {
+        rel: addForm.rel,
+        target_collection_id: collectionId,
+        target_item_id: addForm.target_item_id.trim(),
+      })
+      setShowAdd(false)
+      setAddForm({ rel: 'related', target_item_id: '' })
+      if (onRefresh) onRefresh()
+    } catch (err) {
+      alert('관계 추가 실패: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function handleDeleteLink(index) {
+    if (!confirm('이 관계를 삭제하시겠습니까? (양방향 자동 삭제)')) return
+    try {
+      await itemApi.removeLink(`${collectionId}/${itemId}`, index)
+      if (onRefresh) onRefresh()
+    } catch (err) {
+      alert('관계 삭제 실패: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {related.map((r, i) => (
-        <div
-          key={i}
-          onClick={() => navigate(`/detail/${collectionId}/${r.target_id}`)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '10px 14px', background: 'var(--s1)', borderRadius: 8,
-            border: '1px solid var(--bd)', cursor: 'pointer',
-          }}
-        >
-          <span style={{
-            padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-            background: (relColors[r.rel] || 'var(--t3)') + '18',
-            color: relColors[r.rel] || 'var(--t3)',
+    <div>
+      {/* 관계 추가 버튼 */}
+      <div style={{ marginBottom: 12 }}>
+        {!showAdd ? (
+          <button onClick={() => setShowAdd(true)} style={{
+            padding: '6px 14px', borderRadius: 6, border: '1px dashed var(--bd)',
+            background: 'transparent', color: 'var(--ac)', fontSize: 13, cursor: 'pointer',
           }}>
-            {r.rel}
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--t1)' }}>{r.title || r.target_id}</span>
-          <span style={{ fontSize: 10, color: 'var(--t3)', marginLeft: 'auto' }}>→</span>
+            + 관계 추가
+          </button>
+        ) : (
+          <div style={{
+            padding: 14, background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--ac)',
+            display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap',
+          }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>관계 유형</div>
+              <select
+                value={addForm.rel}
+                onChange={e => setAddForm(prev => ({ ...prev, rel: e.target.value }))}
+                style={{
+                  padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
+                  background: 'var(--s2)', color: 'var(--t1)', fontSize: 13,
+                }}
+              >
+                <option value="related">related</option>
+                <option value="derived_from">derived_from</option>
+                <option value="describedby">describedby</option>
+                <option value="prev">prev</option>
+                <option value="next">next</option>
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>대상 Item ID</div>
+              <input
+                value={addForm.target_item_id}
+                onChange={e => setAddForm(prev => ({ ...prev, target_item_id: e.target.value }))}
+                placeholder="예: bg-dabotap-3d-20240315"
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
+                  background: 'var(--s2)', color: 'var(--t1)', fontSize: 13, outline: 'none',
+                }}
+              />
+            </div>
+            <button onClick={handleAddLink} disabled={adding} style={{
+              padding: '6px 14px', borderRadius: 4, border: 'none',
+              background: 'var(--ac)', color: '#fff', fontSize: 13, cursor: 'pointer',
+            }}>{adding ? '추가 중...' : '추가'}</button>
+            <button onClick={() => setShowAdd(false)} style={{
+              padding: '6px 14px', borderRadius: 4, border: '1px solid var(--bd)',
+              background: 'transparent', color: 'var(--t3)', fontSize: 13, cursor: 'pointer',
+            }}>취소</button>
+          </div>
+        )}
+      </div>
+
+      {/* 관계 목록 */}
+      {related.length === 0 ? (
+        <Empty msg="연관 데이터가 없습니다. 위에서 관계를 추가할 수 있습니다." />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {related.map((r, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '10px 14px', background: 'var(--s1)', borderRadius: 8,
+                border: '1px solid var(--bd)',
+              }}
+            >
+              <span style={{
+                padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600,
+                background: (relColors[r.rel] || 'var(--t3)') + '18',
+                color: relColors[r.rel] || 'var(--t3)',
+              }}>
+                {r.rel}
+              </span>
+              <span
+                onClick={() => navigate(`/detail/${collectionId}/${r.target_id}`)}
+                style={{ fontSize: 14, color: 'var(--t1)', cursor: 'pointer', flex: 1 }}
+              >
+                {r.title || r.target_id}
+              </span>
+              <span
+                onClick={() => handleDeleteLink(i)}
+                style={{ fontSize: 12, color: 'var(--err)', cursor: 'pointer' }}
+                title="관계 삭제"
+              >
+                ✕
+              </span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   )
 }
@@ -291,11 +394,11 @@ function TimelineTab({ timeline, currentId, collectionId }) {
             background: t.is_current ? 'var(--ac)' : 'var(--bd)',
           }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: 'var(--t1)', fontWeight: t.is_current ? 600 : 400 }}>
+            <div style={{ fontSize: 14, color: 'var(--t1)', fontWeight: t.is_current ? 600 : 400 }}>
               {t.description || t.item_id}
-              {t.is_current && <span style={{ fontSize: 10, color: 'var(--ac)', marginLeft: 6 }}>← 현재</span>}
+              {t.is_current && <span style={{ fontSize: 12, color: 'var(--ac)', marginLeft: 6 }}>← 현재</span>}
             </div>
-            <div style={{ fontSize: 10, color: 'var(--t3)' }}>
+            <div style={{ fontSize: 12, color: 'var(--t3)' }}>
               {t.datetime?.slice(0, 10) || '날짜 없음'} · {t.status}
             </div>
           </div>
@@ -313,7 +416,7 @@ function TimelineTab({ timeline, currentId, collectionId }) {
 function Tag({ label, color }) {
   return (
     <span style={{
-      padding: '2px 8px', borderRadius: 4, fontSize: 10,
+      padding: '2px 8px', borderRadius: 4, fontSize: 12,
       background: color ? color + '10' : 'var(--s2)',
       color: color || 'var(--t2)',
       border: `1px solid ${color ? color + '30' : 'var(--bd)'}`,
@@ -326,7 +429,7 @@ function Tag({ label, color }) {
 function Btn({ label, primary, onClick }) {
   return (
     <button onClick={onClick} style={{
-      padding: '4px 12px', borderRadius: 4, border: 'none', fontSize: 10,
+      padding: '4px 12px', borderRadius: 4, border: 'none', fontSize: 12,
       cursor: 'pointer', marginLeft: 4,
       background: primary ? 'var(--ac)' : 'var(--s2)',
       color: primary ? '#fff' : 'var(--t2)',
@@ -338,7 +441,7 @@ function Btn({ label, primary, onClick }) {
 
 function Loading() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--t3)', fontSize: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--t3)', fontSize: 14 }}>
       불러오는 중...
     </div>
   )
@@ -347,12 +450,12 @@ function Loading() {
 function NotFound({ onBack }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
-      <div style={{ fontSize: 14, color: 'var(--t3)' }}>Item을 찾을 수 없습니다.</div>
-      <div onClick={onBack} style={{ fontSize: 12, color: 'var(--ac)', cursor: 'pointer' }}>← Explorer로 돌아가기</div>
+      <div style={{ fontSize: 16, color: 'var(--t3)' }}>Item을 찾을 수 없습니다.</div>
+      <div onClick={onBack} style={{ fontSize: 14, color: 'var(--ac)', cursor: 'pointer' }}>← Explorer로 돌아가기</div>
     </div>
   )
 }
 
 function Empty({ msg }) {
-  return <div style={{ padding: 30, textAlign: 'center', color: 'var(--t3)', fontSize: 12 }}>{msg}</div>
+  return <div style={{ padding: 30, textAlign: 'center', color: 'var(--t3)', fontSize: 14 }}>{msg}</div>
 }

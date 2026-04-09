@@ -67,7 +67,7 @@ export default function Project() {
         width: 220, minWidth: 220, background: 'var(--s1)',
         borderRight: '1px solid var(--bd)', display: 'flex', flexDirection: 'column',
       }}>
-        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bd)', fontSize: 12, fontWeight: 600, color: 'var(--t2)' }}>
+        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--bd)', fontSize: 14, fontWeight: 600, color: 'var(--t2)' }}>
           프로젝트 목록
         </div>
         <div style={{ flex: 1, overflow: 'auto' }}>
@@ -85,17 +85,17 @@ export default function Project() {
                   borderLeft: isActive ? '3px solid var(--ac)' : '3px solid transparent',
                 }}
               >
-                <div style={{ fontSize: 12, fontWeight: 500, color: isActive ? 'var(--ac)' : 'var(--t1)' }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: isActive ? 'var(--ac)' : 'var(--t1)' }}>
                   {col.title || col.id}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--t3)', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 2 }}>
                   {s['project:site'] || ''} · {s['sams:status'] || 'active'}
                 </div>
               </div>
             )
           })}
           {collections.length === 0 && !loading && (
-            <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 11 }}>
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
               프로젝트가 없습니다.
             </div>
           )}
@@ -105,7 +105,7 @@ export default function Project() {
             onClick={() => setShowCreateModal(true)}
             style={{
               width: '100%', padding: '8px 0', borderRadius: 6, border: '1px dashed var(--bd)',
-              background: 'transparent', color: 'var(--t2)', fontSize: 11, cursor: 'pointer',
+              background: 'transparent', color: 'var(--t2)', fontSize: 13, cursor: 'pointer',
             }}
           >
             + 새 프로젝트
@@ -116,7 +116,7 @@ export default function Project() {
       {/* 오른쪽: 상세 */}
       <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
         {!selectedCol ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--t3)', fontSize: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--t3)', fontSize: 14 }}>
             왼쪽에서 프로젝트를 선택하세요.
           </div>
         ) : (
@@ -125,16 +125,16 @@ export default function Project() {
             <div style={{
               padding: 16, background: 'var(--s1)', borderRadius: 10, border: '1px solid var(--bd)', marginBottom: 16,
             }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
                 {selectedCol.title || selectedCol.id}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--t3)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 13, color: 'var(--t3)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {summaries['project:client'] && <span>🏢 {summaries['project:client']}</span>}
                 {summaries['project:site'] && <span>📍 {summaries['project:site']}</span>}
                 {summaries['project:manager'] && <span>👤 {summaries['project:manager']}</span>}
                 {summaries['project:default_epsg'] && <span>📐 EPSG:{summaries['project:default_epsg']}</span>}
                 <span style={{
-                  padding: '1px 6px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+                  padding: '1px 6px', borderRadius: 3, fontSize: 11, fontWeight: 600,
                   background: summaries['sams:status'] === 'active' ? 'rgba(61,214,140,0.1)' : 'rgba(92,100,120,0.1)',
                   color: summaries['sams:status'] === 'active' ? 'var(--ok)' : 'var(--t3)',
                 }}>
@@ -156,7 +156,7 @@ export default function Project() {
                   key={t.id}
                   onClick={() => setTab(t.id)}
                   style={{
-                    padding: '8px 16px', fontSize: 12, cursor: 'pointer',
+                    padding: '8px 16px', fontSize: 14, cursor: 'pointer',
                     color: tab === t.id ? 'var(--ac)' : 'var(--t3)',
                     borderBottom: tab === t.id ? '2px solid var(--ac)' : '2px solid transparent',
                   }}
@@ -203,8 +203,8 @@ function StatusTab({ dashboard }) {
         <div style={{
           padding: 16, background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--bd)', marginBottom: 14,
         }}>
-          <div style={{ fontSize: 11, color: 'var(--ac)', fontWeight: 600, marginBottom: 10 }}>예상 vs 실제</div>
-          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+          <div style={{ fontSize: 13, color: 'var(--ac)', fontWeight: 600, marginBottom: 10 }}>예상 vs 실제</div>
+          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ color: 'var(--t3)', borderBottom: '1px solid var(--bd)' }}>
                 <th style={{ textAlign: 'left', padding: '4px 8px' }}>유형</th>
@@ -237,7 +237,7 @@ function StatusTab({ dashboard }) {
       <div style={{
         padding: 16, background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--bd)',
       }}>
-        <div style={{ fontSize: 11, color: 'var(--ac)', fontWeight: 600, marginBottom: 10 }}>유형별 등록 현황</div>
+        <div style={{ fontSize: 13, color: 'var(--ac)', fontWeight: 600, marginBottom: 10 }}>유형별 등록 현황</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {Object.entries(type_counts).map(([cat, count]) => {
             const info = getCategoryInfo(cat)
@@ -247,7 +247,7 @@ function StatusTab({ dashboard }) {
                 border: `1px solid ${info.color}20`, minWidth: 100,
               }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: info.color }}>{count}</div>
-                <div style={{ fontSize: 10, color: 'var(--t3)' }}>{info.icon} {info.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--t3)' }}>{info.icon} {info.label}</div>
               </div>
             )
           })}
@@ -284,9 +284,9 @@ function SpatialTab({ collectionId }) {
           <div key={cat} style={{
             padding: 14, background: 'var(--s1)', borderRadius: 8, border: '1px solid var(--bd)', marginBottom: 8,
           }}>
-            <div style={{ fontSize: 11, color: info.color, fontWeight: 600, marginBottom: 8 }}>{info.icon} {info.label} ({items.length})</div>
+            <div style={{ fontSize: 13, color: info.color, fontWeight: 600, marginBottom: 8 }}>{info.icon} {info.label} ({items.length})</div>
             {items.map((item, i) => (
-              <div key={i} style={{ fontSize: 10, color: 'var(--t2)', padding: '2px 0', fontFamily: 'monospace' }}>
+              <div key={i} style={{ fontSize: 12, color: 'var(--t2)', padding: '2px 0', fontFamily: 'monospace' }}>
                 {item.item_id} — bbox: [{item.bbox.map(v => v.toFixed(3)).join(', ')}]
               </div>
             ))}
@@ -320,19 +320,19 @@ function DraftTab({ dashboard, collectionId }) {
           }}>
             <div style={{
               width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, background: cat.color + '12', color: cat.color,
+              fontSize: 15, background: cat.color + '12', color: cat.color,
             }}>
               {cat.icon}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: 'var(--t1)' }}>{item.description || item.id}</div>
-              <div style={{ fontSize: 10, color: 'var(--t3)' }}>{cat.label}</div>
+              <div style={{ fontSize: 14, color: 'var(--t1)' }}>{item.description || item.id}</div>
+              <div style={{ fontSize: 12, color: 'var(--t3)' }}>{cat.label}</div>
             </div>
             <button
               onClick={() => navigate(`/detail/${collectionId}/${item.id}`)}
               style={{
                 padding: '4px 10px', borderRadius: 4, border: '1px solid var(--warn)',
-                background: 'transparent', color: 'var(--warn)', fontSize: 10, cursor: 'pointer',
+                background: 'transparent', color: 'var(--warn)', fontSize: 12, cursor: 'pointer',
               }}
             >
               편집하여 완성 →
@@ -377,18 +377,18 @@ function AllItemsTab({ dashboard, collectionId }) {
               background: 'var(--s1)', borderRadius: 6, border: '1px solid var(--bd)', cursor: 'pointer',
             }}
           >
-            <span style={{ fontSize: 12, color: cat.color }}>{cat.icon}</span>
-            <span style={{ flex: 1, fontSize: 12, color: 'var(--t1)' }}>{props.description || item.id}</span>
-            <span style={{ fontSize: 10, color: 'var(--t3)' }}>{props.datetime?.slice(0, 10)}</span>
+            <span style={{ fontSize: 14, color: cat.color }}>{cat.icon}</span>
+            <span style={{ flex: 1, fontSize: 14, color: 'var(--t1)' }}>{props.description || item.id}</span>
+            <span style={{ fontSize: 12, color: 'var(--t3)' }}>{props.datetime?.slice(0, 10)}</span>
             <span style={{
-              padding: '1px 6px', borderRadius: 3, fontSize: 9,
+              padding: '1px 6px', borderRadius: 3, fontSize: 11,
               background: props['sams:status'] === 'published' ? 'rgba(61,214,140,0.08)' : 'rgba(240,180,42,0.08)',
               color: props['sams:status'] === 'published' ? 'var(--ok)' : 'var(--warn)',
             }}>
               {props['sams:status'] || 'draft'}
             </span>
             <span style={{
-              padding: '1px 6px', borderRadius: 3, fontSize: 9,
+              padding: '1px 6px', borderRadius: 3, fontSize: 11,
               background: cat.color + '12', color: cat.color,
             }}>
               {cat.label}
@@ -437,7 +437,7 @@ function CreateModal({ onClose, onCreated }) {
       <div onClick={e => e.stopPropagation()} style={{
         width: 420, padding: 24, background: 'var(--s1)', borderRadius: 12, border: '1px solid var(--bd)',
       }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--t1)', marginBottom: 16 }}>새 프로젝트 생성</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--t1)', marginBottom: 16 }}>새 프로젝트 생성</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Input label="Collection ID *" value={form.id} onChange={v => update('id', v)} placeholder="bulguksa-2024" />
           <Input label="프로젝트명 *" value={form.title} onChange={v => update('title', v)} placeholder="2024 경주 불국사 정밀실측" />
@@ -449,11 +449,11 @@ function CreateModal({ onClose, onCreated }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={{
             padding: '6px 16px', borderRadius: 6, border: '1px solid var(--bd)',
-            background: 'transparent', color: 'var(--t2)', fontSize: 12, cursor: 'pointer',
+            background: 'transparent', color: 'var(--t2)', fontSize: 14, cursor: 'pointer',
           }}>취소</button>
           <button onClick={handleSubmit} disabled={submitting} style={{
             padding: '6px 16px', borderRadius: 6, border: 'none',
-            background: 'var(--ac)', color: '#fff', fontSize: 12, cursor: 'pointer',
+            background: 'var(--ac)', color: '#fff', fontSize: 14, cursor: 'pointer',
             opacity: submitting ? 0.5 : 1,
           }}>{submitting ? '생성 중...' : '생성'}</button>
         </div>
@@ -470,12 +470,12 @@ function CreateModal({ onClose, onCreated }) {
 function Input({ label, value, onChange, placeholder, type = 'text' }) {
   return (
     <div>
-      <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 3 }}>{label}</div>
       <input
         type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         style={{
           width: '100%', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--bd)',
-          background: 'var(--s2)', color: 'var(--t1)', fontSize: 12, outline: 'none',
+          background: 'var(--s2)', color: 'var(--t1)', fontSize: 14, outline: 'none',
         }}
       />
     </div>
@@ -485,7 +485,7 @@ function Input({ label, value, onChange, placeholder, type = 'text' }) {
 function ProgressBar({ total, label }) {
   return (
     <div>
-      <div style={{ fontSize: 10, color: 'var(--t2)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 4 }}>{label}</div>
       <div style={{ height: 6, background: 'var(--s2)', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${Math.min(100, total * 10)}%`, background: 'var(--ac)', borderRadius: 3 }} />
       </div>
@@ -494,5 +494,5 @@ function ProgressBar({ total, label }) {
 }
 
 function Empty({ msg }) {
-  return <div style={{ padding: 30, textAlign: 'center', color: 'var(--t3)', fontSize: 12 }}>{msg}</div>
+  return <div style={{ padding: 30, textAlign: 'center', color: 'var(--t3)', fontSize: 14 }}>{msg}</div>
 }
