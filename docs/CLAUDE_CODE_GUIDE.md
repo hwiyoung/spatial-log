@@ -166,40 +166,32 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 6: SAMS API — Upload 엔드포인트
+## Step 6: SAMS API — Upload 엔드포인트 (COMPLETED)
 
-### 프롬프트
-```
-Step 6: SAMS API의 Upload 엔드포인트 구현.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/system_architecture.md 섹션 3.2를 읽고, sams-api/sams/routers/upload.py를 구현해줘.
+### 구현 내용
 
-3개 엔드포인트:
-1. POST /api/upload/analyze
-   - multipart/form-data로 파일 + collection_id 받기
-   - 파이프라인 analyze() 호출
-   - 매니페스트 JSON 반환
+**sams/routers/upload.py (3개 엔드포인트)**
+- `POST /api/upload/analyze`: multipart/form-data(파일 + collection_id) → analyze() → Manifest JSON
+  - 임시 디렉토리에 파일 저장 → 파이프라인 실행 → 임시 경로를 원본 파일명으로 치환
+  - collection_id가 있으면 STAC API에서 Collection 기본값 조회 (실패 시 graceful skip)
+- `POST /api/upload/validate`: 매니페스트 필수 필드 검증
+  - 공통 필수 + 카테고리별 필수 + datetime null시 start/end_datetime 필요
+- `POST /api/upload/register`: STAC Item 생성 + S3 업로드
+  - Item ID 자동 생성, STAC Item JSON 구성, stac-fastapi POST 호출
+  - 개별 Item 실패 시 에러 기록하고 나머지 계속 진행
 
-2. POST /api/upload/validate
-   - 매니페스트 JSON 받기
-   - 필수 필드 누락 체크 (data_category별로 필수 필드가 다름)
-   - 검증 결과 (errors, warnings) 반환
+**sams/services/s3.py (S3 서비스 헬퍼)**
+- `upload_file()`, `generate_presigned_url()`, `build_asset_href()`
+- 경로 규칙: `{collection_id}/{data_category}/{item_id}/{filename}`
 
-3. POST /api/upload/register
-   - 검증 통과된 매니페스트로 STAC Item JSON 생성
-   - 파일을 S3에 업로드 (경로 규칙: docs/system_architecture.md 섹션 4)
-   - stac-fastapi에 POST /collections/{id}/items로 Item 등록
-   - 썸네일 생성 작업을 Celery 큐에 추가
-
-main.py에 라우터 등록해줘.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**sams/main.py**: upload 라우터 등록 (`/api/upload` prefix)
 
 ### 확인 포인트
-- `curl -X POST http://localhost:8000/api/upload/analyze -F "file=@sample.laz" -F "collection_id=test"` → 매니페스트 JSON 반환
-- 매니페스트에 자동 추출된 필드가 있고, 빈 필드는 required_empty에 나열
+- `curl -X POST http://localhost:8000/api/upload/analyze -F "files=@sample.laz" -F "collection_id="` → 매니페스트 JSON 반환
+- `pytest tests/test_upload.py -v` → 14개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 150개 통과
 
 ---
 

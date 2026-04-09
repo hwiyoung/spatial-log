@@ -37,9 +37,12 @@ app.add_middleware(
 from sams.routers.test import router as test_router
 app.include_router(test_router, prefix="/api", tags=["test"])
 
-# TODO: 라우터 등록
-# from sams.routers import upload, collections, items, search, files
-# app.include_router(upload.router, prefix="/api/upload", tags=["upload"])
+# 라우터 등록
+from sams.routers.upload import router as upload_router
+app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
+
+# TODO: 추가 라우터 등록
+# from sams.routers import collections, items, search, files
 # app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
 # app.include_router(items.router, prefix="/api/items", tags=["items"])
 # app.include_router(search.router, prefix="/api/search", tags=["search"])

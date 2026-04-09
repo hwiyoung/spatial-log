@@ -150,18 +150,20 @@ Claude Code:
 - 테스트: `tests/fixtures/`의 샘플 파일로 각 유형 추출 결과 확인
 - 개발용 테스트 페이지: `http://localhost:7800/api/test` (파이프라인 결과 실데이터 확인용)
 
-### Step 3: SAMS API 뼈대
+### Step 3: SAMS API 뼈대 — 진행 중
 - FastAPI 앱 (`sams-api/sams/main.py`)
-- `/api/upload/analyze`: 파일 받기 → 파이프라인 실행 → 매니페스트 JSON 반환
-- `/api/upload/validate`: 매니페스트 필수 필드 검증
-- `/api/upload/register`: STAC Item 생성 + S3 업로드
-- `/api/collections`: Collection CRUD (SAMS 확장 필드 포함)
+- ✅ `/api/upload/analyze`: 파일 받기 → 파이프라인 실행 → 매니페스트 JSON 반환
+- ✅ `/api/upload/validate`: 매니페스트 필수 필드 검증
+- ✅ `/api/upload/register`: STAC Item 생성 + S3 업로드
+- ✅ S3 서비스 헬퍼 (`services/s3.py`): 업로드, Presigned URL, Asset href
+- ⬜ `/api/collections`: Collection CRUD (SAMS 확장 필드 포함) — 다음 단계
+- ⬜ `/api/items`: Item 관리 (관계, Draft 전환) — 다음 단계
 - 참조: `docs/system_architecture.md` 섹션 3
 
-### Step 4: S3 업로드 + Presigned URL
-- 소용량(<100MB): API 경유 업로드
-- 대용량(≥100MB): Presigned URL 직접 업로드
-- 경로 규칙: `s3://sams-archive/{collection_id}/{category}/{item_id}/{filename}`
+### Step 4: S3 업로드 + Presigned URL — 부분 완료
+- ✅ 소용량(<100MB): API 경유 업로드 (`upload_file()`)
+- ✅ 대용량(≥100MB): Presigned URL 발급 (`generate_presigned_url()`)
+- ✅ 경로 규칙: `s3://sams-archive/{collection_id}/{category}/{item_id}/{filename}`
 - 참조: `docs/system_architecture.md` 섹션 4
 
 ### Step 5: Worker (Celery)
