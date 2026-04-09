@@ -254,31 +254,28 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 9: Frontend — Explorer
+## Step 9: Frontend — Explorer (COMPLETED)
 
-### 프롬프트
-```
-Step 9: Frontend Explorer 페이지.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/sams_unified_demo.jsx의 Explorer 부분과 
-docs/system_structure_design.md 섹션 3 "페이지 1: Explorer"를 참조해서
-frontend/src/pages/Explorer.jsx를 구현해줘.
+### 구현 내용
 
-구성:
-- 왼쪽 사이드바: 키워드 검색, 유형 필터(8개 체크박스), 프로젝트 필터, 시간 범위 슬라이더
-- 가운데 상단: MapLibre 2D 지도 (Item의 bbox/geometry를 마커로 표시)
-- 가운데 하단: 검색 결과 목록
-- 오른쪽: 미리보기 패널 (Item 클릭 시 슬라이드)
+**공통 기반**
+- `src/index.css`: 다크 테마 CSS 변수, 스크롤바, 리셋
+- `src/constants.js`: CATEGORIES 정의, getCategoryInfo, formatSize 헬퍼
+- `src/main.jsx`: index.css + maplibre-gl.css 임포트
 
-검색은 /stac/search POST (CQL2 필터).
-지도 마커와 결과 목록이 연동 (hover 시 강조).
-미리보기 패널에 "상세 보기 →" 버튼 → /detail/:id로 이동.
+**Explorer 페이지 (src/pages/Explorer.jsx)**
+- 검색 상태 관리 (keyword, categoryFilter, selectedCollection)
+- STAC /search POST 호출 (키워드 q, CQL2 유형 필터, Collection 필터)
+- 300ms debounced 검색
+- 지도/결과 목록/미리보기 패널 간 hover/click 연동
 
-frontend/src/services/api.js의 searchApi, itemApi를 사용해줘.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**하위 컴포넌트**
+- `SearchSidebar.jsx`: 키워드 입력, 유형 체크박스(8개), 프로젝트 필터, 결과 수 표시
+- `MapView.jsx`: MapLibre GL 지도, bbox/geometry 기반 마커, hover/select 강조
+- `ResultList.jsx`: Item 목록 (유형 뱃지, 날짜, 크기, target)
+- `PreviewPanel.jsx`: 오른쪽 슬라이드 패널 (메타데이터 요약 + "상세 보기 →" 버튼)
 
 ---
 
