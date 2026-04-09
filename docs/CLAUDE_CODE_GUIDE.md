@@ -318,34 +318,23 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 12: Frontend — Upload
+## Step 12: Frontend — Upload (COMPLETED)
 
-### 프롬프트
-```
-Step 12: Frontend Upload 페이지.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/sams_unified_demo.jsx의 Upload 부분과
-docs/system_structure_design.md "페이지 4: Upload"를 참조해서
-frontend/src/pages/Upload.jsx를 구현해줘.
+### 구현 내용
 
-벌크 탭 (3-step):
-1. Collection 선택 + 폴더 드래그앤드롭 → /api/upload/analyze 호출 → 매니페스트 수신
-2. 매니페스트 테이블 편집 (자동 채움된 셀은 파란 배경, 빈 필수 셀은 빨간 테두리)
-   + Excel 다운로드/업로드 옵션
-3. 검토 화면 + Published/Draft 선택 → /api/upload/register 호출
-
-단건 탭 (4-step):
-1. Collection 선택 + 파일 드롭 → 유형 자동 판별
-2. 메타데이터 입력 (구역 A 자동 + 구역 B 필수 + 구역 C 선택)
-3. 연관관계 설정 (기존 Item 검색+선택)
-4. 검토 + 제출
-
-API 호출: uploadApi.analyze, uploadApi.validate, uploadApi.register
-Collection 선택 시 기본값 상속이 적용되어야 함.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**Upload 페이지 (src/pages/Upload.jsx)**
+- 모드 탭: 벌크 / 단건
+- 벌크 업로드 (3-step):
+  1. Collection 선택 + 드래그앤드롭 → /api/upload/analyze 호출
+  2. 매니페스트 확인 (자동 추출값, 상속값, 필수 빈 필드, 관계 제안 표시)
+  3. Draft로 등록 → 완료 화면 (Project 이동 / 추가 업로드)
+- 단건 업로드: Collection 선택 + 파일 드롭 → 분석 결과 표시
+- Dropzone: 드래그앤드롭 + 파일 선택 + 파일 목록 표시
+- ManifestRow: 유형 뱃지, 필수 빈 필드(빨간), 관계 제안, 확장 시 메타데이터 상세
+- StepIndicator: 3단계 진행 표시
+- API: uploadApi.analyze, register, collectionApi.list
 
 ---
 
