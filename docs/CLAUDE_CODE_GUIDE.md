@@ -279,29 +279,23 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 10: Frontend — Detail
+## Step 10: Frontend — Detail (COMPLETED)
 
-### 프롬프트
-```
-Step 10: Frontend Detail 페이지.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/sams_unified_demo.jsx의 Detail 부분과
-docs/system_structure_design.md "페이지 2: Detail — 2-B 전체 페이지"를 참조해서
-frontend/src/pages/Detail.jsx를 구현해줘.
+### 구현 내용
 
-구성:
-- 상단: 히어로 헤더 (유형 뱃지, 제목, 설명, 태그)
-- 탭 4개: 메타데이터(2x2 그리드), 파일(다운로드), 연관관계(그래프+목록), 시계열(타임라인)
-- 편집 모드: 탭 전환으로 메타데이터 수정 가능, Draft→Published 전환
-
-"← Explorer로 돌아가기" 버튼으로 이전 검색 상태 유지 복귀.
-관련 데이터 클릭 시 /detail/:id로 이동.
-
-API 호출: itemApi.get, itemApi.getRelated, itemApi.getTimeline
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**Detail 페이지 (src/pages/Detail.jsx)**
+- URL: `/detail/:collectionId/:itemId` (App.jsx 라우트 변경)
+- 히어로 헤더: 유형 뱃지, 제목, 태그 (사이트, 날짜, 좌표계, status)
+- 4탭 구현:
+  - 📋 메타데이터: 2×2 그리드 카드 (기본/공간/유형별/시스템)
+  - 📁 파일: Asset 목록 + 다운로드 링크
+  - 🔗 연관관계: links 목록, 클릭 시 해당 Item Detail로 이동
+  - ⏱ 시계열: 같은 target+category 시점별 목록, 현재 Item 강조
+- 편집 모드: 배너 + 저장/취소 UI (스켈레톤)
+- "← Explorer로 돌아가기" navigate('/')
+- API: itemApi.get, getRelated, getTimeline 호출
 
 ---
 

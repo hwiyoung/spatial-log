@@ -54,7 +54,7 @@ export default function App() {
         <div style={{ flex: 1, overflow: 'hidden' }}>
           <Routes>
             <Route path="/" element={<Explorer />} />
-            <Route path="/detail/:id" element={<Detail />} />
+            <Route path="/detail/:collectionId/:itemId" element={<Detail />} />
             <Route path="/project" element={<Project />} />
             <Route path="/upload" element={<Upload />} />
           </Routes>
