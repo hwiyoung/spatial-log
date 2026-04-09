@@ -170,13 +170,13 @@ Claude Code:
 - ✅ 썸네일 생성 비동기 처리 (Celery 태스크 + 유형별 생성)
 - ✅ 완료 시 STAC Item의 thumbnail Asset 업데이트
 
-### Step 6: Frontend
-- React SPA, 4페이지 (Explorer, Detail, Project, Upload)
-- Explorer: 검색 필터 + MapLibre 2D 지도 + 결과 목록 + 미리보기 패널
-- Detail: 미리보기 패널(Explorer 내) + 전체 페이지(4탭: 메타데이터/파일/연관관계/시계열 + 편집모드)
-- Project: Collection 목록 + 4탭(현황/공간/Draft/전체) + 생성 모달
-- Upload: 벌크(3-step) + 단건(4-step) 탭
-- 통합 데모 참조: `docs/sams_unified_demo.jsx` (전체 UI 구조와 상호작용 참고)
+### Step 6: Frontend ✅
+- ✅ React SPA, 4페이지 구현 완료
+- ✅ Explorer: 검색 필터 + MapLibre 2D 지도 + 결과 목록 + 미리보기 패널
+- ✅ Detail: 전체 페이지(4탭: 메타데이터/파일/연관관계/시계열 + 편집모드)
+- ✅ Project: Collection 목록 + 4탭(현황/공간/Draft/전체) + 생성 모달
+- ✅ Upload: 벌크(3-step) + 단건 탭
+- ✅ 통합 테스트: E2E 시나리오 8개 (전체 174 passed)
 - 참조: `docs/system_structure_design.md` 섹션 3
 
 ## 핵심 규칙

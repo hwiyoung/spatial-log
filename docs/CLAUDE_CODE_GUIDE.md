@@ -338,26 +338,24 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 13: 통합 테스트
+## Step 13: 통합 테스트 (COMPLETED)
 
-### 프롬프트
-```
-Step 13: 전체 흐름 통합 테스트.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-실제 데이터 파일(LAS, TIFF, JPG, MP4 등)이 없어도 테스트할 수 있도록
-fixtures에 최소한의 샘플 파일을 만들고, 다음 시나리오를 E2E로 테스트해줘:
+### 구현 내용
 
-1. Collection 생성 (POST /api/collections)
-2. 벌크 업로드: 여러 파일 분석 → 매니페스트 → 등록
-3. 검색: 등록된 Item이 /stac/search에서 검색되는지
-4. Detail: Item의 메타데이터, 관계, 파일 조회
-5. Draft→Published 전환
+**tests/test_e2e.py (E2E 통합 테스트)**
+- 시나리오 1: 벌크 업로드 전체 흐름
+  - 3개 파일(LAS, OBJ, PDF) analyze → 유형 판별/자동 채움/관계 제안 확인
+  - validate (실패 케이스 + 정상 케이스)
+  - register (mock STAC, Draft 등록)
+- 시나리오 2: Collection 생성 → 목록 → 대시보드 (예상 vs 실제)
+- 시나리오 3: Item Draft→Published (성공 + 필수 필드 누락 거부), related, timeline
+- 시나리오 4: 파이프라인 통합 — Collection 상속 확인, 관계 제안 확인
 
-각 단계별로 assertions 작성.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+### 확인 포인트
+- `pytest tests/test_e2e.py -v` → 8개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 174개 통과
 
 ---
 
