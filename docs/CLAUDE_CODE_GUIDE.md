@@ -227,30 +227,30 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 8: Worker — 썸네일 생성
+## Step 8: Worker — 썸네일 생성 (COMPLETED)
 
-### 프롬프트
-```
-Step 8: Celery Worker의 썸네일 생성 태스크.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/autofill_pipeline_spec.md 섹션 7을 읽고, sams/pipeline/thumbnail.py와 
-sams/worker.py를 구현해줘.
+### 구현 내용
 
-유형별 썸네일 생성:
-- 포인트 클라우드: matplotlib로 상위 뷰 산점도
-- 3D 모델: trimesh로 렌더링
-- 정사영상: 중앙 크롭 + 리사이즈
-- 이미지: 대표 이미지 리사이즈
-- 동영상: ffmpeg으로 중간 프레임 추출
-- 문서(PDF): 첫 페이지 렌더링
+**sams/pipeline/thumbnail.py (유형별 썸네일 생성)**
+- `generate_thumbnail(filepath, data_category)` → PNG 경로 또는 None
+- 포인트 클라우드: laspy + matplotlib 상위 뷰 산점도 (>50K 포인트 시 샘플링)
+- 3D 모델: trimesh + matplotlib 3D 와이어프레임
+- 정사영상: rasterio 축소 읽기 + Pillow 리사이즈
+- 이미지/파노라마: Pillow 리사이즈
+- 동영상: ffprobe(duration) + ffmpeg(중간 프레임)
+- 문서(PDF): PyMuPDF → pdf2image fallback
+- 크기: 400×300px PNG, graceful degradation
 
-크기: 400x300, PNG
-S3 업로드 후 STAC Item의 thumbnail Asset 업데이트.
-실패해도 에러 로그만 남기고 Item 등록에는 영향 없음.
+**sams/worker.py (Celery 태스크)**
+- `generate_thumbnail_task`: 썸네일 생성 → S3 업로드 → STAC Item thumbnail Asset 업데이트
+- max_retries=2, 실패 시 에러 로그만 (Item 등록 영향 없음)
+- 동기 httpx로 STAC Item 업데이트 (Celery 내부)
 
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+### 확인 포인트
+- `pytest tests/test_thumbnail.py -v` → 6개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 166개 통과
 
 ---
 

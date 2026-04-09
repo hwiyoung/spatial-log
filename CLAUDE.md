@@ -144,7 +144,7 @@ Claude Code:
 - ✅ extract.py: 유형별 메타데이터 추출 (laspy, rasterio, trimesh, ffprobe, Pillow, PyPDF)
 - ✅ inherit.py: Collection 기본값 상속
 - ✅ suggest.py: 관계 자동 제안
-- ⬜ thumbnail.py: 썸네일 생성 (비동기) — Step 5(Worker)에서 구현 예정
+- ✅ thumbnail.py: 유형별 썸네일 생성 (400×300 PNG, 비동기 Worker)
 - ✅ `analyze()` 통합 함수: bundle→detect→extract→inherit→suggest 연결 진입점
 - 참조: `docs/autofill_pipeline_spec.md` (전체)
 - 테스트: `tests/fixtures/`의 샘플 파일로 각 유형 추출 결과 확인
@@ -166,10 +166,9 @@ Claude Code:
 - ✅ 경로 규칙: `s3://sams-archive/{collection_id}/{category}/{item_id}/{filename}`
 - 참조: `docs/system_architecture.md` 섹션 4
 
-### Step 5: Worker (Celery)
-- 썸네일 생성 비동기 처리
-- 완료 시 STAC Item의 thumbnail Asset 업데이트
-- ⚠️ bundle.py는 Step 2에서 이미 구현됨. Step 5는 통합만.
+### Step 5: Worker (Celery) ✅
+- ✅ 썸네일 생성 비동기 처리 (Celery 태스크 + 유형별 생성)
+- ✅ 완료 시 STAC Item의 thumbnail Asset 업데이트
 
 ### Step 6: Frontend
 - React SPA, 4페이지 (Explorer, Detail, Project, Upload)
