@@ -7,7 +7,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { itemApi } from '../services/api'
+import { itemApi, searchApi } from '../services/api'
 import { getCategoryInfo, formatSize } from '../constants'
 
 export default function Detail() {
@@ -252,13 +252,15 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
     if (!showAdd) return
     const timer = setTimeout(async () => {
       try {
-        const { searchApi } = await import('../services/api')
         const params = { collections: [collectionId], limit: 20 }
         if (searchQuery.trim()) params.q = searchQuery.trim()
         const res = await searchApi.search(params)
         const items = (res.data?.features || []).filter(f => f.id !== itemId)
         setSearchResults(items)
-      } catch { setSearchResults([]) }
+      } catch (err) {
+        console.error('Item 검색 실패:', err)
+        setSearchResults([])
+      }
     }, 200)
     return () => clearTimeout(timer)
   }, [searchQuery, showAdd, collectionId, itemId])
