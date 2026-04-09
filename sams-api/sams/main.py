@@ -41,10 +41,14 @@ app.include_router(test_router, prefix="/api", tags=["test"])
 from sams.routers.upload import router as upload_router
 app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
 
+from sams.routers.collections import router as collections_router
+app.include_router(collections_router, prefix="/api/collections", tags=["collections"])
+
+from sams.routers.items import router as items_router
+app.include_router(items_router, prefix="/api/items", tags=["items"])
+
 # TODO: 추가 라우터 등록
-# from sams.routers import collections, items, search, files
-# app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
-# app.include_router(items.router, prefix="/api/items", tags=["items"])
+# from sams.routers import search, files
 # app.include_router(search.router, prefix="/api/search", tags=["search"])
 # app.include_router(files.router, prefix="/api/files", tags=["files"])
 

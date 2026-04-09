@@ -156,8 +156,8 @@ Claude Code:
 - ✅ `/api/upload/validate`: 매니페스트 필수 필드 검증
 - ✅ `/api/upload/register`: STAC Item 생성 + S3 업로드
 - ✅ S3 서비스 헬퍼 (`services/s3.py`): 업로드, Presigned URL, Asset href
-- ⬜ `/api/collections`: Collection CRUD (SAMS 확장 필드 포함) — 다음 단계
-- ⬜ `/api/items`: Item 관리 (관계, Draft 전환) — 다음 단계
+- ✅ `/api/collections`: Collection CRUD + dashboard + spatial-summary
+- ✅ `/api/items`: Item status, related, timeline, links (양방향 자동)
 - 참조: `docs/system_architecture.md` 섹션 3
 
 ### Step 4: S3 업로드 + Presigned URL — 부분 완료

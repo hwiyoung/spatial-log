@@ -195,31 +195,35 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 7: SAMS API — Collection + Items 엔드포인트
+## Step 7: SAMS API — Collection + Items 엔드포인트 (COMPLETED)
 
-### 프롬프트
-```
-Step 7: Collection과 Items 엔드포인트.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/system_architecture.md 섹션 3.2를 읽고 구현해줘.
+### 구현 내용
 
-sams/routers/collections.py:
-- POST /api/collections: SAMS 확장 필드(expected_deliverables, default_epsg 등) 포함 생성
-  내부적으로 STAC Collection 형식으로 변환하여 stac-fastapi에 등록
-- GET /api/collections/{id}/dashboard: 예상 vs 실제 등록 현황 집계
-- GET /api/collections/{id}/spatial-summary: 유형별 bbox 목록
+**sams/services/stac.py (stac-fastapi 호출 래퍼)**
+- Collection CRUD: create, get, update, delete, list
+- Item CRUD: get, update, delete, search, get_collection_items
+- 공통 에러 처리 (_check_response)
 
-sams/routers/items.py:
-- PUT /api/items/{id}/status: Draft→Published 전환 (필수 필드 검증)
-- GET /api/items/{id}/related: links 양방향 해석하여 관련 Item 목록
-- GET /api/items/{id}/timeline: 같은 target+category의 시점별 Item 목록
-- POST /api/items/{id}/links: 관계 추가 (양방향 자동 생성)
+**sams/routers/collections.py**
+- `POST /api/collections`: SAMS 확장 필드 포함 생성 → STAC Collection으로 변환
+- `GET /api/collections`: 목록 조회
+- `GET /api/collections/{id}`: 상세 조회
+- `PUT /api/collections/{id}`: 수정 (변경 필드만 업데이트)
+- `GET /api/collections/{id}/dashboard`: 예상 vs 실제 등록 현황 + draft 목록
+- `GET /api/collections/{id}/spatial-summary`: 유형별 bbox 목록
 
-sams/services/stac.py에 stac-fastapi 호출 래퍼를 만들어줘.
+**sams/routers/items.py**
+- `PUT /api/items/{collection}/{item}/status`: Draft→Published (필수 필드 검증)
+- `GET /api/items/{collection}/{item}/related`: links 양방향 해석
+- `GET /api/items/{collection}/{item}/timeline`: 같은 target+category 시점별 목록
+- `POST /api/items/{collection}/{item}/links`: 관계 추가 (양방향 자동 생성)
+- `DELETE /api/items/{collection}/{item}/links/{index}`: 관계 삭제 (양방향 자동 삭제)
 
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+### 확인 포인트
+- `pytest tests/test_collections_items.py -v` → 10개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 160개 통과
 
 ---
 
