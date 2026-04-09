@@ -145,7 +145,7 @@ Claude Code:
 - ✅ inherit.py: Collection 기본값 상속
 - ✅ suggest.py: 관계 자동 제안
 - ⬜ thumbnail.py: 썸네일 생성 (비동기) — Step 5(Worker)에서 구현 예정
-- ⬜ `analyze()` 통합 함수: 위 모듈들을 연결하는 진입점 — 다음 단계
+- ✅ `analyze()` 통합 함수: bundle→detect→extract→inherit→suggest 연결 진입점
 - 참조: `docs/autofill_pipeline_spec.md` (전체)
 - 테스트: `tests/fixtures/`의 샘플 파일로 각 유형 추출 결과 확인
 - 개발용 테스트 페이지: `http://localhost:7800/api/test` (파이프라인 결과 실데이터 확인용)

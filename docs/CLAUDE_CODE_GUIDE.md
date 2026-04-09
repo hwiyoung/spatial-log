@@ -140,31 +140,29 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 5: 파이프라인 통합 — analyze 함수
+## Step 5: 파이프라인 통합 — analyze 함수 (COMPLETED)
 
-### 프롬프트
-```
-Step 5: 파이프라인 통합.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-sams-api/sams/pipeline/__init__.py에 analyze 함수를 구현해줘.
-bundle.py는 이미 구현되어 있으므로, 기존 모듈을 연결하는 것이 핵심.
+### 구현 내용
 
-async def analyze(file_paths: list[str], collection_id: str) -> Manifest:
-    1. 파일 목록에 대해 bundle로 그룹핑
-    2. 각 번들/파일에 대해 detect → extract(bundled_files 포함) → inherit 순서로 실행
-    3. 전체 파일 목록에 대해 suggest로 관계 제안
-    4. 결과를 Manifest 형태로 조합하여 반환
+**sams/models/manifest.py (Pydantic 모델)**
+- `MetadataValue`: 값 + source("file"/"collection_default"/"unknown") + warning
+- `SuggestedLinkItem`: rel, target_file, confidence, reason
+- `ManifestItem`: 파일별 분석 결과 (auto_extracted, inherited, suggested_links, required_empty, warnings)
+- `ManifestSummary`: total_files, detected_types, auto_filled_percentage, manual_required_fields
+- `Manifest`: manifest(항목 리스트) + summary
 
-Manifest Pydantic 모델은 sams/models/manifest.py에 정의.
-docs/system_architecture.md 섹션 3.2의 /api/upload/analyze 응답 형식을 따라.
+**sams/pipeline/__init__.py (analyze 통합 함수)**
+- `analyze(file_paths, collection_defaults)` → Manifest
+- 흐름: bundle → detect → extract → inherit → suggest
+- auto_extracted / inherited 분리: _sources dict 기반
+- required_empty: 공통 필수(datetime, description 등) + category별 필수 중 빈 필드
+- graceful degradation: extract 실패 시 warnings에 기록, 매니페스트는 반환
 
-auto_extracted의 각 값에 source ("file", "collection_default", "unknown") 표시.
-warnings 리스트에 경고 메시지 모음.
-required_empty에 사용자가 채워야 할 필수 빈 필드 목록.
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+### 확인 포인트
+- `pytest tests/test_analyze.py -v` → 16개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 136개 통과 (기존 테스트 영향 없음)
 
 ---
 
