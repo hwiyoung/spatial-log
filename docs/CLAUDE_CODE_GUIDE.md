@@ -299,30 +299,22 @@ docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동�
 
 ---
 
-## Step 11: Frontend — Project
+## Step 11: Frontend — Project (COMPLETED)
 
-### 프롬프트
-```
-Step 11: Frontend Project 페이지.
-CLAUDE.md 워크플로우(Phase A~F)를 따라서 진행해줘.
+> **이 단계는 완료되었습니다.**
 
-docs/sams_unified_demo.jsx의 Project 부분과
-docs/system_structure_design.md "페이지 3: Project"를 참조해서
-frontend/src/pages/Project.jsx를 구현해줘.
+### 구현 내용
 
-구성:
-- 왼쪽 사이드바: Collection 목록 (상태 필터, 진행률 바)
-- 오른쪽: 프로젝트 헤더 + 4탭
-  - 📊 현황: 예상 vs 실제 등록 표
-  - 🗺 공간: MapLibre 2D 지도에 유형별 마커 + 레이어 토글 + 클릭 팝업
-  - ⚠ Draft: 미완성 Item 목록 + "편집하여 완성 →" 버튼
-  - 📋 전체: Item 테이블 (클릭 → Detail)
-- "+ 새 프로젝트" 버튼 → Collection 생성 모달
-
-API 호출: collectionApi.list, collectionApi.dashboard, collectionApi.spatialSummary
-
-완료 후 Phase C~F(검증, 품질, 사용자 관점, 최종) 수행하고 커밋해줘.
-```
+**Project 페이지 (src/pages/Project.jsx)**
+- 왼쪽: Collection 목록 (클릭 시 선택, 상태/사이트 표시)
+- 오른쪽: 프로젝트 헤더 (발주처, 사이트, PM, EPSG, status, 진행률)
+- 4탭:
+  - 📊 현황: expected_vs_actual 테이블 + 유형별 등록 카드
+  - 🗺 공간: spatialSummary로 유형별 bbox 목록
+  - ⚠ Draft: draft_items 목록 + "편집하여 완성 →" 버튼 (Detail 이동)
+  - 📋 전체: STAC search로 Item 목록, 클릭 → Detail
+- "+ 새 프로젝트" 버튼 → 모달 (ID, 프로젝트명, 사이트, 발주처, PM, EPSG)
+- API: collectionApi.list, dashboard, spatialSummary, create
 
 ---
 
