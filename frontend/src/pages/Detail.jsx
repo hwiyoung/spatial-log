@@ -252,10 +252,20 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
     if (!showAdd) return
     const timer = setTimeout(async () => {
       try {
-        const params = { collections: [collectionId], limit: 20 }
-        if (searchQuery.trim()) params.q = searchQuery.trim()
-        const res = await searchApi.search(params)
-        const items = (res.data?.features || []).filter(f => f.id !== itemId)
+        const res = await searchApi.search({ collections: [collectionId], limit: 100 })
+        let items = (res.data?.features || []).filter(f => f.id !== itemId)
+        // 클라이언트 사이드 필터링 (STAC q 파라미터가 미지원일 수 있음)
+        const q = searchQuery.trim().toLowerCase()
+        if (q) {
+          items = items.filter(f => {
+            const p = f.properties || {}
+            return (p.description || '').toLowerCase().includes(q)
+              || (p.target || '').toLowerCase().includes(q)
+              || (p['project:site'] || '').toLowerCase().includes(q)
+              || (p.data_category || '').toLowerCase().includes(q)
+              || f.id.toLowerCase().includes(q)
+          })
+        }
         setSearchResults(items)
       } catch (err) {
         console.error('Item 검색 실패:', err)
