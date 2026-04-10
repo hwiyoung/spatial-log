@@ -49,5 +49,6 @@ class ManifestSummary(BaseModel):
 
 class Manifest(BaseModel):
     """전체 매니페스트 — analyze() 반환값."""
+    session_id: str = ""
     manifest: list[ManifestItem] = Field(default_factory=list)
     summary: ManifestSummary = Field(default_factory=ManifestSummary)

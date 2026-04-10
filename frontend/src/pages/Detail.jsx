@@ -76,13 +76,24 @@ export default function Detail() {
           padding: 20, background: 'var(--s1)', borderRadius: 12, border: '1px solid var(--bd)',
         }}>
           {/* 썸네일 */}
-          <div style={{
-            width: 160, height: 120, borderRadius: 8, background: 'var(--s2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 48, color: cat.color, opacity: 0.3, flexShrink: 0,
-          }}>
-            {cat.icon}
-          </div>
+          {assets.thumbnail?.href ? (
+            <img
+              src={assets.thumbnail.href}
+              alt={props.description || itemId}
+              style={{
+                width: 160, height: 120, borderRadius: 8, objectFit: 'cover',
+                flexShrink: 0, background: 'var(--s2)', border: '1px solid var(--bd)',
+              }}
+            />
+          ) : (
+            <div style={{
+              width: 160, height: 120, borderRadius: 8, background: 'var(--s2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 48, color: cat.color, opacity: 0.3, flexShrink: 0,
+            }}>
+              {cat.icon}
+            </div>
+          )}
           <div style={{ flex: 1 }}>
             <span style={{
               padding: '2px 10px', borderRadius: 4, fontSize: 12, fontWeight: 600,
@@ -137,14 +148,34 @@ export default function Detail() {
             </div>
           ))}
           {!editMode && (
-            <div
-              onClick={() => setEditMode(true)}
-              style={{
-                padding: '8px 16px', fontSize: 14, cursor: 'pointer',
-                color: 'var(--t3)', marginLeft: 'auto',
-              }}
-            >
-              ✏️ 편집
+            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+              <div
+                onClick={() => setEditMode(true)}
+                style={{
+                  padding: '8px 16px', fontSize: 14, cursor: 'pointer',
+                  color: 'var(--t3)',
+                }}
+              >
+                ✏️ 편집
+              </div>
+              <div
+                onClick={async () => {
+                  if (!confirm(`"${props.description || itemId}" 아이템을 삭제하시겠습니까?\nS3 파일도 함께 삭제됩니다.`)) return
+                  try {
+                    await itemApi.delete(`${collectionId}/${itemId}`)
+                    alert('삭제 완료')
+                    navigate('/')
+                  } catch (err) {
+                    alert('삭제 실패: ' + (err.response?.data?.detail || err.message))
+                  }
+                }}
+                style={{
+                  padding: '8px 16px', fontSize: 14, cursor: 'pointer',
+                  color: 'var(--err, #e55)',
+                }}
+              >
+                🗑 삭제
+              </div>
             </div>
           )}
         </div>

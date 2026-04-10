@@ -47,10 +47,8 @@ app.include_router(collections_router, prefix="/api/collections", tags=["collect
 from sams.routers.items import router as items_router
 app.include_router(items_router, prefix="/api/items", tags=["items"])
 
-# TODO: 추가 라우터 등록
-# from sams.routers import search, files
-# app.include_router(search.router, prefix="/api/search", tags=["search"])
-# app.include_router(files.router, prefix="/api/files", tags=["files"])
+from sams.routers.files import router as files_router
+app.include_router(files_router, prefix="/api/files", tags=["files"])
 
 
 @app.get("/health")

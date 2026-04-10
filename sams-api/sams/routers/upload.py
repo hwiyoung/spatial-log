@@ -2,9 +2,9 @@
 Upload 엔드포인트 — 자동 채움 파이프라인의 API 인터페이스.
 
 3개 엔드포인트:
-1. POST /analyze  — 파일 업로드 → 파이프라인 실행 → 매니페스트 반환
+1. POST /analyze  — 파일 업로드 → 파이프라인 실행 → 매니페스트 반환 (임시 파일 보존)
 2. POST /validate — 매니페스트 필수 필드 검증
-3. POST /register — STAC Item 생성 + S3 업로드
+3. POST /register — STAC Item 생성 + S3 업로드 + 임시 파일 정리
 
 참조: docs/system_architecture.md 섹션 3.2
 """
@@ -25,10 +25,38 @@ from pydantic import BaseModel, Field
 from sams.config import settings
 from sams.models.manifest import Manifest
 from sams.pipeline import analyze
+from sams.pipeline.thumbnail import generate_thumbnail
 from sams.services.s3 import build_asset_href, upload_file
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+def _get_session_dir(session_id: str) -> str | None:
+    """세션 ID로 임시 디렉토리를 찾는다 (파일 시스템 기반)."""
+    base = settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else tempfile.gettempdir()
+    prefix = f"sams_{session_id}_"
+    try:
+        dirs = os.listdir(base)
+    except OSError:
+        logger.warning("임시 디렉토리 목록 조회 실패: %s", base)
+        return None
+    for d in dirs:
+        if d.startswith(prefix):
+            full = os.path.join(base, d)
+            if os.path.isdir(full):
+                logger.info("세션 디렉토리 찾음: %s → %s", session_id, full)
+                return full
+    logger.warning("세션 디렉토리 못 찾음: session=%s, base=%s, dirs=%s", session_id, base, dirs)
+    return None
+
+
+def _cleanup_session(session_id: str) -> None:
+    """세션의 임시 디렉토리를 정리한다."""
+    tmp_dir = _get_session_dir(session_id)
+    if tmp_dir:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.info("세션 정리 완료: %s", session_id)
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # 1. POST /analyze
@@ -40,11 +68,16 @@ async def upload_analyze(
     files: list[UploadFile] = File(...),
     collection_id: str = Form(""),
 ):
-    """파일을 받아 자동 채움 파이프라인을 실행하고 매니페스트를 반환한다."""
+    """파일을 받아 자동 채움 파이프라인을 실행하고 매니페스트를 반환한다.
+    임시 파일은 세션 ID로 관리되며, 등록 완료 시까지 보존된다."""
     if not files:
         raise HTTPException(status_code=400, detail="파일이 없습니다.")
 
-    tmp_dir = tempfile.mkdtemp(dir=settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else None)
+    session_id = uuid.uuid4().hex
+    tmp_dir = tempfile.mkdtemp(
+        prefix=f"sams_{session_id}_",
+        dir=settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else None,
+    )
     saved_paths: list[str] = []
 
     try:
@@ -70,10 +103,16 @@ async def upload_analyze(
             if item.bundled_files:
                 item.bundled_files = [Path(f).name for f in item.bundled_files]
 
+        # 세션 ID를 반환 — 디렉토리명에 session_id가 포함되어 있으므로 별도 저장 불필요
+        manifest.session_id = session_id
+        logger.warning("분석 완료 — session=%s, tmp_dir=%s, files=%d", session_id, tmp_dir, len(saved_paths))
+
         return manifest
 
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    except Exception:
+        # 분석 실패해도 임시 파일 유지 (리로드 시 데이터 손실 방지)
+        # 등록 완료 시 또는 cleanup 주기에서 정리
+        raise
 
 
 async def _fetch_collection_defaults(collection_id: str) -> dict[str, Any] | None:
@@ -187,6 +226,7 @@ async def upload_validate(req: ValidateRequest):
 class RegisterRequest(BaseModel):
     """등록 요청."""
     collection_id: str
+    session_id: str = ""
     items: list[dict[str, Any]]
     status: str = "draft"  # "draft" 또는 "published"
 
@@ -200,7 +240,15 @@ class RegisterResult(BaseModel):
 
 @router.post("/register", response_model=RegisterResult)
 async def upload_register(req: RegisterRequest):
-    """검증 통과된 매니페스트로 STAC Item을 생성하고 S3에 파일을 업로드한다."""
+    """매니페스트로 STAC Item을 생성하고 S3에 파일을 업로드한다."""
+
+    # 세션에서 임시 디렉토리 조회 (파일 시스템 기반 — 리로드에도 유지)
+    tmp_dir = _get_session_dir(req.session_id) if req.session_id else None
+
+    # Collection 자동 생성 (없으면)
+    if req.collection_id:
+        await _ensure_collection(req.collection_id)
+
     registered = 0
     item_ids: list[str] = []
     errors: list[str] = []
@@ -212,34 +260,136 @@ async def upload_register(req: RegisterRequest):
                 item_data.get("data_category", "unknown"),
             )
 
-            # S3 업로드 (로컬 파일이 있는 경우)
-            file_path = item_data.get("_local_path")
             category = item_data.get("data_category", "unknown")
-            filename = item_data.get("_filename", Path(file_path).name if file_path else "data")
+            filename = item_data.get("_filename", "data")
 
+            # S3 업로드 — 세션 임시 디렉토리에서 파일 찾기
             assets = {}
-            if file_path and os.path.exists(file_path):
-                s3_key = upload_file(file_path, req.collection_id, category, item_id, filename)
-                assets["data"] = {
-                    "href": build_asset_href(req.collection_id, category, item_id, filename),
-                    "type": _guess_media_type(filename),
-                    "roles": ["data"],
-                    "title": filename,
+            bundled_files = item_data.get("_bundled_files", [])
+
+            if tmp_dir:
+                local_path = os.path.join(tmp_dir, filename)
+                if os.path.exists(local_path):
+                    # 이미지 세트: 전체 파일을 S3에 업로드
+                    if bundled_files:
+                        uploaded_count = 0
+                        for bf in [filename] + bundled_files:
+                            bf_path = os.path.join(tmp_dir, bf)
+                            if os.path.exists(bf_path):
+                                upload_file(bf_path, req.collection_id, category, item_id, bf)
+                                uploaded_count += 1
+                        assets["data"] = {
+                            "href": build_asset_href(req.collection_id, category, item_id, filename),
+                            "type": _guess_media_type(filename),
+                            "roles": ["data"],
+                            "title": f"{filename} 외 {len(bundled_files)}개 파일",
+                            "file_count": uploaded_count,
+                        }
+                        logger.info("이미지 세트 S3 업로드 완료: %d개 파일", uploaded_count)
+                    else:
+                        # 단일 파일 업로드
+                        s3_key = upload_file(local_path, req.collection_id, category, item_id, filename)
+                        assets["data"] = {
+                            "href": build_asset_href(req.collection_id, category, item_id, filename),
+                            "type": _guess_media_type(filename),
+                            "roles": ["data"],
+                            "title": filename,
+                        }
+                        logger.info("S3 업로드 완료: %s → %s", filename, s3_key)
+
+                    # 썸네일 생성 + S3 업로드
+                    try:
+                        thumb_path = generate_thumbnail(local_path, category)
+                        if thumb_path:
+                            thumb_filename = f"thumbnail_{Path(filename).stem}.png"
+                            upload_file(thumb_path, req.collection_id, category, item_id, thumb_filename)
+                            assets["thumbnail"] = {
+                                "href": build_asset_href(req.collection_id, category, item_id, thumb_filename),
+                                "type": "image/png",
+                                "roles": ["thumbnail"],
+                                "title": "Thumbnail",
+                            }
+                            os.unlink(thumb_path)
+                            logger.info("썸네일 생성 완료: %s", thumb_filename)
+                    except Exception:
+                        logger.warning("썸네일 생성 실패 (등록은 계속): %s", filename)
+                else:
+                    logger.warning("임시 파일 없음: %s", local_path)
+
+            # bbox와 geometry 구성
+            bbox_4326 = item_data.get("bbox_4326")
+            bbox_raw = item_data.get("bbox")
+            geometry = item_data.get("geometry")
+            epsg = item_data.get("proj:epsg")
+
+            # EPSG가 없으면 Collection의 default_epsg를 사용
+            if not epsg:
+                try:
+                    import httpx as _httpx
+                    async with _httpx.AsyncClient() as _c:
+                        _r = await _c.get(f"{settings.STAC_API_URL}/collections/{req.collection_id}", timeout=3.0)
+                        if _r.status_code == 200:
+                            _col = _r.json()
+                            _summaries = _col.get("summaries", {})
+                            epsg = _summaries.get("project:default_epsg") or _col.get("project:default_epsg")
+                            if epsg:
+                                epsg = int(epsg)
+                except Exception:
+                    pass
+
+            # bbox_4326이 없으면 raw bbox + EPSG로 변환 시도
+            if not bbox_4326 and bbox_raw and epsg and epsg != 4326:
+                try:
+                    from rasterio.crs import CRS
+                    from rasterio.warp import transform_bounds
+                    # 3D bbox(6값)이면 XY만 사용
+                    if len(bbox_raw) == 6:
+                        left, bottom, right, top = bbox_raw[0], bbox_raw[1], bbox_raw[3], bbox_raw[4]
+                    else:
+                        left, bottom, right, top = bbox_raw[0], bbox_raw[1], bbox_raw[2], bbox_raw[3]
+                    w, s, e, n = transform_bounds(CRS.from_epsg(epsg), CRS.from_epsg(4326), left, bottom, right, top)
+                    bbox_4326 = [round(w, 7), round(s, 7), round(e, 7), round(n, 7)]
+                except Exception:
+                    logger.warning("bbox 변환 실패 (EPSG:%s)", epsg)
+
+            # 최종 bbox 결정 (4326 우선, 없으면 raw)
+            bbox = bbox_4326 or (bbox_raw if bbox_raw and len(bbox_raw) == 4 else None)
+
+            if bbox and not geometry:
+                geometry = {
+                    "type": "Polygon",
+                    "coordinates": [[
+                        [bbox[0], bbox[1]],
+                        [bbox[2], bbox[1]],
+                        [bbox[2], bbox[3]],
+                        [bbox[0], bbox[3]],
+                        [bbox[0], bbox[1]],
+                    ]],
                 }
+
+            # geometry가 여전히 없으면 기본 Point 설정 (pgSTAC은 null geometry 불가)
+            if not geometry:
+                geometry = {"type": "Point", "coordinates": [0, 0]}
+                if not bbox:
+                    bbox = [0, 0, 0, 0]
 
             # STAC Item JSON 구성
             now = datetime.now(timezone.utc).isoformat()
-            properties = {k: v for k, v in item_data.items() if not k.startswith("_")}
+            properties = {k: v for k, v in item_data.items() if not k.startswith("_") and k not in ("bbox", "geometry", "id", "links", "assets")}
             properties["created"] = now
             properties["updated"] = now
             properties["sams:status"] = req.status
+
+            # datetime 보장 — pgSTAC 필수 요구사항
+            if not properties.get("datetime") and not (properties.get("start_datetime") and properties.get("end_datetime")):
+                properties["datetime"] = now
 
             stac_item = {
                 "type": "Feature",
                 "stac_version": "1.0.0",
                 "id": item_id,
-                "geometry": item_data.get("geometry"),
-                "bbox": item_data.get("bbox"),
+                "geometry": geometry,
+                "bbox": bbox,
                 "properties": properties,
                 "links": item_data.get("links", []),
                 "assets": assets or item_data.get("assets", {}),
@@ -256,6 +406,27 @@ async def upload_register(req: RegisterRequest):
             logger.exception("Item 등록 실패 [%d]: %s", idx, e)
             errors.append(f"[{idx}] 등록 실패: {str(e)}")
 
+            # S3 롤백 — 등록 실패 시 이미 올린 파일 정리
+            if assets:
+                try:
+                    from sams.services.s3 import get_s3_client
+                    s3 = get_s3_client()
+                    prefix = f"{req.collection_id}/{category}/{item_id}/"
+                    resp = s3.list_objects_v2(Bucket=settings.S3_BUCKET, Prefix=prefix)
+                    objects = resp.get("Contents", [])
+                    if objects:
+                        s3.delete_objects(
+                            Bucket=settings.S3_BUCKET,
+                            Delete={"Objects": [{"Key": o["Key"]} for o in objects]},
+                        )
+                        logger.info("S3 롤백: %d개 파일 삭제 (%s)", len(objects), prefix)
+                except Exception:
+                    logger.warning("S3 롤백 실패: %s", item_id)
+
+    # 등록 완료 후 세션 정리
+    if req.session_id:
+        _cleanup_session(req.session_id)
+
     return RegisterResult(
         registered=registered,
         item_ids=item_ids,
@@ -263,25 +434,76 @@ async def upload_register(req: RegisterRequest):
     )
 
 
+def _get_db_connection():
+    """pgSTAC DB에 직접 연결한다."""
+    import psycopg2
+    return psycopg2.connect(settings.DATABASE_URL)
+
+
+async def _ensure_collection(collection_id: str) -> None:
+    """Collection이 없으면 pgSTAC에 직접 생성한다."""
+    import json
+    try:
+        conn = _get_db_connection()
+        try:
+            cur = conn.cursor()
+            # 존재 확인
+            cur.execute("SELECT pgstac.get_collection(%s)", (collection_id,))
+            result = cur.fetchone()
+            if result and result[0]:
+                return  # 이미 존재
+
+            # 기본 Collection 생성
+            collection = {
+                "type": "Collection",
+                "id": collection_id,
+                "stac_version": "1.0.0",
+                "description": f"Auto-created collection: {collection_id}",
+                "title": collection_id,
+                "license": "proprietary",
+                "extent": {
+                    "spatial": {"bbox": [[-180, -90, 180, 90]]},
+                    "temporal": {"interval": [[None, None]]},
+                },
+                "links": [],
+            }
+            cur.execute(
+                "SELECT pgstac.create_collection(%s::jsonb)",
+                (json.dumps(collection),),
+            )
+            conn.commit()
+            logger.info("Collection 생성 완료 (pgSTAC): %s", collection_id)
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Collection 확인/생성 실패: %s", collection_id)
+
+
 async def _register_stac_item(collection_id: str, stac_item: dict) -> None:
-    """stac-fastapi에 STAC Item을 등록한다."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{settings.STAC_API_URL}/collections/{collection_id}/items",
-            json=stac_item,
-            timeout=10.0,
+    """pgSTAC에 직접 STAC Item을 등록한다."""
+    import json
+    conn = _get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT pgstac.create_item(%s::jsonb)",
+            (json.dumps(stac_item),),
         )
-    if resp.status_code not in (200, 201):
-        raise RuntimeError(
-            f"STAC Item 등록 실패 (HTTP {resp.status_code}): {resp.text[:200]}"
-        )
+        conn.commit()
+        logger.info("STAC Item 등록 완료 (pgSTAC): %s", stac_item.get("id"))
+    except Exception as e:
+        conn.rollback()
+        raise RuntimeError(f"STAC Item 등록 실패 (pgSTAC): {e}") from e
+    finally:
+        conn.close()
 
 
 def _generate_item_id(collection_id: str, category: str) -> str:
     """Item ID를 생성한다. 규칙: {collection}-{category}-{timestamp}"""
     ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     short = uuid.uuid4().hex[:6]
-    return f"{collection_id}-{category}-{ts}-{short}"
+    prefix = collection_id if collection_id else "sams"
+    return f"{prefix}-{category}-{ts}-{short}"
 
 
 def _guess_media_type(filename: str) -> str:

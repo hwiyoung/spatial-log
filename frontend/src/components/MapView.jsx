@@ -9,6 +9,7 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef([])
+  const [mapLoaded, setMapLoaded] = useState(false)
 
   // 지도 초기화
   useEffect(() => {
@@ -39,17 +40,44 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    map.on('load', () => setMapLoaded(true))
     mapRef.current = map
 
     return () => {
       map.remove()
       mapRef.current = null
+      setMapLoaded(false)
     }
   }, [])
 
+  // 선택 아이템 변경 시 bbox로 줌인
+  useEffect(() => {
+    if (!mapRef.current || !selectedId) return
+    const item = items.find(i => i.id === selectedId)
+    if (!item) return
+
+    const bbox = item.bbox
+    if (bbox && bbox.length >= 4) {
+      const [w, s, e, n] = [bbox[0], bbox[1], bbox[2], bbox[3]]
+      if (isValidLngLat(w, s) && isValidLngLat(e, n)) {
+        if (Math.abs(e - w) < 0.0001 && Math.abs(n - s) < 0.0001) {
+          mapRef.current.flyTo({ center: [(w + e) / 2, (s + n) / 2], zoom: 16, duration: 800 })
+        } else {
+          mapRef.current.fitBounds([[w, s], [e, n]], { padding: 80, duration: 800, maxZoom: 18 })
+        }
+        return
+      }
+    }
+
+    const center = getItemCenter(item)
+    if (center) {
+      mapRef.current.flyTo({ center, zoom: 15, duration: 800 })
+    }
+  }, [selectedId])
+
   // 마커 업데이트
   useEffect(() => {
-    if (!mapRef.current) return
+    if (!mapRef.current || !mapLoaded) return
 
     // 기존 마커 제거
     markersRef.current.forEach(m => m.remove())
@@ -83,27 +111,37 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
 
       markersRef.current.push(marker)
     })
-  }, [items, hoveredId, selectedId])
+  }, [items, hoveredId, selectedId, mapLoaded])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
   )
 }
 
+function isValidLngLat(lng, lat) {
+  return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90
+    && !(lng === 0 && lat === 0)
+}
+
 function getItemCenter(item) {
   const bbox = item.bbox
   if (bbox && bbox.length >= 4) {
-    return [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
+    const lng = (bbox[0] + bbox[2]) / 2
+    const lat = (bbox[1] + bbox[3]) / 2
+    if (isValidLngLat(lng, lat)) return [lng, lat]
   }
   const geom = item.geometry
   if (geom?.type === 'Point' && geom.coordinates) {
-    return geom.coordinates
+    const [lng, lat] = geom.coordinates
+    if (isValidLngLat(lng, lat)) return [lng, lat]
   }
   if (geom?.type === 'Polygon' && geom.coordinates?.[0]) {
     const ring = geom.coordinates[0]
     const lngs = ring.map(c => c[0])
     const lats = ring.map(c => c[1])
-    return [(Math.min(...lngs) + Math.max(...lngs)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2]
+    const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2
+    const lat = (Math.min(...lats) + Math.max(...lats)) / 2
+    if (isValidLngLat(lng, lat)) return [lng, lat]
   }
   return null
 }

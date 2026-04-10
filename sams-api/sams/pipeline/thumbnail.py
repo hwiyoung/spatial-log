@@ -135,11 +135,13 @@ def _thumb_orthoimage(filepath: str) -> str | None:
         return None
 
     with rasterio.open(filepath) as ds:
-        # 중앙 영역 읽기 (전체 해상도의 축소 버전)
-        h, w = ds.height, ds.width
-        # overview 레벨이 있으면 활용, 없으면 전체 읽고 리사이즈
+        # 읽을 밴드 결정 (최대 3밴드)
+        band_count = min(ds.count, 3)
+        indexes = list(range(1, band_count + 1))
+
         data = ds.read(
-            out_shape=(min(ds.count, 3), THUMB_HEIGHT, THUMB_WIDTH),
+            indexes=indexes,
+            out_shape=(band_count, THUMB_HEIGHT, THUMB_WIDTH),
             resampling=rasterio.enums.Resampling.bilinear,
         )
 

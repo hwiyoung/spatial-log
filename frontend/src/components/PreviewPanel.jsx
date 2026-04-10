@@ -15,7 +15,7 @@ export default function PreviewPanel({ item, onClose }) {
 
   return (
     <div style={{
-      width: 380, minWidth: 380, background: 'var(--s1)',
+      width: 460, minWidth: 460, background: 'var(--s1)',
       borderLeft: '1px solid var(--bd)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
@@ -41,14 +41,26 @@ export default function PreviewPanel({ item, onClose }) {
       {/* 내용 */}
       <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px' }}>
         {/* 썸네일 영역 */}
-        <div style={{
-          height: 160, background: 'var(--s2)', borderRadius: 8,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          marginBottom: 14, border: '1px solid var(--bd)',
-          fontSize: 40, color: cat.color, opacity: 0.3,
-        }}>
-          {cat.icon}
-        </div>
+        {item.assets?.thumbnail?.href ? (
+          <img
+            src={item.assets.thumbnail.href}
+            alt={props.description || item.id}
+            style={{
+              width: '100%', height: 200, objectFit: 'cover',
+              borderRadius: 8, marginBottom: 14,
+              border: '1px solid var(--bd)', background: 'var(--s2)',
+            }}
+          />
+        ) : (
+          <div style={{
+            height: 160, background: 'var(--s2)', borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 14, border: '1px solid var(--bd)',
+            fontSize: 40, color: cat.color, opacity: 0.3,
+          }}>
+            {cat.icon}
+          </div>
+        )}
 
         {/* 제목 */}
         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
@@ -76,6 +88,8 @@ export default function PreviewPanel({ item, onClose }) {
           <MetaRow label="Item ID" value={item.id} />
           <MetaRow label="파일 크기" value={formatSize(props['file:size'])} />
           {props['pc:count'] && <MetaRow label="포인트 수" value={Number(props['pc:count']).toLocaleString()} />}
+          {props['image:image_count'] && <MetaRow label="이미지 수" value={`${props['image:image_count']}장`} />}
+          {props['image:camera_model'] && <MetaRow label="카메라" value={props['image:camera_model']} />}
           {props['proj:epsg'] && <MetaRow label="좌표계" value={`EPSG:${props['proj:epsg']}`} />}
         </div>
 
@@ -105,6 +119,26 @@ export default function PreviewPanel({ item, onClose }) {
           }}
         >
           상세 보기 →
+        </button>
+        <button
+          onClick={async () => {
+            if (!confirm(`"${props.description || item.id}" 아이템을 삭제하시겠습니까?`)) return
+            try {
+              const { itemApi } = await import('../services/api')
+              await itemApi.delete(`${collection}/${item.id}`)
+              onClose()
+              window.location.reload()
+            } catch (err) {
+              alert('삭제 실패: ' + (err.response?.data?.detail || err.message))
+            }
+          }}
+          style={{
+            padding: '8px 12px', borderRadius: 6,
+            border: '1px solid var(--err, #e55)', background: 'transparent',
+            color: 'var(--err, #e55)', fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          🗑
         </button>
       </div>
     </div>

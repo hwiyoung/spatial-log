@@ -11,7 +11,7 @@ export default function SearchSidebar({
 }) {
   return (
     <div style={{
-      width: 240, minWidth: 240, background: 'var(--s1)',
+      width: 320, minWidth: 320, background: 'var(--s1)',
       borderRight: '1px solid var(--bd)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>

@@ -30,6 +30,13 @@ class FileGroup:
         return [self.primary_file] + self.bundled_files
 
 
+_IGNORE_EXTENSIONS = {
+    ".nav", ".obs", ".bin", ".mrk",  # PPK/GNSS 보조 파일
+    ".dat", ".log", ".ini", ".cfg",  # 설정/로그
+    ".ds_store", ".thumbs.db",       # OS 메타
+}
+
+
 def bundle_files(file_paths: list[str]) -> list[FileGroup]:
     """파일 목록을 분석하여 그룹으로 묶는다.
 
@@ -39,6 +46,12 @@ def bundle_files(file_paths: list[str]) -> list[FileGroup]:
     Returns:
         FileGroup 목록. 각 그룹이 하나의 Item 후보.
     """
+    # 불필요한 파일 필터링
+    file_paths = [
+        p for p in file_paths
+        if Path(p).suffix.lower() not in _IGNORE_EXTENSIONS
+        and not Path(p).name.startswith(".")
+    ]
     paths = [Path(p) for p in file_paths]
     consumed: set[str] = set()  # 이미 그룹에 포함된 파일
     groups: list[FileGroup] = []

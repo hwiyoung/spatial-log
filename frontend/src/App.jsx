@@ -23,10 +23,10 @@ export default function App() {
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
         {/* Navigation */}
         <nav style={{
-          height: 48, background: '#13161F', borderBottom: '1px solid #2C3044',
-          display: 'flex', alignItems: 'center', padding: '0 20px', gap: 6
+          height: 64, background: '#13161F', borderBottom: '1px solid #2C3044',
+          display: 'flex', alignItems: 'center', padding: '0 28px', gap: 10
         }}>
-          <NavLink to="/" style={{ fontSize: 16, fontWeight: 700, color: '#E4E7F0', textDecoration: 'none', marginRight: 24 }}>
+          <NavLink to="/" style={{ fontSize: 18, fontWeight: 700, color: '#E4E7F0', textDecoration: 'none', marginRight: 32 }}>
             SAMS <span style={{ color: '#4A72FF', fontWeight: 400 }}>v0.1</span>
           </NavLink>
           {[
@@ -39,7 +39,7 @@ export default function App() {
               to={link.to}
               end={link.to === '/'}
               style={({ isActive }) => ({
-                padding: '6px 16px', borderRadius: 6, fontSize: 14, fontWeight: 500,
+                padding: '10px 22px', borderRadius: 6, fontSize: 15, fontWeight: 500,
                 textDecoration: 'none',
                 color: isActive ? '#4A72FF' : '#5C6478',
                 background: isActive ? 'rgba(74,114,255,0.1)' : 'transparent',

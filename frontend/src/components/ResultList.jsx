@@ -33,10 +33,23 @@ export default function ResultList({ items, selectedId, onHover, onSelect }) {
                 borderBottom: '1px solid var(--bd)',
               }}
             >
-              {/* 아이콘 */}
+              {/* 썸네일 or 아이콘 */}
+              {item.assets?.thumbnail?.href ? (
+                <img
+                  src={item.assets.thumbnail.href}
+                  alt=""
+                  style={{
+                    width: 48, height: 36, borderRadius: 4,
+                    objectFit: 'cover', flexShrink: 0,
+                    background: 'var(--s2)',
+                  }}
+                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
+                />
+              ) : null}
               <div style={{
-                width: 30, height: 30, borderRadius: 6,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: item.assets?.thumbnail?.href ? 0 : 36, height: 36, borderRadius: 4,
+                display: item.assets?.thumbnail?.href ? 'none' : 'flex',
+                alignItems: 'center', justifyContent: 'center',
                 fontSize: 16, flexShrink: 0,
                 background: cat.color + '12', color: cat.color,
               }}>
@@ -52,8 +65,11 @@ export default function ResultList({ items, selectedId, onHover, onSelect }) {
                   {props.description || item.id}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 1 }}>
-                  {props.datetime?.slice(0, 10) || '날짜 없음'}
+                  {props.start_datetime
+                    ? `${props.start_datetime.slice(0, 10)} ~ ${(props.end_datetime || '').slice(0, 10)}`
+                    : props.datetime?.slice(0, 10) || '날짜 없음'}
                   {props['file:size'] ? ` · ${formatSize(props['file:size'])}` : ''}
+                  {props['image:image_count'] ? ` · ${props['image:image_count']}장` : ''}
                   {props.target ? ` · ${props.target}` : ''}
                 </div>
               </div>

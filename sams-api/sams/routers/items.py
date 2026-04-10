@@ -264,3 +264,73 @@ def _extract_item_id_from_href(href: str) -> str:
     # 형식: "./item-id" 또는 "../../collection/items/item-id"
     parts = href.rstrip("/").split("/")
     return parts[-1] if parts else ""
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# DELETE /api/items/{collection_id}/{item_id} — 아이템 삭제
+# ─────────────────────────────────────────────────────────────────────────
+
+@router.delete("/{collection_id}/{item_id}")
+async def delete_item(collection_id: str, item_id: str):
+    """STAC Item을 삭제한다. S3 파일도 정리."""
+    import json
+    import psycopg2
+    from sams.config import settings
+    from sams.services.s3 import get_s3_client
+
+    # 1. Item 조회 (S3 파일 경로 확보)
+    item = await stac.get_item(collection_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Item을 찾을 수 없습니다: {item_id}")
+
+    # 2. pgSTAC에서 삭제 (파티션 테이블 직접 삭제)
+    try:
+        conn = psycopg2.connect(settings.DATABASE_URL)
+        try:
+            cur = conn.cursor()
+            # 트리거 전체 비활성화 (partition_sys_meta 미존재 대응)
+            cur.execute("ALTER TABLE pgstac.items DISABLE TRIGGER ALL")
+
+            # 파티션 테이블 목록 조회 후 삭제
+            cur.execute("""
+                SELECT inhrelid::regclass::text
+                FROM pg_inherits
+                WHERE inhparent = 'pgstac.items'::regclass
+            """)
+            partitions = [row[0] for row in cur.fetchall()]
+            deleted = False
+            for part in partitions:
+                cur.execute(f"DELETE FROM {part} WHERE id = %s AND collection = %s", (item_id, collection_id))
+                if cur.rowcount > 0:
+                    deleted = True
+                    break
+
+            # 트리거 복원
+            cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
+            conn.commit()
+            if not deleted:
+                raise RuntimeError(f"Item을 찾을 수 없습니다: {item_id}")
+        finally:
+            conn.close()
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.exception("Item 삭제 실패 (pgSTAC): %s", item_id)
+        raise HTTPException(status_code=500, detail=f"삭제 실패: {e}")
+
+    # 3. S3 파일 삭제 (best-effort)
+    try:
+        s3 = get_s3_client()
+        for asset_key, asset in item.get("assets", {}).items():
+            href = asset.get("href", "")
+            if href.startswith("/api/files/"):
+                s3_key = href.replace("/api/files/", "")
+                try:
+                    s3.delete_object(Bucket=settings.S3_BUCKET, Key=s3_key)
+                except Exception:
+                    logger.warning("S3 파일 삭제 실패: %s", s3_key)
+    except Exception:
+        logger.warning("S3 정리 실패 (Item은 이미 삭제됨): %s", item_id)
+
+    logger.info("Item 삭제 완료: %s/%s", collection_id, item_id)
+    return {"deleted": True, "item_id": item_id}

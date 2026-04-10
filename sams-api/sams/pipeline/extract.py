@@ -60,17 +60,51 @@ def _base_meta(filepath: str | Path) -> dict:
     return {"file:size": size}
 
 
+def _bbox_to_4326(bbox: list[float], src_epsg: int) -> list[float] | None:
+    """bbox를 EPSG:4326으로 변환한다. 실패 시 None.
+
+    Args:
+        bbox: [minx, miny, maxx, maxy] 또는 [minx, miny, minz, maxx, maxy, maxz]
+        src_epsg: 원본 EPSG 코드
+    Returns:
+        [west, south, east, north] in EPSG:4326
+    """
+    if not src_epsg or src_epsg == 4326:
+        return None  # 변환 불필요
+
+    try:
+        from rasterio.crs import CRS
+        from rasterio.warp import transform_bounds
+
+        src_crs = CRS.from_epsg(src_epsg)
+        dst_crs = CRS.from_epsg(4326)
+
+        # 6값 bbox (3D)이면 XY만 사용
+        if len(bbox) == 6:
+            left, bottom, right, top = bbox[0], bbox[1], bbox[3], bbox[4]
+        else:
+            left, bottom, right, top = bbox[0], bbox[1], bbox[2], bbox[3]
+
+        west, south, east, north = transform_bounds(src_crs, dst_crs, left, bottom, right, top)
+        return [round(west, 7), round(south, 7), round(east, 7), round(north, 7)]
+    except Exception:
+        logger.warning("bbox 좌표 변환 실패 (EPSG:%s → 4326): %s", src_epsg, bbox)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # 포인트 클라우드 (LAS/LAZ/E57/PCD)
 # ---------------------------------------------------------------------------
 
 def extract_pointcloud(filepath: str | Path) -> dict:
-    """포인트 클라우드 메타데이터 추출. 확장자에 따라 laspy(LAS/LAZ) 또는 pye57(E57) 사용."""
+    """포인트 클라우드 메타데이터 추출. 확장자에 따라 분기."""
     path = Path(filepath)
     ext = path.suffix.lower()
 
     if ext == ".e57":
         return _extract_pointcloud_e57(path)
+    if ext in (".xyz", ".pts"):
+        return _extract_pointcloud_text(path, ext)
     return _extract_pointcloud_las(path)
 
 
@@ -125,6 +159,12 @@ def _extract_pointcloud_las(path: Path) -> dict:
         pass
     meta["proj:epsg"] = epsg
     meta["_epsg_source"] = "file" if epsg else "unknown"
+
+    # bbox를 EPSG:4326으로 변환
+    if epsg and epsg != 4326 and "bbox" in meta:
+        bbox_4326 = _bbox_to_4326(meta["bbox"], epsg)
+        if bbox_4326:
+            meta["bbox_4326"] = bbox_4326
 
     return meta
 
@@ -323,6 +363,104 @@ def _read_e57_xml(path: Path) -> str | None:
         return None
 
 
+def _extract_pointcloud_text(path: Path, ext: str) -> dict:
+    """XYZ/PTS 텍스트 포인트 클라우드 메타데이터 추출.
+
+    XYZ 형식: X Y Z [R G B] [Intensity] (공백/탭 구분, 헤더 없음)
+    PTS 형식: 첫 줄에 포인트 수, 이후 X Y Z I R G B (공백 구분)
+    """
+    meta: dict = {"file:size": path.stat().st_size}
+    meta["pc:encoding"] = ext.lstrip(".").upper()
+
+    x_min = y_min = z_min = float("inf")
+    x_max = y_max = z_max = float("-inf")
+    point_count = 0
+    has_rgb = False
+    has_intensity = False
+    header_lines = 0
+
+    try:
+        with open(path, "r", errors="ignore") as f:
+            for i, line in enumerate(f):
+                line = line.strip()
+                if not line or line.startswith("//") or line.startswith("#"):
+                    header_lines += 1
+                    continue
+
+                parts = line.split()
+
+                # PTS: 첫 번째 숫자-only 줄이 포인트 수일 수 있음
+                if i == 0 and len(parts) == 1 and ext == ".pts":
+                    try:
+                        meta["pc:count"] = int(parts[0])
+                        header_lines += 1
+                        continue
+                    except ValueError:
+                        pass
+
+                if len(parts) < 3:
+                    continue
+
+                try:
+                    x, y, z = float(parts[0]), float(parts[1]), float(parts[2])
+                except ValueError:
+                    if point_count == 0:
+                        header_lines += 1
+                    continue
+
+                point_count += 1
+                x_min, y_min, z_min = min(x_min, x), min(y_min, y), min(z_min, z)
+                x_max, y_max, z_max = max(x_max, x), max(y_max, y), max(z_max, z)
+
+                # 첫 100줄에서 필드 수로 RGB/Intensity 판단
+                if point_count <= 100:
+                    if len(parts) >= 7:
+                        has_rgb = True
+                        has_intensity = True
+                    elif len(parts) >= 6:
+                        has_rgb = True
+                    elif len(parts) >= 4:
+                        has_intensity = True
+
+                # 대용량 파일: 처음 10만줄 + 마지막 1만줄만 샘플링
+                if point_count == 100000:
+                    # 나머지는 줄 수만 세기
+                    remaining = sum(1 for _ in f)
+                    point_count += remaining
+                    break
+
+    except OSError:
+        return {"file:size": meta.get("file:size")}
+
+    if "pc:count" not in meta:
+        meta["pc:count"] = point_count
+    meta["pc:has_rgb"] = has_rgb
+    meta["pc:has_intensity"] = has_intensity
+
+    if point_count > 0 and x_min != float("inf"):
+        meta["bbox"] = [x_min, y_min, z_min, x_max, y_max, z_max]
+
+        # 좌표 범위로 CRS 추정
+        if -180 <= x_min <= 180 and -180 <= x_max <= 180 and -90 <= y_min <= 90 and -90 <= y_max <= 90:
+            meta["proj:epsg"] = 4326
+            meta["_epsg_source"] = "estimated"
+            meta["bbox_4326"] = [x_min, y_min, x_max, y_max]
+        else:
+            meta["proj:epsg"] = None
+            meta["_epsg_source"] = "unknown"
+
+        dx = x_max - x_min
+        dy = y_max - y_min
+        area = dx * dy
+        if area > 0:
+            meta["pc:density"] = round(meta["pc:count"] / area, 1)
+    else:
+        meta["proj:epsg"] = None
+        meta["_epsg_source"] = "unknown"
+
+    return meta
+
+
 _EXTRACTORS["pointcloud"] = extract_pointcloud
 
 
@@ -352,12 +490,19 @@ def extract_3dmodel(
         mesh.vertex_normals is not None and len(mesh.vertex_normals) > 0
     )
 
-    # bounding volume
+    # bounding volume + bbox 추출
     if mesh.bounds is not None:
-        meta["3dmodel:bounding_volume"] = {
-            "min": mesh.bounds[0].tolist(),
-            "max": mesh.bounds[1].tolist(),
-        }
+        bmin = mesh.bounds[0].tolist()
+        bmax = mesh.bounds[1].tolist()
+        meta["3dmodel:bounding_volume"] = {"min": bmin, "max": bmax}
+
+        # vertex 좌표에서 bbox 생성 (XY만)
+        meta["bbox"] = [bmin[0], bmin[1], bmax[0], bmax[1]]
+
+        # 좌표 범위로 CRS 추정
+        if -180 <= bmin[0] <= 180 and -180 <= bmax[0] <= 180 and -90 <= bmin[1] <= 90 and -90 <= bmax[1] <= 90:
+            # 경위도 범위 → EPSG:4326으로 추정
+            meta["bbox_4326"] = meta["bbox"]
 
     # 텍스처/재질 — 번들 정보 우선
     if bundled_files:
@@ -380,9 +525,13 @@ def extract_3dmodel(
         meta["3dmodel:texture_count"] = len(textures)
         meta["3dmodel:material_count"] = len(mtl_files)
 
-    # 3D 모델은 좌표계/시간 정보 없음
-    meta["proj:epsg"] = None
-    meta["_epsg_source"] = "unknown"
+    # 3D 모델은 CRS를 자체 포함하지 않음 — bbox_4326이 있으면 추정됨
+    if "bbox_4326" not in meta:
+        meta["proj:epsg"] = None
+        meta["_epsg_source"] = "unknown"
+    else:
+        meta["proj:epsg"] = 4326
+        meta["_epsg_source"] = "estimated"
 
     return meta
 
@@ -395,12 +544,33 @@ _EXTRACTORS["3d_model"] = extract_3dmodel
 # ---------------------------------------------------------------------------
 
 def extract_3dtiles(filepath: str | Path) -> dict:
-    """3D Tiles의 tileset.json 파싱."""
+    """3D Tiles의 tileset.json 또는 .3tz(zip archive) 파싱."""
+    import zipfile
+
     path = Path(filepath)
     meta: dict = {"file:size": path.stat().st_size}
 
-    with open(path, encoding="utf-8") as f:
-        tileset = json.load(f)
+    # .3tz는 zip 안에 tileset.json이 있음
+    if path.suffix.lower() == ".3tz":
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                # tileset.json 찾기
+                tileset_name = None
+                for name in zf.namelist():
+                    if name.endswith("tileset.json"):
+                        tileset_name = name
+                        break
+                if not tileset_name:
+                    logger.warning("3tz 파일에서 tileset.json을 찾을 수 없음: %s", path)
+                    return meta
+                with zf.open(tileset_name) as f:
+                    tileset = json.loads(f.read().decode("utf-8"))
+        except (zipfile.BadZipFile, OSError):
+            logger.warning("3tz 파일을 열 수 없음: %s", path)
+            return meta
+    else:
+        with open(path, encoding="utf-8") as f:
+            tileset = json.load(f)
 
     asset = tileset.get("asset", {})
     meta["3dtiles:version"] = asset.get("version", "1.0")
@@ -430,10 +600,27 @@ def extract_3dtiles(filepath: str | Path) -> dict:
             math.degrees(region[3]),  # north
         ]
         meta["proj:epsg"] = 4326
+        meta["bbox_4326"] = meta["bbox"]
         meta["_epsg_source"] = "file"
     else:
-        meta["proj:epsg"] = None
-        meta["_epsg_source"] = "unknown"
+        # box 타입도 시도 (center + halfSize)
+        box = bv.get("box")
+        if box and len(box) >= 12:
+            cx, cy, cz = box[0], box[1], box[2]
+            # box는 [cx,cy,cz, x0,x1,x2, y0,y1,y2, z0,z1,z2] — 단순화
+            hx = abs(box[3])
+            hy = abs(box[7])
+            if -180 <= cx <= 180 and -90 <= cy <= 90:
+                meta["bbox"] = [cx - hx, cy - hy, cx + hx, cy + hy]
+                meta["bbox_4326"] = meta["bbox"]
+                meta["proj:epsg"] = 4326
+                meta["_epsg_source"] = "estimated"
+            else:
+                meta["proj:epsg"] = None
+                meta["_epsg_source"] = "unknown"
+        else:
+            meta["proj:epsg"] = None
+            meta["_epsg_source"] = "unknown"
 
     return meta
 
@@ -473,6 +660,13 @@ def extract_orthoimage(filepath: str | Path) -> dict:
         meta["ortho:bit_depth"] = 8 if "uint8" in dtype_str else (
             16 if "uint16" in dtype_str or "int16" in dtype_str else 32
         )
+
+    # bbox를 EPSG:4326으로 변환
+    epsg = meta.get("proj:epsg")
+    if epsg and epsg != 4326 and "bbox" in meta:
+        bbox_4326 = _bbox_to_4326(meta["bbox"], epsg)
+        if bbox_4326:
+            meta["bbox_4326"] = bbox_4326
 
     return meta
 
@@ -519,23 +713,54 @@ def extract_image(
         all_images = [str(path)] + bundled_files
         meta["image:image_count"] = len(all_images)
 
-        # GPS 좌표 수집 → ConvexHull Polygon
+        # 전체 파일 크기 합산
+        total_size = meta.get("file:size", 0)
+        for bf in bundled_files:
+            try:
+                total_size += os.path.getsize(bf)
+            except OSError:
+                pass
+        meta["file:size"] = total_size
+
+        # GPS 좌표 수집 → ConvexHull Polygon + bbox
         gps_coords = _collect_gps_from_images(all_images)
         if len(gps_coords) >= 3:
             meta["geometry"] = _convex_hull_polygon(gps_coords)
             meta["image:has_geotag"] = True
+            lngs = [c[0] for c in gps_coords]
+            lats = [c[1] for c in gps_coords]
+            meta["bbox"] = [min(lngs), min(lats), max(lngs), max(lats)]
+            meta["bbox_4326"] = meta["bbox"]  # 이미 EPSG:4326
         elif len(gps_coords) == 2:
             meta["geometry"] = {
                 "type": "LineString",
                 "coordinates": gps_coords,
             }
             meta["image:has_geotag"] = True
+            lngs = [c[0] for c in gps_coords]
+            lats = [c[1] for c in gps_coords]
+            meta["bbox"] = [min(lngs), min(lats), max(lngs), max(lats)]
+            meta["bbox_4326"] = meta["bbox"]
         elif len(gps_coords) == 1:
             meta["geometry"] = {
                 "type": "Point",
                 "coordinates": gps_coords[0],
             }
             meta["image:has_geotag"] = True
+            meta["bbox"] = [gps_coords[0][0], gps_coords[0][1], gps_coords[0][0], gps_coords[0][1]]
+            meta["bbox_4326"] = meta["bbox"]
+
+        # 촬영 일시 범위 (첫/마지막 파일에서)
+        datetimes = []
+        for img_path in all_images[:50]:  # 최대 50장만 샘플링
+            exif = _read_exif(Path(img_path))
+            if exif and exif.get("datetime"):
+                datetimes.append(exif["datetime"])
+        if datetimes:
+            datetimes.sort()
+            meta["start_datetime"] = datetimes[0]
+            meta["end_datetime"] = datetimes[-1]
+            meta["datetime"] = None  # 범위가 있으므로 null
 
     return meta
 
@@ -803,7 +1028,7 @@ def _read_exif(filepath: Path) -> dict | None:
         if not dt:
             dt = exif_raw.get(ExifBase.DateTime)  # IFD0 fallback
         if dt:
-            result["datetime"] = str(dt)
+            result["datetime"] = _exif_datetime_to_iso(str(dt))
 
         # GPS — GPSInfo IFD (0x8825)
         gps_ifd = exif_raw.get_ifd(0x8825)
@@ -825,6 +1050,19 @@ def _read_exif(filepath: Path) -> dict | None:
     except Exception:
         logger.debug("EXIF 읽기 실패: %s", filepath, exc_info=True)
         return None
+
+
+def _exif_datetime_to_iso(dt_str: str) -> str:
+    """EXIF datetime 형식을 ISO 8601로 변환.
+    '2024:10:04 15:16:01' → '2024-10-04T15:16:01Z'
+    """
+    try:
+        dt_str = dt_str.strip()
+        if len(dt_str) >= 19 and dt_str[4] == ":":
+            return dt_str[:4] + "-" + dt_str[5:7] + "-" + dt_str[8:10] + "T" + dt_str[11:] + "Z"
+        return dt_str
+    except Exception:
+        return dt_str
 
 
 def _gps_to_decimal(

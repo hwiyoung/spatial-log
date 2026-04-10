@@ -101,10 +101,23 @@ async def create_collection(req: CollectionCreate):
     }
 
     try:
-        result = await stac.create_collection(stac_collection)
-        return result
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import json
+        import psycopg2
+        from sams.config import settings
+        conn = psycopg2.connect(settings.DATABASE_URL)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT pgstac.create_collection(%s::jsonb)",
+                (json.dumps(stac_collection),),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return stac_collection
+    except Exception as e:
+        logger.exception("Collection 생성 실패: %s", req.id)
+        raise HTTPException(status_code=500, detail=f"생성 실패: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -262,3 +275,70 @@ async def collection_spatial_summary(collection_id: str):
         "collection_id": collection_id,
         "categories": by_category,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# DELETE /api/collections/{id} — Collection 삭제 (하위 Item 포함)
+# ─────────────────────────────────────────────────────────────────────────
+
+@router.delete("/{collection_id}")
+async def delete_collection(collection_id: str):
+    """Collection과 하위 Item을 모두 삭제한다."""
+    import psycopg2
+    from sams.config import settings
+    from sams.services.s3 import get_s3_client
+
+    col = await stac.get_collection(collection_id)
+    if col is None:
+        raise HTTPException(status_code=404, detail=f"Collection '{collection_id}'을(를) 찾을 수 없습니다.")
+
+    # 1. 하위 Item 삭제 (파티션 테이블 직접)
+    items = await stac.get_collection_items(collection_id)
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    try:
+        cur = conn.cursor()
+        # 파티션 테이블 목록
+        cur.execute("""
+            SELECT inhrelid::regclass::text
+            FROM pg_inherits
+            WHERE inhparent = 'pgstac.items'::regclass
+        """)
+        partitions = [row[0] for row in cur.fetchall()]
+        # 트리거 전체 비활성화 (partition_sys_meta/partition_stats 미존재 대응)
+        cur.execute("ALTER TABLE pgstac.items DISABLE TRIGGER ALL")
+        cur.execute("ALTER TABLE pgstac.collections DISABLE TRIGGER ALL")
+
+        for part in partitions:
+            cur.execute(f"DELETE FROM {part} WHERE collection = %s", (collection_id,))
+
+        # 2. Collection 삭제
+        cur.execute("DELETE FROM pgstac.collections WHERE id = %s", (collection_id,))
+
+        # 트리거 복원
+        cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
+        cur.execute("ALTER TABLE pgstac.collections ENABLE TRIGGER ALL")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.exception("Collection 삭제 실패: %s", collection_id)
+        raise HTTPException(status_code=500, detail=f"삭제 실패: {e}")
+    finally:
+        conn.close()
+
+    # 3. S3 파일 정리 (best-effort)
+    try:
+        s3 = get_s3_client()
+        prefix = f"{collection_id}/"
+        resp = s3.list_objects_v2(Bucket=settings.S3_BUCKET, Prefix=prefix)
+        objects = resp.get("Contents", [])
+        if objects:
+            s3.delete_objects(
+                Bucket=settings.S3_BUCKET,
+                Delete={"Objects": [{"Key": o["Key"]} for o in objects]},
+            )
+            logger.info("S3 파일 %d개 삭제: %s", len(objects), collection_id)
+    except Exception:
+        logger.warning("S3 정리 실패 (Collection은 이미 삭제됨): %s", collection_id)
+
+    logger.info("Collection 삭제 완료: %s (Item %d개)", collection_id, len(items))
+    return {"deleted": True, "collection_id": collection_id, "items_deleted": len(items)}

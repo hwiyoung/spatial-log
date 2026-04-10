@@ -23,6 +23,8 @@ _EXT_MAP: dict[str, str] = {
     ".laz": "pointcloud",
     ".e57": "pointcloud",
     ".pcd": "pointcloud",
+    ".xyz": "pointcloud",
+    ".pts": "pointcloud",
     # 3D 모델
     ".obj": "3d_model",
     ".fbx": "3d_model",
@@ -30,6 +32,8 @@ _EXT_MAP: dict[str, str] = {
     ".glb": "3d_model",
     ".stl": "3d_model",
     ".dae": "3d_model",
+    # 3D Tiles Archive
+    ".3tz": "3d_tiles",
     # 동영상
     ".mp4": "video",
     ".mov": "video",

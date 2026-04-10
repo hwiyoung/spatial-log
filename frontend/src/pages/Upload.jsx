@@ -93,15 +93,18 @@ function BulkUpload() {
     if (!manifest) return
     setRegistering(true)
     try {
+      const collectionId = selectedCollection || `upload-${Date.now()}`
       const items = manifest.manifest.map(item => ({
         data_category: item.detected_category,
         ...flattenExtracted(item.auto_extracted),
         ...flattenExtracted(item.inherited),
         _filename: item.file_path,
+        _bundled_files: item.bundled_files || [],
       }))
 
-      const res = await uploadApi.register({
-        collection_id: selectedCollection,
+      await uploadApi.register({
+        collection_id: collectionId,
+        session_id: manifest.session_id,
         items,
         status: 'draft',
       })
@@ -223,6 +226,8 @@ function SingleUpload() {
   const [file, setFile] = useState(null)
   const [result, setResult] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
+  const [registering, setRegistering] = useState(false)
+  const [registered, setRegistered] = useState(false)
 
   useEffect(() => {
     collectionApi.list()
@@ -244,6 +249,60 @@ function SingleUpload() {
     } finally {
       setAnalyzing(false)
     }
+  }
+
+  async function handleRegister() {
+    if (!result || !result.manifest?.[0]) return
+    setRegistering(true)
+    try {
+      const item = result.manifest[0]
+      const collectionId = selectedCollection || `upload-${Date.now()}`
+      await uploadApi.register({
+        collection_id: collectionId,
+        session_id: result.session_id,
+        items: [{
+          data_category: item.detected_category,
+          ...flattenExtracted(item.auto_extracted),
+          ...flattenExtracted(item.inherited),
+          _filename: item.file_path,
+          _bundled_files: item.bundled_files || [],
+        }],
+        status: 'draft',
+      })
+      setRegistered(true)
+    } catch (err) {
+      console.error('등록 실패:', err)
+      alert('등록 실패: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  // 등록 완료 화면
+  if (registered) {
+    return (
+      <div style={{ padding: 20, background: 'var(--s1)', borderRadius: 10, border: '1px solid var(--bd)', textAlign: 'center' }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--t1)', marginBottom: 8 }}>등록 완료</div>
+        <div style={{ fontSize: 14, color: 'var(--t3)', marginBottom: 20 }}>
+          Draft 상태로 등록되었습니다. Explorer에서 확인하거나 Project 페이지에서 Published로 전환하세요.
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          <button onClick={() => navigate('/')} style={{
+            padding: '8px 20px', borderRadius: 6, border: 'none',
+            background: 'var(--ac)', color: '#fff', fontSize: 14, cursor: 'pointer',
+          }}>Explorer로 이동</button>
+          <button onClick={() => navigate('/project')} style={{
+            padding: '8px 20px', borderRadius: 6, border: '1px solid var(--bd)',
+            background: 'transparent', color: 'var(--t2)', fontSize: 14, cursor: 'pointer',
+          }}>Project로 이동</button>
+          <button onClick={() => { setFile(null); setResult(null); setRegistered(false) }} style={{
+            padding: '8px 20px', borderRadius: 6, border: '1px solid var(--bd)',
+            background: 'transparent', color: 'var(--t2)', fontSize: 14, cursor: 'pointer',
+          }}>추가 업로드</button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -275,12 +334,20 @@ function SingleUpload() {
         }}>{analyzing ? '분석 중...' : '분석'}</button>
       )}
 
-      {/* 분석 결과 */}
+      {/* 분석 결과 + 등록 버튼 */}
       {result && result.manifest?.[0] && (
         <div style={{ marginTop: 16 }}>
           <ManifestRow item={result.manifest[0]} index={0} expanded />
-          <div style={{ fontSize: 13, color: 'var(--t3)', marginTop: 12 }}>
-            매니페스트를 확인한 후 벌크 업로드에서 등록하거나, 직접 API를 호출하여 등록할 수 있습니다.
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button onClick={handleRegister} disabled={registering} style={{
+              padding: '10px 24px', borderRadius: 6, border: 'none',
+              background: 'var(--ac)', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              opacity: registering ? 0.5 : 1,
+            }}>{registering ? '등록 중...' : 'Draft로 등록'}</button>
+            <button onClick={() => { setResult(null) }} style={{
+              padding: '10px 20px', borderRadius: 6, border: '1px solid var(--bd)',
+              background: 'transparent', color: 'var(--t2)', fontSize: 14, cursor: 'pointer',
+            }}>다시 분석</button>
           </div>
         </div>
       )}
@@ -299,8 +366,24 @@ function Dropzone({ files, onFilesChange, single }) {
   function handleDrop(e) {
     e.preventDefault()
     setOver(false)
-    const dropped = [...e.dataTransfer.files]
-    onFilesChange(single ? [dropped[0]] : dropped)
+    // 폴더 드래그 시 하위 파일 모두 수집
+    const items = e.dataTransfer.items
+    if (items) {
+      const filePromises = []
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry?.()
+        if (entry) {
+          filePromises.push(readEntry(entry))
+        }
+      }
+      Promise.all(filePromises).then(results => {
+        const allFiles = results.flat()
+        onFilesChange(single ? [allFiles[0]] : allFiles)
+      })
+    } else {
+      const dropped = [...e.dataTransfer.files]
+      onFilesChange(single ? [dropped[0]] : dropped)
+    }
   }
 
   function handleSelect(e) {
@@ -308,13 +391,14 @@ function Dropzone({ files, onFilesChange, single }) {
     onFilesChange(single ? [selected[0]] : selected)
   }
 
+  const inputId = single ? 'single-file' : 'bulk-files'
+
   return (
     <div>
       <div
         onDragOver={e => { e.preventDefault(); setOver(true) }}
         onDragLeave={() => setOver(false)}
         onDrop={handleDrop}
-        onClick={() => document.getElementById(single ? 'single-file' : 'bulk-files').click()}
         style={{
           padding: '36px 20px', textAlign: 'center', cursor: 'pointer',
           border: `2px dashed ${over ? 'var(--ac)' : 'var(--bd)'}`,
@@ -323,19 +407,41 @@ function Dropzone({ files, onFilesChange, single }) {
         }}
       >
         <div style={{ fontSize: 15, color: 'var(--t2)', marginBottom: 4 }}>
-          파일을 여기에 드래그하세요
+          파일 또는 폴더를 여기에 드래그하세요
         </div>
-        <div style={{ fontSize: 13, color: 'var(--t3)' }}>
-          또는 클릭하여 선택 {single ? '(파일 1개)' : '(여러 파일 가능)'}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 8 }}>
+          <span
+            onClick={(e) => { e.stopPropagation(); document.getElementById(inputId).click() }}
+            style={{ fontSize: 13, color: 'var(--ac)', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            파일 선택
+          </span>
+          {!single && (
+            <span
+              onClick={(e) => { e.stopPropagation(); document.getElementById(inputId + '-folder').click() }}
+              style={{ fontSize: 13, color: 'var(--ac)', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              폴더 선택
+            </span>
+          )}
         </div>
       </div>
       <input
-        id={single ? 'single-file' : 'bulk-files'}
+        id={inputId}
         type="file"
         multiple={!single}
         onChange={handleSelect}
         style={{ display: 'none' }}
       />
+      {!single && (
+        <input
+          id={inputId + '-folder'}
+          type="file"
+          webkitdirectory=""
+          onChange={handleSelect}
+          style={{ display: 'none' }}
+        />
+      )}
 
       {/* 선택된 파일 목록 */}
       {files.length > 0 && (
@@ -454,4 +560,31 @@ function flattenExtracted(obj) {
     flat[key] = val.value
   }
   return flat
+}
+
+// 폴더 드래그 시 재귀적으로 하위 파일을 읽는 헬퍼
+function readEntry(entry) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file(f => resolve([f]))
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader()
+      const allFiles = []
+      function readBatch() {
+        reader.readEntries(entries => {
+          if (entries.length === 0) {
+            resolve(allFiles)
+          } else {
+            Promise.all(entries.map(readEntry)).then(results => {
+              allFiles.push(...results.flat())
+              readBatch() // 100개 이상일 경우 다음 배치
+            })
+          }
+        })
+      }
+      readBatch()
+    } else {
+      resolve([])
+    }
+  })
 }

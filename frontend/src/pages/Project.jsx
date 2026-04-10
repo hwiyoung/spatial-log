@@ -125,8 +125,32 @@ export default function Project() {
             <div style={{
               padding: 16, background: 'var(--s1)', borderRadius: 10, border: '1px solid var(--bd)', marginBottom: 16,
             }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>
-                {selectedCol.title || selectedCol.id}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)' }}>
+                  {selectedCol.title || selectedCol.id}
+                </div>
+                <div
+                  onClick={async () => {
+                    const name = selectedCol.title || selectedCol.id
+                    if (!confirm(`"${name}" 프로젝트를 삭제하시겠습니까?\n하위 아이템과 S3 파일이 모두 삭제됩니다.`)) return
+                    try {
+                      await collectionApi.delete(selectedCol.id)
+                      alert('삭제 완료')
+                      setSelectedId(null)
+                      setDashboard(null)
+                      loadCollections()
+                    } catch (err) {
+                      alert('삭제 실패: ' + (err.response?.data?.detail || err.message))
+                    }
+                  }}
+                  style={{
+                    padding: '4px 12px', borderRadius: 6, fontSize: 13, cursor: 'pointer',
+                    color: 'var(--err, #e55)', border: '1px solid var(--err, #e55)',
+                    background: 'transparent',
+                  }}
+                >
+                  🗑 프로젝트 삭제
+                </div>
               </div>
               <div style={{ fontSize: 13, color: 'var(--t3)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {summaries['project:client'] && <span>🏢 {summaries['project:client']}</span>}
