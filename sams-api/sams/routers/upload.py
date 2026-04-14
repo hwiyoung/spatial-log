@@ -67,13 +67,16 @@ def _cleanup_session(session_id: str) -> None:
 async def upload_analyze(
     files: list[UploadFile] = File(...),
     collection_id: str = Form(""),
+    session_id: str = Form(""),
 ):
     """파일을 받아 자동 채움 파이프라인을 실행하고 매니페스트를 반환한다.
-    임시 파일은 세션 ID로 관리되며, 등록 완료 시까지 보존된다."""
+    임시 파일은 세션 ID로 관리되며, 등록 완료 시까지 보존된다.
+    session_id를 프론트에서 미리 생성하여 전달하면 새로고침 후 복구에 사용."""
     if not files:
         raise HTTPException(status_code=400, detail="파일이 없습니다.")
 
-    session_id = uuid.uuid4().hex
+    if not session_id:
+        session_id = uuid.uuid4().hex
     tmp_dir = tempfile.mkdtemp(
         prefix=f"sams_{session_id}_",
         dir=settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else None,
@@ -97,15 +100,44 @@ async def upload_analyze(
         # 파이프라인 실행
         manifest = analyze(saved_paths, collection_defaults)
 
-        # file_path를 원본 파일명으로 치환 (임시 경로 노출 방지)
+        # file_path를 임시 디렉토리 기준 상대경로로 치환 (임시 경로 노출 방지 + 서브디렉토리 유지)
         for item in manifest.manifest:
-            item.file_path = Path(item.file_path).name
+            try:
+                item.file_path = os.path.relpath(item.file_path, tmp_dir)
+            except ValueError:
+                item.file_path = Path(item.file_path).name
             if item.bundled_files:
-                item.bundled_files = [Path(f).name for f in item.bundled_files]
+                rel_files = []
+                for f in item.bundled_files:
+                    try:
+                        rel_files.append(os.path.relpath(f, tmp_dir))
+                    except ValueError:
+                        rel_files.append(Path(f).name)
+                item.bundled_files = rel_files
 
-        # 세션 ID를 반환 — 디렉토리명에 session_id가 포함되어 있으므로 별도 저장 불필요
+        # 지원하지 않는 확장자(unknown 카테고리) 제외
+        before = len(manifest.manifest)
+        manifest.manifest = [
+            item for item in manifest.manifest
+            if item.detected_category != "unknown"
+        ]
+        skipped = before - len(manifest.manifest)
+        if skipped:
+            logger.info("미지원 파일 %d개 제외 (unknown 카테고리)", skipped)
+            manifest.summary.total_files = len(manifest.manifest)
+
+        # 세션 ID를 반환
         manifest.session_id = session_id
-        logger.warning("분석 완료 — session=%s, tmp_dir=%s, files=%d", session_id, tmp_dir, len(saved_paths))
+        logger.info("분석 완료 — session=%s, tmp_dir=%s, files=%d", session_id, tmp_dir, len(saved_paths))
+
+        # manifest를 세션 디렉토리에 저장 (새로고침 후 복구용)
+        try:
+            import json as _json
+            manifest_path = os.path.join(tmp_dir, "_manifest.json")
+            with open(manifest_path, "w", encoding="utf-8") as mf:
+                mf.write(_json.dumps(manifest.model_dump(), ensure_ascii=False, default=str))
+        except Exception:
+            logger.warning("manifest 저장 실패 (분석 결과 반환은 정상): %s", session_id)
 
         return manifest
 
@@ -113,6 +145,37 @@ async def upload_analyze(
         # 분석 실패해도 임시 파일 유지 (리로드 시 데이터 손실 방지)
         # 등록 완료 시 또는 cleanup 주기에서 정리
         raise
+
+
+@router.get("/sessions/{session_id}")
+async def get_session_status(session_id: str):
+    """세션의 분석 상태를 조회한다. 새로고침 후 복구에 사용."""
+    import json as _json
+    tmp_dir = _get_session_dir(session_id)
+    if not tmp_dir:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    manifest_path = os.path.join(tmp_dir, "_manifest.json")
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest_data = _json.load(f)
+            return {"status": "analyzed", "manifest": manifest_data}
+        except Exception:
+            return {"status": "analyzing"}
+    else:
+        return {"status": "analyzing"}
+
+
+@router.delete("/sessions/{session_id}")
+async def cancel_session(session_id: str):
+    """세션의 임시 파일을 삭제한다. 업로드 취소 시 호출."""
+    tmp_dir = _get_session_dir(session_id)
+    if tmp_dir:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.info("세션 취소 정리 완료: %s", session_id)
+        return {"deleted": True, "session_id": session_id}
+    return {"deleted": False, "session_id": session_id, "detail": "세션을 찾을 수 없습니다."}
 
 
 async def _fetch_collection_defaults(collection_id: str) -> dict[str, Any] | None:
@@ -261,7 +324,8 @@ async def upload_register(req: RegisterRequest):
             )
 
             category = item_data.get("data_category", "unknown")
-            filename = item_data.get("_filename", "data")
+            filename = item_data.get("_filename", "data")  # 상대경로 가능 (서브디렉토리/파일명)
+            display_name = Path(filename).name  # S3 키·title 용 파일명만
 
             # S3 업로드 — 세션 임시 디렉토리에서 파일 찾기
             assets = {}
@@ -270,38 +334,50 @@ async def upload_register(req: RegisterRequest):
             if tmp_dir:
                 local_path = os.path.join(tmp_dir, filename)
                 if os.path.exists(local_path):
-                    # 이미지 세트: 전체 파일을 S3에 업로드
+                    # 이미지 세트: 전체 파일을 S3에 병렬 업로드
                     if bundled_files:
-                        uploaded_count = 0
-                        for bf in [filename] + bundled_files:
+                        import concurrent.futures
+                        all_bf = [filename] + bundled_files
+                        upload_args = []
+                        for bf in all_bf:
                             bf_path = os.path.join(tmp_dir, bf)
                             if os.path.exists(bf_path):
-                                upload_file(bf_path, req.collection_id, category, item_id, bf)
-                                uploaded_count += 1
+                                upload_args.append((bf_path, req.collection_id, category, item_id, Path(bf).name))
+
+                        uploaded_count = 0
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+                            futures = [executor.submit(upload_file, *args) for args in upload_args]
+                            for f in concurrent.futures.as_completed(futures):
+                                try:
+                                    f.result()
+                                    uploaded_count += 1
+                                except Exception:
+                                    pass
+
                         assets["data"] = {
-                            "href": build_asset_href(req.collection_id, category, item_id, filename),
-                            "type": _guess_media_type(filename),
+                            "href": build_asset_href(req.collection_id, category, item_id, display_name),
+                            "type": _guess_media_type(display_name),
                             "roles": ["data"],
-                            "title": f"{filename} 외 {len(bundled_files)}개 파일",
+                            "title": f"{display_name} 외 {len(bundled_files)}개 파일",
                             "file_count": uploaded_count,
                         }
-                        logger.info("이미지 세트 S3 업로드 완료: %d개 파일", uploaded_count)
+                        logger.info("이미지 세트 S3 업로드 완료: %d개 파일 (병렬)", uploaded_count)
                     else:
                         # 단일 파일 업로드
-                        s3_key = upload_file(local_path, req.collection_id, category, item_id, filename)
+                        s3_key = upload_file(local_path, req.collection_id, category, item_id, display_name)
                         assets["data"] = {
-                            "href": build_asset_href(req.collection_id, category, item_id, filename),
-                            "type": _guess_media_type(filename),
+                            "href": build_asset_href(req.collection_id, category, item_id, display_name),
+                            "type": _guess_media_type(display_name),
                             "roles": ["data"],
-                            "title": filename,
+                            "title": display_name,
                         }
-                        logger.info("S3 업로드 완료: %s → %s", filename, s3_key)
+                        logger.info("S3 업로드 완료: %s → %s", display_name, s3_key)
 
                     # 썸네일 생성 + S3 업로드
                     try:
                         thumb_path = generate_thumbnail(local_path, category)
                         if thumb_path:
-                            thumb_filename = f"thumbnail_{Path(filename).stem}.png"
+                            thumb_filename = f"thumbnail_{Path(display_name).stem}.png"
                             upload_file(thumb_path, req.collection_id, category, item_id, thumb_filename)
                             assets["thumbnail"] = {
                                 "href": build_asset_href(req.collection_id, category, item_id, thumb_filename),
@@ -312,9 +388,9 @@ async def upload_register(req: RegisterRequest):
                             os.unlink(thumb_path)
                             logger.info("썸네일 생성 완료: %s", thumb_filename)
                     except Exception:
-                        logger.warning("썸네일 생성 실패 (등록은 계속): %s", filename)
+                        logger.warning("썸네일 생성 실패 (등록은 계속): %s", display_name)
                 else:
-                    logger.warning("임시 파일 없음: %s", local_path)
+                    logger.warning("임시 파일 없음: %s (tmp_dir=%s, filename=%s)", local_path, tmp_dir, filename)
 
             # bbox와 geometry 구성
             bbox_4326 = item_data.get("bbox_4326")

@@ -126,9 +126,17 @@ export default function Project() {
               padding: 16, background: 'var(--s1)', borderRadius: 10, border: '1px solid var(--bd)', marginBottom: 16,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)' }}>
-                  {selectedCol.title || selectedCol.id}
-                </div>
+                <EditableTitle
+                  value={selectedCol.title || selectedCol.id}
+                  onSave={async (newTitle) => {
+                    try {
+                      await collectionApi.update(selectedCol.id, { title: newTitle })
+                      loadCollections()
+                    } catch (err) {
+                      alert('이름 변경 실패: ' + (err.response?.data?.detail || err.message))
+                    }
+                  }}
+                />
                 <div
                   onClick={async () => {
                     const name = selectedCol.title || selectedCol.id
@@ -513,6 +521,57 @@ function ProgressBar({ total, label }) {
       <div style={{ height: 6, background: 'var(--s2)', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${Math.min(100, total * 10)}%`, background: 'var(--ac)', borderRadius: 3 }} />
       </div>
+    </div>
+  )
+}
+
+function EditableTitle({ value, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+
+  if (!editing) {
+    return (
+      <div
+        onClick={() => { setDraft(value); setEditing(true) }}
+        style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', cursor: 'pointer' }}
+        title="클릭하여 이름 변경"
+      >
+        {value} <span style={{ fontSize: 12, color: 'var(--t3)', fontWeight: 400 }}>✏️</span>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <input
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && draft.trim()) { onSave(draft.trim()); setEditing(false) }
+          if (e.key === 'Escape') setEditing(false)
+        }}
+        style={{
+          fontSize: 18, fontWeight: 700, color: 'var(--t1)',
+          background: 'var(--s2)', border: '1px solid var(--ac)',
+          borderRadius: 6, padding: '2px 8px', outline: 'none',
+          width: 300,
+        }}
+      />
+      <button
+        onClick={() => { if (draft.trim()) { onSave(draft.trim()); setEditing(false) } }}
+        style={{
+          padding: '4px 10px', borderRadius: 4, border: 'none',
+          background: 'var(--ac)', color: '#fff', fontSize: 12, cursor: 'pointer',
+        }}
+      >저장</button>
+      <button
+        onClick={() => setEditing(false)}
+        style={{
+          padding: '4px 10px', borderRadius: 4, border: '1px solid var(--bd)',
+          background: 'transparent', color: 'var(--t3)', fontSize: 12, cursor: 'pointer',
+        }}
+      >취소</button>
     </div>
   )
 }

@@ -12,9 +12,11 @@ export const stacApi = axios.create({ baseURL: '/stac' })
 
 // ── Upload (자동 채움 파이프라인) ──
 export const uploadApi = {
-  analyze: (formData) => samsApi.post('/upload/analyze', formData),
+  analyze: (formData, config) => samsApi.post('/upload/analyze', formData, config),
   validate: (manifest) => samsApi.post('/upload/validate', manifest),
   register: (manifest) => samsApi.post('/upload/register', manifest),
+  getSession: (sessionId) => samsApi.get(`/upload/sessions/${sessionId}`),
+  cancelSession: (sessionId) => samsApi.delete(`/upload/sessions/${sessionId}`),
   getPresignedUrl: (params) => samsApi.get('/upload/presigned-url', { params }),
   getManifestTemplate: (collectionId) => samsApi.get(`/upload/manifest-template/${collectionId}`, { responseType: 'blob' }),
   importManifest: (formData) => samsApi.post('/upload/manifest-import', formData),
@@ -49,5 +51,11 @@ export const itemApi = {
   addLink: (id, link) => samsApi.post(`/items/${id}/links`, link),
   removeLink: (id, linkIndex) => samsApi.delete(`/items/${id}/links/${linkIndex}`),
   update: (id, properties) => samsApi.put(`/items/${id}`, properties),
+  updateProperties: (collectionId, itemId, properties) =>
+    samsApi.put(`/items/${collectionId}/${itemId}/properties`, properties),
   delete: (id) => samsApi.delete(`/items/${id}`),
+  move: (collectionId, itemId, targetCollectionId) =>
+    samsApi.post(`/items/${collectionId}/${itemId}/move`, { target_collection_id: targetCollectionId }),
+  updateLocation: (collectionId, itemId, longitude, latitude) =>
+    samsApi.put(`/items/${collectionId}/${itemId}/location`, { longitude, latitude }),
 }

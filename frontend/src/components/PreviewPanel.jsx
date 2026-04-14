@@ -5,7 +5,7 @@
 import { useNavigate } from 'react-router-dom'
 import { getCategoryInfo, formatSize } from '../constants'
 
-export default function PreviewPanel({ item, onClose }) {
+export default function PreviewPanel({ item, onClose, width = 540 }) {
   const navigate = useNavigate()
   if (!item) return null
 
@@ -15,7 +15,7 @@ export default function PreviewPanel({ item, onClose }) {
 
   return (
     <div style={{
-      width: 460, minWidth: 460, background: 'var(--s1)',
+      width, minWidth: 320, background: 'var(--s1)',
       borderLeft: '1px solid var(--bd)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
@@ -46,14 +46,14 @@ export default function PreviewPanel({ item, onClose }) {
             src={item.assets.thumbnail.href}
             alt={props.description || item.id}
             style={{
-              width: '100%', height: 200, objectFit: 'cover',
+              width: '100%', height: 360, objectFit: 'contain',
               borderRadius: 8, marginBottom: 14,
               border: '1px solid var(--bd)', background: 'var(--s2)',
             }}
           />
         ) : (
           <div style={{
-            height: 160, background: 'var(--s2)', borderRadius: 8,
+            height: 300, background: 'var(--s2)', borderRadius: 8,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             marginBottom: 14, border: '1px solid var(--bd)',
             fontSize: 40, color: cat.color, opacity: 0.3,
@@ -63,7 +63,7 @@ export default function PreviewPanel({ item, onClose }) {
         )}
 
         {/* 제목 */}
-        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
           {props.description || item.id}
         </div>
 
@@ -94,13 +94,19 @@ export default function PreviewPanel({ item, onClose }) {
         </div>
 
         {/* 바운딩 박스 */}
-        {item.bbox && (
+        {item.bbox && item.bbox.length >= 4 && (
           <div style={{
             padding: '8px 12px', background: 'var(--s2)',
             borderRadius: 6, border: '1px solid var(--bd)', marginBottom: 12,
-            fontSize: 12, color: 'var(--t3)', fontFamily: 'monospace',
+            fontSize: 13, fontFamily: 'monospace',
           }}>
-            bbox: [{item.bbox.map(v => typeof v === 'number' ? v.toFixed(4) : v).join(', ')}]
+            <div style={{ color: 'var(--t3)', marginBottom: 4, fontSize: 12 }}>Bounding Box (EPSG:4326)</div>
+            <div style={{ color: 'var(--t2)' }}>
+              W {Number(item.bbox[0]).toFixed(6)}° / S {Number(item.bbox[1]).toFixed(6)}°
+            </div>
+            <div style={{ color: 'var(--t2)' }}>
+              E {Number(item.bbox[2]).toFixed(6)}° / N {Number(item.bbox[3]).toFixed(6)}°
+            </div>
           </div>
         )}
       </div>
@@ -160,9 +166,9 @@ function Tag({ label, color }) {
 
 function MetaRow({ label, value }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 13 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 14 }}>
       <span style={{ color: 'var(--t3)' }}>{label}</span>
-      <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 12 }}>{value || '—'}</span>
+      <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 13 }}>{value || '—'}</span>
     </div>
   )
 }

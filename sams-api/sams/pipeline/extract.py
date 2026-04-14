@@ -92,6 +92,43 @@ def _bbox_to_4326(bbox: list[float], src_epsg: int) -> list[float] | None:
         return None
 
 
+def _guess_epsg_from_bbox(bbox: list[float]) -> int | None:
+    """bbox 좌표 범위로 CRS를 추정한다. LAS에 CRS 메타데이터가 없을 때 사용.
+
+    한국 투영좌표계(EPSG:5186) 범위:
+      X(Easting): 약 100,000 ~ 400,000
+      Y(Northing): 약 300,000 ~ 700,000
+    """
+    if len(bbox) < 4:
+        return None
+
+    # 6값 bbox이면 XY만
+    minx, miny = bbox[0], bbox[1]
+    maxx = bbox[3] if len(bbox) == 6 else bbox[2]
+    maxy = bbox[4] if len(bbox) == 6 else bbox[3]
+
+    # 이미 경위도 범위면 4326
+    if -180 <= minx <= 180 and -90 <= miny <= 90 and -180 <= maxx <= 180 and -90 <= maxy <= 90:
+        # 단, 0 근처의 모델 좌표와 구분: 범위가 한국 부근이면 4326
+        if 124 <= minx <= 132 and 33 <= miny <= 39:
+            return 4326
+        return None  # 경위도이긴 하지만 한국이 아니면 추정 안 함
+
+    # 한국 중부원점 (EPSG:5186) — 가장 흔한 케이스
+    if 100_000 <= minx <= 400_000 and 300_000 <= miny <= 700_000:
+        return 5186
+
+    # 한국 중부원점 (EPSG:5187) — 동부
+    if 400_000 <= minx <= 600_000 and 300_000 <= miny <= 700_000:
+        return 5187
+
+    # UTM Zone 52N (EPSG:32652) — 한국 서부
+    if 200_000 <= minx <= 800_000 and 3_500_000 <= miny <= 4_500_000:
+        return 32652
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # 포인트 클라우드 (LAS/LAZ/E57/PCD)
 # ---------------------------------------------------------------------------
@@ -151,14 +188,24 @@ def _extract_pointcloud_las(path: Path) -> dict:
 
     # CRS
     epsg = None
+    epsg_source = "unknown"
     try:
         crs = las.header.parse_crs()
         if crs and crs.to_epsg():
             epsg = crs.to_epsg()
+            epsg_source = "file"
     except Exception:
         pass
+
+    # CRS를 못 읽었으면 좌표 범위로 추정
+    if not epsg and "bbox" in meta:
+        epsg = _guess_epsg_from_bbox(meta["bbox"])
+        if epsg:
+            epsg_source = "estimated"
+            logger.info("CRS 자동 추정: EPSG:%d (좌표 범위 기반)", epsg)
+
     meta["proj:epsg"] = epsg
-    meta["_epsg_source"] = "file" if epsg else "unknown"
+    meta["_epsg_source"] = epsg_source
 
     # bbox를 EPSG:4326으로 변환
     if epsg and epsg != 4326 and "bbox" in meta:
@@ -722,45 +769,56 @@ def extract_image(
                 pass
         meta["file:size"] = total_size
 
-        # GPS 좌표 수집 → ConvexHull Polygon + bbox
-        gps_coords = _collect_gps_from_images(all_images)
+        # GPS 좌표 + datetime을 한 번에 수집 (샘플링)
+        # 대량 이미지 세트에서는 균등 샘플링으로 성능 확보
+        max_sample = 100
+        if len(all_images) > max_sample:
+            step = len(all_images) / max_sample
+            sample_indices = [int(i * step) for i in range(max_sample)]
+            sampled = [all_images[i] for i in sample_indices]
+            # 첫/마지막은 반드시 포함 (datetime 범위용)
+            if 0 not in sample_indices:
+                sampled.insert(0, all_images[0])
+            if len(all_images) - 1 not in sample_indices:
+                sampled.append(all_images[-1])
+        else:
+            sampled = all_images
+
+        gps_coords = []
+        datetimes = []
+        for img_path in sampled:
+            exif = _read_exif(Path(img_path))
+            if exif:
+                if exif.get("geometry"):
+                    gps_coords.append(exif["geometry"]["coordinates"])
+                if exif.get("datetime"):
+                    datetimes.append(exif["datetime"])
+
         if len(gps_coords) >= 3:
             meta["geometry"] = _convex_hull_polygon(gps_coords)
             meta["image:has_geotag"] = True
             lngs = [c[0] for c in gps_coords]
             lats = [c[1] for c in gps_coords]
             meta["bbox"] = [min(lngs), min(lats), max(lngs), max(lats)]
-            meta["bbox_4326"] = meta["bbox"]  # 이미 EPSG:4326
+            meta["bbox_4326"] = meta["bbox"]
         elif len(gps_coords) == 2:
-            meta["geometry"] = {
-                "type": "LineString",
-                "coordinates": gps_coords,
-            }
+            meta["geometry"] = {"type": "LineString", "coordinates": gps_coords}
             meta["image:has_geotag"] = True
             lngs = [c[0] for c in gps_coords]
             lats = [c[1] for c in gps_coords]
             meta["bbox"] = [min(lngs), min(lats), max(lngs), max(lats)]
             meta["bbox_4326"] = meta["bbox"]
         elif len(gps_coords) == 1:
-            meta["geometry"] = {
-                "type": "Point",
-                "coordinates": gps_coords[0],
-            }
+            meta["geometry"] = {"type": "Point", "coordinates": gps_coords[0]}
             meta["image:has_geotag"] = True
             meta["bbox"] = [gps_coords[0][0], gps_coords[0][1], gps_coords[0][0], gps_coords[0][1]]
             meta["bbox_4326"] = meta["bbox"]
 
-        # 촬영 일시 범위 (첫/마지막 파일에서)
-        datetimes = []
-        for img_path in all_images[:50]:  # 최대 50장만 샘플링
-            exif = _read_exif(Path(img_path))
-            if exif and exif.get("datetime"):
-                datetimes.append(exif["datetime"])
         if datetimes:
             datetimes.sort()
             meta["start_datetime"] = datetimes[0]
             meta["end_datetime"] = datetimes[-1]
-            meta["datetime"] = None  # 범위가 있으므로 null
+            meta["datetime"] = None
 
     return meta
 

@@ -86,22 +86,30 @@ def bundle_files(file_paths: list[str]) -> list[FileGroup]:
                 consumed.update(bundle.all_files)
                 groups.append(bundle)
 
-    # 4) 이미지 세트: 아직 소비되지 않은 이미지가 5장 초과
-    image_exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+    # 4) 이미지 세트: 폴더 단위로 묶음. 드론 사진은 보통 .jpg/.jpeg만 포함됨.
+    # TIF는 정사영상일 가능성이 높으므로 image_set에서 제외 (별도 Item으로 처리)
+    image_set_exts = {".jpg", ".jpeg"}
     remaining_images = [
         p for p in paths
-        if p.suffix.lower() in image_exts and str(p) not in consumed
+        if p.suffix.lower() in image_set_exts and str(p) not in consumed
     ]
-    if len(remaining_images) > 5:
-        primary = remaining_images[0]
-        rest = remaining_images[1:]
-        img_files = [str(f) for f in remaining_images]
-        consumed.update(img_files)
-        groups.append(FileGroup(
-            primary_file=str(primary),
-            bundled_files=[str(f) for f in rest],
-            group_type="image_set",
-        ))
+    # 폴더(parent dir)별로 그룹핑
+    by_folder: dict[str, list[Path]] = {}
+    for p in remaining_images:
+        folder_key = str(p.parent)
+        by_folder.setdefault(folder_key, []).append(p)
+
+    for folder, imgs in by_folder.items():
+        if len(imgs) > 5:
+            primary = imgs[0]
+            rest = imgs[1:]
+            img_files = [str(f) for f in imgs]
+            consumed.update(img_files)
+            groups.append(FileGroup(
+                primary_file=str(primary),
+                bundled_files=[str(f) for f in rest],
+                group_type="image_set",
+            ))
 
     # 5) 동영상 + SRT 번들: 같은 이름의 .srt 파일을 동반 파일로 묶음
     video_exts = {".mp4", ".mov", ".avi", ".mkv"}

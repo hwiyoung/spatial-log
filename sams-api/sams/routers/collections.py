@@ -190,9 +190,19 @@ async def update_collection(collection_id: str, req: CollectionUpdate):
     existing["summaries"] = summaries
 
     try:
-        result = await stac.update_collection(collection_id, existing)
-        return result
-    except RuntimeError as e:
+        import json
+        import psycopg2
+        from sams.config import settings
+        conn = psycopg2.connect(settings.DATABASE_URL)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT pgstac.update_collection(%s::jsonb)", (json.dumps(existing),))
+            conn.commit()
+        finally:
+            conn.close()
+        return existing
+    except Exception as e:
+        logger.exception("Collection 수정 실패 (pgSTAC): %s", collection_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -7,8 +7,9 @@
  */
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { itemApi, searchApi } from '../services/api'
+import { itemApi, collectionApi, searchApi } from '../services/api'
 import { getCategoryInfo, formatSize } from '../constants'
+import LocationPicker from '../components/LocationPicker'
 
 export default function Detail() {
   const { collectionId, itemId } = useParams()
@@ -20,6 +21,10 @@ export default function Detail() {
   const [related, setRelated] = useState([])
   const [timeline, setTimeline] = useState([])
   const [editMode, setEditMode] = useState(false)
+  const [editDraft, setEditDraft] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [showMoveModal, setShowMoveModal] = useState(false)
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
 
   useEffect(() => {
     loadItem()
@@ -122,10 +127,23 @@ export default function Detail() {
             padding: '10px 16px', background: 'rgba(240,180,42,0.06)', border: '1px solid rgba(240,180,42,0.15)',
             borderRadius: 8, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
-            <span style={{ fontSize: 13, color: 'var(--warn)' }}>📝 편집 모드</span>
+            <span style={{ fontSize: 13, color: 'var(--warn)' }}>📝 편집 모드 — 변경 후 저장을 눌러주세요</span>
             <div>
-              <Btn label="취소" onClick={() => setEditMode(false)} />
-              <Btn label="저장" primary onClick={() => setEditMode(false)} />
+              <Btn label="취소" onClick={() => { setEditMode(false); setEditDraft({}) }} />
+              <Btn label={saving ? '저장 중...' : '저장'} primary onClick={async () => {
+                if (Object.keys(editDraft).length === 0) { setEditMode(false); return }
+                setSaving(true)
+                try {
+                  await itemApi.updateProperties(collectionId, itemId, editDraft)
+                  setEditMode(false)
+                  setEditDraft({})
+                  loadItem()
+                } catch (err) {
+                  alert('저장 실패: ' + (err.response?.data?.detail || err.message))
+                } finally {
+                  setSaving(false)
+                }
+              }} />
             </div>
           </div>
         )}
@@ -150,13 +168,31 @@ export default function Detail() {
           {!editMode && (
             <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
               <div
-                onClick={() => setEditMode(true)}
+                onClick={() => { setEditMode(true); setEditDraft({}) }}
                 style={{
                   padding: '8px 16px', fontSize: 14, cursor: 'pointer',
                   color: 'var(--t3)',
                 }}
               >
                 ✏️ 편집
+              </div>
+              <div
+                onClick={() => setShowLocationPicker(true)}
+                style={{
+                  padding: '8px 16px', fontSize: 14, cursor: 'pointer',
+                  color: 'var(--t3)',
+                }}
+              >
+                📍 위치
+              </div>
+              <div
+                onClick={() => setShowMoveModal(true)}
+                style={{
+                  padding: '8px 16px', fontSize: 14, cursor: 'pointer',
+                  color: 'var(--t3)',
+                }}
+              >
+                📦 이동
               </div>
               <div
                 onClick={async () => {
@@ -181,11 +217,43 @@ export default function Detail() {
         </div>
 
         {/* 탭 콘텐츠 */}
-        {tab === 'meta' && <MetaTab props={props} item={item} />}
+        {tab === 'meta' && <MetaTab props={props} item={item} editMode={editMode} editDraft={editDraft} onEditChange={setEditDraft} />}
         {tab === 'files' && <FilesTab assets={assets} />}
         {tab === 'relations' && <RelationsTab related={related} collectionId={collectionId} itemId={itemId} onRefresh={loadItem} />}
         {tab === 'timeline' && <TimelineTab timeline={timeline} currentId={itemId} collectionId={collectionId} />}
       </div>
+
+      {/* 프로젝트 이동 모달 */}
+      {showMoveModal && (
+        <MoveModal
+          currentCollectionId={collectionId}
+          itemId={itemId}
+          itemDescription={props.description || itemId}
+          onClose={() => setShowMoveModal(false)}
+          onMoved={(targetId) => navigate(`/detail/${targetId}/${itemId}`)}
+        />
+      )}
+
+      {/* 위치 지정 모달 */}
+      {showLocationPicker && (
+        <LocationPicker
+          initialLocation={
+            item.bbox && item.bbox.length >= 4
+              ? [(item.bbox[0] + item.bbox[2]) / 2, (item.bbox[1] + item.bbox[3]) / 2]
+              : null
+          }
+          onConfirm={async (loc) => {
+            try {
+              await itemApi.updateLocation(collectionId, itemId, loc[0], loc[1])
+              setShowLocationPicker(false)
+              loadItem()
+            } catch (err) {
+              alert('위치 갱신 실패: ' + (err.response?.data?.detail || err.message))
+            }
+          }}
+          onCancel={() => setShowLocationPicker(false)}
+        />
+      )}
     </div>
   )
 }
@@ -195,14 +263,26 @@ export default function Detail() {
 // 탭 콘텐츠
 // ─────────────────────────────────────────────────────────────────────────
 
-function MetaTab({ props, item }) {
-  // 메타데이터를 4개 그룹으로 분류
+// 편집 가능한 필드 (나머지는 읽기 전용)
+const EDITABLE_FIELDS = new Set([
+  'description', 'project:name', 'project:site', 'target',
+  'datetime', 'data_category', 'proj:epsg', 'gsd',
+  'sams:status',
+])
+// 읽기 전용 필드 (시스템 자동 생성)
+const READONLY_FIELDS = new Set(['created', 'updated', 'file:size', 'bbox'])
+
+function MetaTab({ props, item, editMode, editDraft, onEditChange }) {
   const groups = [
     { title: '기본 정보', keys: ['project:name', 'project:site', 'target', 'description', 'datetime', 'data_category'] },
     { title: '공간 정보', keys: ['proj:epsg', 'bbox', 'gsd'] },
     { title: '유형별 속성', keys: Object.keys(props).filter(k => k.includes(':') && !k.startsWith('project:') && !k.startsWith('proj:') && !k.startsWith('sams:') && k !== 'datetime') },
     { title: '시스템', keys: ['sams:status', 'created', 'updated', 'file:size'] },
   ]
+
+  const handleFieldChange = (key, value) => {
+    onEditChange({ ...editDraft, [key]: value })
+  }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -216,14 +296,34 @@ function MetaTab({ props, item }) {
           {group.keys.map(key => {
             let val = key === 'bbox' ? JSON.stringify(item.bbox) : props[key]
             if (key === 'file:size') val = formatSize(val)
-            if (val == null) return null
-            if (typeof val === 'object') val = JSON.stringify(val)
+            const displayVal = val == null ? '' : (typeof val === 'object' ? JSON.stringify(val) : String(val))
+            const isEditable = editMode && EDITABLE_FIELDS.has(key) && !READONLY_FIELDS.has(key)
+            const draftVal = editDraft[key]
+
+            // 편집 모드에서 빈 필드도 표시 (입력할 수 있게)
+            if (!editMode && val == null) return null
+
             return (
-              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
-                <span style={{ color: 'var(--t3)' }}>{key}</span>
-                <span style={{ color: 'var(--t1)', fontFamily: 'monospace', fontSize: 12, maxWidth: '60%', textAlign: 'right', wordBreak: 'break-all' }}>
-                  {String(val)}
-                </span>
+              <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 0', fontSize: 13, gap: 8 }}>
+                <span style={{ color: 'var(--t3)', flexShrink: 0 }}>{key}</span>
+                {isEditable ? (
+                  <input
+                    value={draftVal !== undefined ? draftVal : displayVal}
+                    onChange={e => handleFieldChange(key, e.target.value)}
+                    placeholder={displayVal || '입력하세요'}
+                    style={{
+                      flex: 1, maxWidth: '60%', textAlign: 'right',
+                      padding: '2px 6px', borderRadius: 4,
+                      border: '1px solid var(--ac)', background: 'var(--s2)',
+                      color: 'var(--t1)', fontSize: 12, fontFamily: 'monospace',
+                      outline: 'none',
+                    }}
+                  />
+                ) : (
+                  <span style={{ color: val == null ? 'var(--t3)' : 'var(--t1)', fontFamily: 'monospace', fontSize: 12, maxWidth: '60%', textAlign: 'right', wordBreak: 'break-all' }}>
+                    {displayVal || '—'}
+                  </span>
+                )}
               </div>
             )
           })}
@@ -276,6 +376,15 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
     derived_from: '#E87830', has_derived: '#E87830',
     related: '#35A5E0', describedby: '#8899AA', describes: '#8899AA',
     prev: '#9055C8', next: '#9055C8',
+  }
+  const relLabels = {
+    derived_from: '원본 데이터',
+    has_derived: '파생 데이터',
+    related: '관련 데이터',
+    describedby: '설명 문서',
+    describes: '설명 대상',
+    prev: '이전 시점 데이터',
+    next: '이후 시점 데이터',
   }
 
   // 검색 (같은 Collection 내 Item, 자기 자신 제외)
@@ -363,11 +472,11 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
                     background: 'var(--s2)', color: 'var(--t1)', fontSize: 13,
                   }}
                 >
-                  <option value="related">related (관련)</option>
-                  <option value="derived_from">derived_from (파생 원본)</option>
-                  <option value="describedby">describedby (설명 문서)</option>
-                  <option value="prev">prev (이전 시점)</option>
-                  <option value="next">next (다음 시점)</option>
+                  <option value="related">관련 데이터</option>
+                  <option value="derived_from">선택 항목은 현재 아이템의 원본</option>
+                  <option value="describedby">선택 항목은 현재 아이템의 설명 문서</option>
+                  <option value="prev">선택 항목은 현재보다 이전 시점</option>
+                  <option value="next">선택 항목은 현재보다 이후 시점</option>
                 </select>
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'flex-end' }}>
@@ -464,14 +573,20 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
                 padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600,
                 background: (relColors[r.rel] || 'var(--t3)') + '18',
                 color: relColors[r.rel] || 'var(--t3)',
+                whiteSpace: 'nowrap',
               }}>
-                {r.rel}
+                {relLabels[r.rel] || r.rel}
               </span>
+              {r.data_category && (
+                <span style={{ fontSize: 13, color: getCategoryInfo(r.data_category).color }}>
+                  {getCategoryInfo(r.data_category).icon}
+                </span>
+              )}
               <span
-                onClick={() => navigate(`/detail/${collectionId}/${r.target_id}`)}
-                style={{ fontSize: 14, color: 'var(--t1)', cursor: 'pointer', flex: 1 }}
+                onClick={() => navigate(`/detail/${r.target_collection_id || collectionId}/${r.target_id}`)}
+                style={{ fontSize: 14, color: 'var(--ac)', cursor: 'pointer', flex: 1, textDecoration: 'underline dotted', textUnderlineOffset: 3 }}
               >
-                {r.title || r.target_id}
+                {r.description || r.title || r.target_id}
               </span>
               <span
                 onClick={() => handleDeleteLink(i)}
@@ -490,14 +605,14 @@ function RelationsTab({ related, collectionId, itemId, onRefresh }) {
 
 function TimelineTab({ timeline, currentId, collectionId }) {
   const navigate = useNavigate()
-  if (timeline.length === 0) return <Empty msg="시계열 데이터가 없습니다. (target 필드가 설정되지 않았을 수 있습니다)" />
+  if (timeline.length === 0) return <Empty msg="시계열 데이터가 없습니다. 연관관계에서 prev/next를 추가하거나, target 필드를 설정하세요." />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {timeline.map((t, i) => (
         <div
           key={i}
-          onClick={() => !t.is_current && navigate(`/detail/${collectionId}/${t.item_id}`)}
+          onClick={() => !t.is_current && navigate(`/detail/${t.collection_id || collectionId}/${t.item_id}`)}
           style={{
             display: 'flex', alignItems: 'center', gap: 12,
             padding: '10px 14px', background: t.is_current ? 'rgba(74,114,255,0.06)' : 'var(--s1)',
@@ -572,6 +687,101 @@ function NotFound({ onBack }) {
   )
 }
 
+function _extractCollectionFromHref(href, fallbackCollection) {
+  // "../../{collection}/items/{item_id}" → collection
+  // "./{item_id}" → fallbackCollection (같은 Collection)
+  if (href.startsWith('./')) return fallbackCollection
+  const parts = href.split('/')
+  const itemsIdx = parts.indexOf('items')
+  if (itemsIdx > 0) return parts[itemsIdx - 1]
+  return fallbackCollection
+}
+
 function Empty({ msg }) {
   return <div style={{ padding: 30, textAlign: 'center', color: 'var(--t3)', fontSize: 14 }}>{msg}</div>
+}
+
+function MoveModal({ currentCollectionId, itemId, itemDescription, onClose, onMoved }) {
+  const [collections, setCollections] = useState([])
+  const [targetId, setTargetId] = useState('')
+  const [moving, setMoving] = useState(false)
+
+  useEffect(() => {
+    collectionApi.list()
+      .then(res => {
+        const cols = (res.data?.collections || []).filter(c => c.id !== currentCollectionId)
+        setCollections(cols)
+      })
+      .catch(() => {})
+  }, [currentCollectionId])
+
+  async function handleMove() {
+    if (!targetId) return
+    setMoving(true)
+    try {
+      await itemApi.move(currentCollectionId, itemId, targetId)
+      onClose()
+      onMoved(targetId)
+    } catch (err) {
+      alert('이동 실패: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setMoving(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,0.6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        width: 440, background: 'var(--s1)', borderRadius: 12,
+        border: '1px solid var(--bd)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--t1)' }}>프로젝트 이동</span>
+          <span onClick={onClose} style={{ fontSize: 16, color: 'var(--t3)', cursor: 'pointer' }}>✕</span>
+        </div>
+        <div style={{ padding: '16px 18px' }}>
+          <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 12 }}>
+            "<b style={{ color: 'var(--t1)' }}>{itemDescription}</b>"을(를) 다른 프로젝트로 이동합니다.
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--t3)', marginBottom: 4 }}>대상 프로젝트</div>
+          <select
+            value={targetId}
+            onChange={e => setTargetId(e.target.value)}
+            style={{
+              width: '100%', padding: '8px 10px', borderRadius: 6,
+              border: '1px solid var(--bd)', background: 'var(--s2)',
+              color: 'var(--t1)', fontSize: 14,
+            }}
+          >
+            <option value="">프로젝트를 선택하세요</option>
+            {collections.map(c => (
+              <option key={c.id} value={c.id}>{c.title || c.id}</option>
+            ))}
+          </select>
+          {collections.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 6 }}>
+              이동 가능한 다른 프로젝트가 없습니다.
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid var(--bd)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{
+            padding: '7px 16px', borderRadius: 6, border: '1px solid var(--bd)',
+            background: 'transparent', color: 'var(--t2)', fontSize: 13, cursor: 'pointer',
+          }}>취소</button>
+          <button onClick={handleMove} disabled={!targetId || moving} style={{
+            padding: '7px 16px', borderRadius: 6, border: 'none',
+            background: targetId ? 'var(--ac)' : 'var(--bd)',
+            color: '#fff', fontSize: 13, fontWeight: 600,
+            cursor: targetId ? 'pointer' : 'default',
+            opacity: moving ? 0.5 : 1,
+          }}>{moving ? '이동 중...' : '이동'}</button>
+        </div>
+      </div>
+    </div>
+  )
 }

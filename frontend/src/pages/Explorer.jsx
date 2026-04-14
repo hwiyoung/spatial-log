@@ -6,11 +6,10 @@
  *
  * 참조: docs/system_structure_design.md 페이지 1
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { searchApi, collectionApi } from '../services/api'
 import SearchSidebar from '../components/SearchSidebar'
 import MapView from '../components/MapView'
-import ResultList from '../components/ResultList'
 import PreviewPanel from '../components/PreviewPanel'
 
 export default function Explorer() {
@@ -27,6 +26,31 @@ export default function Explorer() {
   // UI 상태
   const [hoveredId, setHoveredId] = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
+
+  // 사이드바 리사이즈
+  const [sidebarWidth, setSidebarWidth] = useState(380)
+  // 프리뷰 패널 리사이즈
+  const [previewWidth, setPreviewWidth] = useState(540)
+  // 리사이즈 대상: null | 'sidebar' | 'preview'
+  const resizingTarget = useRef(null)
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!resizingTarget.current) return
+      if (resizingTarget.current === 'sidebar') {
+        setSidebarWidth(Math.min(600, Math.max(280, e.clientX)))
+      } else if (resizingTarget.current === 'preview') {
+        setPreviewWidth(Math.min(800, Math.max(320, window.innerWidth - e.clientX)))
+      }
+    }
+    const handleMouseUp = () => { resizingTarget.current = null; document.body.style.cursor = '' }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
 
   // Collection 목록 로드
   useEffect(() => {
@@ -100,7 +124,7 @@ export default function Explorer() {
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      {/* 사이드바 */}
+      {/* 사이드바 (검색 + 결과 목록 통합) */}
       <SearchSidebar
         keyword={keyword}
         onKeywordChange={setKeyword}
@@ -110,45 +134,60 @@ export default function Explorer() {
         selectedCollection={selectedCollection}
         onSelectCollection={setSelectedCollection}
         resultCount={items.length}
+        items={items}
+        selectedId={selectedItem?.id}
+        onHover={setHoveredId}
+        onSelect={handleSelectItem}
+        width={sidebarWidth}
       />
 
-      {/* 메인 영역: 지도 + 결과 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* 지도 */}
-        <div style={{ flex: 1, minHeight: 200, position: 'relative' }}>
-          <MapView
-            items={items}
-            hoveredId={hoveredId}
-            selectedId={selectedItem?.id}
-            onSelectItem={handleSelectItem}
-          />
-          {loading && (
-            <div style={{
-              position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
-              padding: '4px 12px', background: 'var(--s1)', borderRadius: 4,
-              fontSize: 13, color: 'var(--t2)', border: '1px solid var(--bd)',
-            }}>
-              검색 중...
-            </div>
-          )}
-        </div>
+      {/* 사이드바 리사이즈 핸들 */}
+      <ResizeHandle onMouseDown={() => { resizingTarget.current = 'sidebar'; document.body.style.cursor = 'col-resize' }} active={resizingTarget.current === 'sidebar'} />
 
-        {/* 결과 목록 */}
-        <ResultList
+      {/* 메인 영역: 지도 전체 */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <MapView
           items={items}
+          hoveredId={hoveredId}
           selectedId={selectedItem?.id}
-          onHover={setHoveredId}
-          onSelect={handleSelectItem}
+          onSelectItem={handleSelectItem}
         />
+        {loading && (
+          <div style={{
+            position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+            padding: '4px 12px', background: 'var(--s1)', borderRadius: 4,
+            fontSize: 13, color: 'var(--t2)', border: '1px solid var(--bd)',
+          }}>
+            검색 중...
+          </div>
+        )}
       </div>
 
       {/* 미리보기 패널 */}
       {selectedItem && (
-        <PreviewPanel
-          item={selectedItem}
-          onClose={() => setSelectedItem(null)}
-        />
+        <>
+          <ResizeHandle onMouseDown={() => { resizingTarget.current = 'preview'; document.body.style.cursor = 'col-resize' }} active={resizingTarget.current === 'preview'} />
+          <PreviewPanel
+            item={selectedItem}
+            onClose={() => setSelectedItem(null)}
+            width={previewWidth}
+          />
+        </>
       )}
     </div>
+  )
+}
+
+function ResizeHandle({ onMouseDown }) {
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      style={{
+        width: 4, cursor: 'col-resize', flexShrink: 0,
+        background: 'var(--bd)', transition: 'background 0.15s',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--ac)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'var(--bd)'}
+    />
   )
 }

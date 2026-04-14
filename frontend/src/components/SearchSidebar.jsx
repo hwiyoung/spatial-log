@@ -1,17 +1,19 @@
 /**
- * 검색 사이드바 — 키워드, 유형 필터, 프로젝트 필터
+ * 검색 사이드바 — 키워드, 유형 필터, 프로젝트 필터, 검색 결과 목록
  */
-import { CATEGORIES } from '../constants'
+import { CATEGORIES, getCategoryInfo, formatSize } from '../constants'
 
 export default function SearchSidebar({
   keyword, onKeywordChange,
   categoryFilter, onToggleCategory,
   collections, selectedCollection, onSelectCollection,
   resultCount,
+  items, selectedId, onHover, onSelect,
+  width = 380,
 }) {
   return (
     <div style={{
-      width: 320, minWidth: 320, background: 'var(--s1)',
+      width, minWidth: 280, background: 'var(--s1)',
       borderRight: '1px solid var(--bd)',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
@@ -37,7 +39,7 @@ export default function SearchSidebar({
 
       {/* 유형 필터 */}
       <div style={{ padding: '0 14px 12px' }}>
-        <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 6, fontWeight: 600 }}>데이터 유형</div>
+        <div style={{ fontSize: 13, color: 'var(--t3)', marginBottom: 6, fontWeight: 600 }}>데이터 유형</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
           {Object.entries(CATEGORIES).filter(([k]) => k !== 'unknown').map(([key, cat]) => {
             const active = categoryFilter.has(key)
@@ -46,13 +48,13 @@ export default function SearchSidebar({
                 key={key}
                 onClick={() => onToggleCategory(key)}
                 style={{
-                  padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                  padding: '2px 8px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
                   border: `1px solid ${active ? cat.color + '40' : 'var(--bd)'}`,
                   background: active ? cat.color + '12' : 'transparent',
                   color: active ? cat.color : 'var(--t3)',
                 }}
               >
-                <span style={{ fontSize: 12 }}>{cat.icon}</span> {cat.label}
+                <span style={{ fontSize: 13 }}>{cat.icon}</span> {cat.label}
               </span>
             )
           })}
@@ -60,41 +62,116 @@ export default function SearchSidebar({
       </div>
 
       {/* 프로젝트 필터 */}
-      <div style={{ padding: '0 14px', flex: 1, overflow: 'auto' }}>
-        <div style={{ fontSize: 12, color: 'var(--t3)', marginBottom: 6, fontWeight: 600 }}>프로젝트</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <div
+      <div style={{ padding: '0 14px 8px' }}>
+        <div style={{ fontSize: 13, color: 'var(--t3)', marginBottom: 6, fontWeight: 600 }}>프로젝트</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          <span
             onClick={() => onSelectCollection(null)}
             style={{
-              padding: '4px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+              padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
               color: !selectedCollection ? 'var(--ac)' : 'var(--t3)',
               background: !selectedCollection ? 'rgba(74,114,255,0.06)' : 'transparent',
+              border: `1px solid ${!selectedCollection ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
             }}
           >
             전체
-          </div>
+          </span>
           {collections.map(col => (
-            <div
+            <span
               key={col.id}
               onClick={() => onSelectCollection(selectedCollection === col.id ? null : col.id)}
               style={{
-                padding: '4px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
                 color: selectedCollection === col.id ? 'var(--ac)' : 'var(--t3)',
                 background: selectedCollection === col.id ? 'rgba(74,114,255,0.06)' : 'transparent',
+                border: `1px solid ${selectedCollection === col.id ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
               }}
             >
               {col.title || col.id}
-            </div>
+            </span>
           ))}
         </div>
       </div>
 
-      {/* 결과 수 */}
+      {/* 결과 수 + 구분선 */}
       <div style={{
-        padding: '8px 14px', fontSize: 12, color: 'var(--t2)',
-        borderTop: '1px solid var(--bd)',
+        padding: '6px 14px', fontSize: 13, color: 'var(--t2)',
+        borderTop: '1px solid var(--bd)', borderBottom: '1px solid var(--bd)',
+        flexShrink: 0,
       }}>
         검색 결과: <b style={{ color: 'var(--ac)' }}>{resultCount}</b>건
+      </div>
+
+      {/* 검색 결과 목록 */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {items && items.map(item => {
+          const props = item.properties || {}
+          const cat = getCategoryInfo(props.data_category)
+          const isSelected = item.id === selectedId
+          return (
+            <div
+              key={item.id}
+              onMouseEnter={() => onHover?.(item.id)}
+              onMouseLeave={() => onHover?.(null)}
+              onClick={() => onSelect?.(item)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 14px', cursor: 'pointer',
+                background: isSelected ? 'rgba(74,114,255,0.06)' : 'transparent',
+                borderBottom: '1px solid var(--bd)',
+              }}
+            >
+              {/* 썸네일 or 아이콘 */}
+              {item.assets?.thumbnail?.href ? (
+                <img
+                  src={item.assets.thumbnail.href}
+                  alt=""
+                  style={{
+                    width: 40, height: 30, borderRadius: 3,
+                    objectFit: 'cover', flexShrink: 0, background: 'var(--s2)',
+                  }}
+                  onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
+                />
+              ) : null}
+              <div style={{
+                width: item.assets?.thumbnail?.href ? 0 : 30, height: 30, borderRadius: 3,
+                display: item.assets?.thumbnail?.href ? 'none' : 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                fontSize: 14, flexShrink: 0,
+                background: cat.color + '12', color: cat.color,
+              }}>
+                {cat.icon}
+              </div>
+
+              {/* 정보 */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 500, color: 'var(--t1)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {props.description || item.id}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--t3)' }}>
+                  {props.datetime?.slice(0, 10) || ''}
+                  {props['file:size'] ? ` · ${formatSize(props['file:size'])}` : ''}
+                </div>
+              </div>
+
+              {/* 유형 뱃지 */}
+              <span style={{
+                padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+                flexShrink: 0, background: cat.color + '12', color: cat.color,
+              }}>
+                {cat.label}
+              </span>
+            </div>
+          )
+        })}
+        {(!items || items.length === 0) && (
+          <div style={{ padding: 20, textAlign: 'center', color: 'var(--t3)', fontSize: 13 }}>
+            검색 결과 없음
+          </div>
+        )}
       </div>
     </div>
   )

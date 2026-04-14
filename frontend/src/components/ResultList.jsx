@@ -59,12 +59,12 @@ export default function ResultList({ items, selectedId, onHover, onSelect }) {
               {/* 정보 */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontSize: 14, fontWeight: 500, color: 'var(--t1)',
+                  fontSize: 15, fontWeight: 500, color: 'var(--t1)',
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
                   {props.description || item.id}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--t3)', marginTop: 1 }}>
+                <div style={{ fontSize: 13, color: 'var(--t3)', marginTop: 1 }}>
                   {props.start_datetime
                     ? `${props.start_datetime.slice(0, 10)} ~ ${(props.end_datetime || '').slice(0, 10)}`
                     : props.datetime?.slice(0, 10) || '날짜 없음'}

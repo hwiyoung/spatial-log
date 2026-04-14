@@ -93,14 +93,15 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
 
       const el = document.createElement('div')
       el.style.cssText = `
-        width: 24px; height: 24px; border-radius: 50%;
+        width: 32px; height: 32px; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
-        font-size: 14px; cursor: pointer;
-        background: ${cat.color}30;
-        border: 2px solid ${cat.color};
-        color: ${cat.color};
+        font-size: 16px; cursor: pointer;
+        background: ${cat.color}90;
+        border: 2.5px solid ${cat.color};
+        color: #fff;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
         transition: transform 0.15s;
-        ${isHovered || isSelected ? 'transform: scale(1.4); z-index: 10;' : ''}
+        ${isHovered || isSelected ? 'transform: scale(1.5); z-index: 10;' : ''}
       `
       el.textContent = cat.icon
       el.addEventListener('click', () => onSelectItem(item))

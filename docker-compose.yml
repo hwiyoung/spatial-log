@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: sams
       POSTGRES_PASSWORD: ${DB_PASSWORD:-sams_dev_2024}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - /media/innopam/InnoPAM-8TB/sams-data/pgdata:/var/lib/postgresql/data
     ports:
       - "7432:5432"
     healthcheck:
@@ -69,7 +69,7 @@ services:
       - minio
       - redis
     volumes:
-      - upload_tmp:/tmp/uploads
+      - /media/innopam/InnoPAM-8TB/sams-data/uploads:/tmp/uploads
       - ./sams-api:/app
 
   worker:
@@ -91,7 +91,7 @@ services:
       - minio
       - redis
     volumes:
-      - upload_tmp:/tmp/uploads
+      - /media/innopam/InnoPAM-8TB/sams-data/uploads:/tmp/uploads
       - ./sams-api:/app
 
   minio:
@@ -104,7 +104,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - miniodata:/data
+      - /media/innopam/InnoPAM-8TB/sams-data/minio:/data
 
   minio-init:
     image: minio/mc:latest
@@ -150,7 +150,7 @@ services:
       - stac-api
       - minio
 
-volumes:
-  pgdata:
-  miniodata:
-  upload_tmp:
+  # 모든 데이터가 /media/innopam/InnoPAM-8TB/sams-data/ 에 bind mount됨
+  # pgdata   → sams-data/pgdata/
+  # miniodata → sams-data/minio/
+  # uploads  → sams-data/uploads/
