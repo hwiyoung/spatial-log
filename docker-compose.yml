@@ -1,205 +1,156 @@
 services:
-  app:
-    build:
-      context: .
-      target: development
-    ports:
-      - "5174:5174"
-    volumes:
-      - .:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - VITE_SUPABASE_URL=http://192.168.10.203:8100
-      - VITE_SUPABASE_ANON_KEY=${ANON_KEY}
-    command: npm run dev
-    depends_on:
-      - kong
-
-  # Supabase Services
   db:
-    image: supabase/postgres:15.6.1.143
-    # Internal only - no port exposed
+    image: postgis/postgis:16-3.4
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: postgres
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXP: 3600
+      POSTGRES_DB: samsdb
+      POSTGRES_USER: sams
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-sams_dev_2024}
     volumes:
-      - ./data/db:/var/lib/postgresql/data
-      - ./supabase/schema.sql:/docker-entrypoint-initdb.d/zzz-schema.sql
+      - /media/innopam/InnoPAM-8TB/sams-data/pgdata:/var/lib/postgresql/data
+    ports:
+      - "7432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U sams -d samsdb"]
+      interval: 5s
       retries: 5
 
-  auth:
-    image: supabase/gotrue:v2.164.0
-    # Internal only
+  pgstac-migrate:
+    image: python:3.11-slim
     environment:
-      GOTRUE_API_HOST: 0.0.0.0
-      GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: http://192.168.10.203:8100
-      GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
-      GOTRUE_SITE_URL: http://192.168.10.203:5174
-      GOTRUE_URI_ALLOW_LIST: "*"
-      GOTRUE_DISABLE_SIGNUP: "false"
-      GOTRUE_JWT_ADMIN_ROLES: service_role
-      GOTRUE_JWT_AUD: authenticated
-      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_JWT_EXP: 3600
-      GOTRUE_JWT_SECRET: ${JWT_SECRET}
-      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
-      GOTRUE_MAILER_AUTOCONFIRM: "true"
-      GOTRUE_SMTP_ADMIN_EMAIL: admin@localhost
-      GOTRUE_SMTP_HOST: inbucket
-      GOTRUE_SMTP_PORT: 2500
-      GOTRUE_SMTP_SENDER_NAME: Spatial Log
+      PGHOST: db
+      PGDATABASE: samsdb
+      PGUSER: sams
+      PGPASSWORD: ${DB_PASSWORD:-sams_dev_2024}
     depends_on:
       db:
         condition: service_healthy
+    command: >
+      bash -c "
+        pip install --quiet pypgstac[psycopg]==0.9.1 &&
+        pypgstac migrate
+      "
+    restart: "no"
 
-  rest:
-    image: postgrest/postgrest:v12.2.3
-    # Internal only
+  stac-api:
+    image: ghcr.io/stac-utils/stac-fastapi-pgstac:latest
     environment:
-      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
-      PGRST_DB_SCHEMAS: public,storage
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-      PGRST_DB_USE_LEGACY_GUCS: "false"
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8080"
+      POSTGRES_HOST_READER: db
+      POSTGRES_HOST_WRITER: db
+      POSTGRES_DBNAME: samsdb
+      POSTGRES_USER: sams
+      POSTGRES_PASS: ${DB_PASSWORD:-sams_dev_2024}
+      POSTGRES_PORT: "5432"
+    ports:
+      - "8080:8080"
     depends_on:
-      db:
-        condition: service_healthy
+      pgstac-migrate:
+        condition: service_completed_successfully
 
-  storage:
-    image: supabase/storage-api:v1.11.13
-    # Internal only
+  sams-api:
+    build:
+      context: ./sams-api
+      dockerfile: Dockerfile
     environment:
-      ANON_KEY: ${ANON_KEY}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      POSTGREST_URL: http://rest:3000
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:-postgres}@db:5432/postgres
-      FILE_SIZE_LIMIT: 5368709120  # 5GB (E57 등 대용량 3D 파일 지원)
-      STORAGE_BACKEND: file
-      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
-      TENANT_ID: stub
-      REGION: stub
-      GLOBAL_S3_BUCKET: stub
-      ENABLE_IMAGE_TRANSFORMATION: "true"
-      IMGPROXY_URL: http://imgproxy:8080
+      DATABASE_URL: postgresql://sams:${DB_PASSWORD:-sams_dev_2024}@db:5432/samsdb
+      STAC_API_URL: http://stac-api:8080
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: sams-archive
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - stac-api
+      - minio
+      - redis
     volumes:
-      - ./data/storage:/var/lib/storage
-    depends_on:
-      db:
-        condition: service_healthy
-      rest:
-        condition: service_started
+      - /media/innopam/InnoPAM-8TB/sams-data/uploads:/tmp/uploads
+      - ./sams-api:/app
 
-  imgproxy:
-    image: darthsim/imgproxy:v3.24
+  worker:
+    build:
+      context: ./sams-api
+      dockerfile: Dockerfile
+    command: celery -A sams.worker worker --loglevel=info --concurrency=2
     environment:
-      IMGPROXY_BIND: ":8080"
-      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
-      IMGPROXY_USE_ETAG: "true"
-      IMGPROXY_ENABLE_WEBP_DETECTION: "true"
+      DATABASE_URL: postgresql://sams:${DB_PASSWORD:-sams_dev_2024}@db:5432/samsdb
+      STAC_API_URL: http://stac-api:8080
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: sams-archive
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+    depends_on:
+      - db
+      - minio
+      - redis
     volumes:
-      - ./data/storage:/var/lib/storage
+      - /media/innopam/InnoPAM-8TB/sams-data/uploads:/tmp/uploads
+      - ./sams-api:/app
 
-  kong:
-    image: kong:2.8.1
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - /media/innopam/InnoPAM-8TB/sams-data/minio:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
     entrypoint: >
       /bin/sh -c "
-      sed -e 's|SUPABASE_ANON_KEY|'\"$$ANON_KEY\"'|g'
-          -e 's|SUPABASE_SERVICE_KEY|'\"$$SERVICE_ROLE_KEY\"'|g'
-          /var/lib/kong/kong.yml.template > /var/lib/kong/kong.yml
-      && /docker-entrypoint.sh kong docker-start"
-    ports:
-      - "8100:8000"   # Main API endpoint
+      sleep 3;
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb local/sams-archive --ignore-existing;
+      echo 'Bucket sams-archive created';
+      "
     environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
-      KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
-      ANON_KEY: ${ANON_KEY}
-      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-    volumes:
-      - ./supabase/kong.yml:/var/lib/kong/kong.yml.template:ro
-    depends_on:
-      - auth
-      - rest
-      - storage
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
 
-  # Email testing (optional)
-  inbucket:
-    image: inbucket/inbucket:3.0.3
+  redis:
+    image: redis:7-alpine
     ports:
-      - "9005:9000"  # Web UI for testing emails
-    # SMTP runs internally on 2500
+      - "6379:6379"
 
-  # Supabase Studio (Admin UI) - optional
-  studio:
-    image: supabase/studio:20241202-71e5240
-    ports:
-      - "3101:3000"
-    environment:
-      STUDIO_PG_META_URL: http://meta:8080
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      DEFAULT_ORGANIZATION_NAME: Spatial Log
-      DEFAULT_PROJECT_NAME: spatial-log
-      SUPABASE_URL: http://kong:8000
-      SUPABASE_PUBLIC_URL: http://192.168.10.203:8100
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      AUTH_JWT_SECRET: ${JWT_SECRET}
-      LOGFLARE_API_KEY: ""
-      LOGFLARE_URL: ""
-      NEXT_PUBLIC_ENABLE_LOGS: "false"
-      NEXT_ANALYTICS_BACKEND_PROVIDER: ""
-    depends_on:
-      - kong
-      - meta
-
-  meta:
-    image: supabase/postgres-meta:v0.84.2
-    # Internal only
-    environment:
-      PG_META_PORT: 8080
-      PG_META_DB_HOST: db
-      PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: postgres
-      PG_META_DB_USER: supabase_admin
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    depends_on:
-      db:
-        condition: service_healthy
-
-  # 3D 데이터 변환 서비스
-  spatial-converter:
+  frontend:
     build:
-      context: ./services/spatial-converter
+      context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8200:8200"
+      - "3000:3000"
     volumes:
-      - ./data/storage:/var/lib/storage
-      - ./data/converter-output:/app/output
-    environment:
-      - STORAGE_PATH=/var/lib/storage/stub/stub
-      - SUPABASE_URL=http://kong:8000
-      - SUPABASE_SERVICE_KEY=${SERVICE_ROLE_KEY}
-      - DEV_MODE=true
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
-      - storage
-      - kong
-    restart: unless-stopped
+      - sams-api
 
-# 데이터는 ./data/ 디렉토리에 로컬 저장됨
-# - ./data/db/: PostgreSQL 데이터
-# - ./data/storage/: 업로드된 파일
-# - ./data/converter-output/: 변환된 파일
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "7800:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - sams-api
+      - stac-api
+      - minio
+
+  # 모든 데이터가 /media/innopam/InnoPAM-8TB/sams-data/ 에 bind mount됨
+  # pgdata   → sams-data/pgdata/
+  # miniodata → sams-data/minio/
+  # uploads  → sams-data/uploads/

@@ -1,0 +1,35 @@
+/* SAMS 공통 스타일 — 다크 테마 */
+:root {
+  --bg: #0C0E14;
+  --s1: #13161F;
+  --s2: #1A1E2A;
+  --bd: #2C3044;
+  --ac: #4A72FF;
+  --t1: #E4E7F0;
+  --t2: #94A0B8;
+  --t3: #5C6478;
+  --ok: #3DD68C;
+  --warn: #F0B42A;
+  --err: #F06060;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, 'Noto Sans KR', sans-serif;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--t1);
+  -webkit-font-smoothing: antialiased;
+}
+input, select, button, textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 3px; }
+
+/* MapLibre GL */
+.maplibregl-map { font-family: inherit; }

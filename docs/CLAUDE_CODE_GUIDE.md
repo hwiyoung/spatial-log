@@ -1,0 +1,387 @@
+# Claude Code 단계별 진행 가이드
+
+이 문서는 Claude Code에서 SAMS를 구현할 때 **복사하여 붙여넣을 수 있는 프롬프트**를 단계별로 제공합니다.
+
+각 Step이 완료되면 동작을 확인하고, 다음 Step으로 넘어가세요.
+
+> **중요**: 모든 구현 작업에는 CLAUDE.md의 "개발 워크플로우"(Phase A~F, 18단계)가 적용됩니다.
+> Claude Code가 이미 CLAUDE.md를 읽고 있으므로 자동으로 따르지만, 
+> 프롬프트에서 "CLAUDE.md 워크플로우를 따라서"라고 명시적으로 언급하면 더 확실합니다.
+
+---
+
+## 사전 준비
+
+```bash
+# 프로젝트 압축 해제
+tar -xzf sams-project.tar.gz
+cd sams-project
+
+# Git 초기화
+git init && git add -A && git commit -m "Initial scaffold from design docs"
+
+# Claude Code 실행
+claude
+```
+
+---
+
+## Step 1: 인프라 기동
+
+### 프롬프트
+```
+Step 1: 인프라 기동.
+
+docker-compose.yml을 확인하고, docker compose up -d로 인프라를 기동해줘.
+포트 충돌이 있을 수 있으니 먼저 `ss -tlnp`로 사용 중인 포트를 확인해줘.
+주요 포트: DB→7432, Nginx→7800, 나머지는 표준 포트 사용.
+
+참고 사항:
+- stac-fastapi 이미지는 `latest` 태그 사용
+- pgstac-migrate는 ghcr.io 이미지가 아니라 `pypgstac` pip install 방식으로 마이그레이션
+- .env에 `COMPOSE_PROJECT_NAME=sams`가 설정되어 있음
+
+다음 서비스가 정상 동작하는지 확인:
+1. PostgreSQL (port 7432)
+2. STAC API (http://localhost:8080/ 에서 JSON 응답)
+3. SAMS API (http://localhost:8000/health 에서 health check)
+4. MinIO (http://localhost:9001/ 콘솔 접근, sams-archive 버킷 존재)
+5. Nginx (http://localhost:7800/)
+6. Redis (port 6379)
+
+문제가 있으면 수정해줘.
+```
+
+### 확인 포인트
+- `docker compose ps` → 컨테이너 이름이 `sams-*`로 표시, 모두 healthy/running
+- `curl http://localhost:8080/` → STAC Landing Page JSON
+- `curl http://localhost:8000/health` → SAMS API health check 응답
+- `http://localhost:7800/api/test` → 테스트 페이지 확인
+- MinIO 콘솔 `http://localhost:9001/`에서 `sams-archive` 버킷 확인
+
+---
+
+## Step 2: 자동 채움 파이프라인 — bundle.py + detect.py (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**bundle.py (Stage 0: 파일 그룹핑)**
+- OBJ → MTL → texture 참조 파싱으로 3D 모델 번들 구성
+- 이미지 세트 (>5장) 자동 그룹핑
+- 3D Tiles (tileset.json) 번들 인식
+- 동영상 + SRT 텔레메트리 번들 (같은 파일명 매칭)
+
+**detect.py (Stage 1: 유형 판별)**
+- 확장자 매핑 기반 data_category 판별
+- PLY 양면성 처리 (포인트클라우드 vs 3D 모델)
+- GeoTIFF 판별
+- 파노라마 추정
+
+### 확인 포인트
+- `pytest tests/test_bundle.py tests/test_detect.py` → 33개 테스트 통과
+- `http://localhost:7800/api/test` → 실제 데이터 테스트 페이지에서 확인
+
+---
+
+## Step 3: 자동 채움 파이프라인 — extract.py (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**extract.py (Stage 2: 유형별 메타데이터 추출)**
+- `extract_metadata()`: 디스패치 함수 (category별 적절한 추출기 호출, bundled_files 전달)
+- `extract_pointcloud()`: LAS/LAZ(laspy) + E57(XML 헤더 파싱) — point count, bbox, CRS, schemas, density
+- `extract_3dmodel()`: OBJ/PLY/FBX/glTF — trimesh로 vertex/face count, bounding volume, 번들 기반 텍스처 정보
+- `extract_3dtiles()`: tileset.json 파싱 — version, geometric_error, tile_format, region→bbox
+- `extract_orthoimage()`: GeoTIFF — rasterio로 CRS, shape, GSD, bands, bbox
+- `extract_image()`: JPG/PNG — Pillow EXIF(IFD0 + ExifIFD)로 카메라, focal_length, GPS, 촬영 시간
+  - 이미지 세트: bundled_files → image:image_count + GPS ConvexHull → Polygon geometry
+- `extract_panorama()`: 비율 기반 equirectangular 추정 + EXIF
+- `extract_video()`: ffprobe로 codec, resolution, fps, duration, audio + ISO 6709 GPS
+  - DJI SRT 텔레메트리: 프레임별 GPS → LineString 촬영 경로 + 고도 범위
+- `extract_document()`: PDF(pypdf) 페이지/제목/저자 + DOCX(python-docx) 제목/저자/생성일
+- `_read_exif()`: image/panorama 공통 EXIF 헬퍼 (ExifIFD 서브 IFD 접근)
+- Graceful degradation: 라이브러리 미설치/파일 손상 시에도 file:size 반환
+
+### 확인 포인트
+- `pytest tests/ -m "not integration"` → 82개 통과 (+ 1 skipped: pypdf 로컬 미설치)
+- `http://localhost:7800/api/test`에서 추출된 메타데이터 확인 (접기/펼치기 UI)
+- 실제 파일 검증: DJI 이미지(focal_length, GPS), E57(28M points, 13 fields), LAS(schemas, bbox)
+
+---
+
+## Step 4: 자동 채움 파이프라인 — inherit.py + suggest.py (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**inherit.py (Stage 3: Collection 기본값 상속)**
+- `apply_collection_defaults(extracted_meta, collection_defaults)` → merged dict
+- 우선순위: 파일 추출값 > Collection 기본값 > 빈 칸
+- 상속 필드: title→project:name, project:site, project:default_epsg→proj:epsg, license, id→collection
+- `_sources` dict로 각 값의 출처 추적 ("file", "collection_default")
+
+**suggest.py (Stage 4: 관계 자동 제안)**
+- `suggest_links(items: list[BatchItem])` → list[SuggestedLink]
+- target 매칭: 사용자 입력 > 파일명 키워드 추출 > 상위 폴더명
+- 파일명 키워드 추출: 숫자/유형 접미사(scan, model, ortho, flight 등) 제거 후 공통 부분
+- 유형 계보: PC→3D Model, Image→3D Model, 3D Model→3D Tiles (derived_from, 70%)
+- 같은 target 다른 유형: related (80%)
+- document→나머지: describedby (50%)
+- 중복 제거 + confidence 내림차순 정렬
+
+### 확인 포인트
+- `pytest tests/test_inherit.py tests/test_suggest.py -v` → 38개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 120개 통과 (기존 테스트 영향 없음)
+
+---
+
+## Step 5: 파이프라인 통합 — analyze 함수 (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**sams/models/manifest.py (Pydantic 모델)**
+- `MetadataValue`: 값 + source("file"/"collection_default"/"unknown") + warning
+- `SuggestedLinkItem`: rel, target_file, confidence, reason
+- `ManifestItem`: 파일별 분석 결과 (auto_extracted, inherited, suggested_links, required_empty, warnings)
+- `ManifestSummary`: total_files, detected_types, auto_filled_percentage, manual_required_fields
+- `Manifest`: manifest(항목 리스트) + summary
+
+**sams/pipeline/__init__.py (analyze 통합 함수)**
+- `analyze(file_paths, collection_defaults)` → Manifest
+- 흐름: bundle → detect → extract → inherit → suggest
+- auto_extracted / inherited 분리: _sources dict 기반
+- required_empty: 공통 필수(datetime, description 등) + category별 필수 중 빈 필드
+- graceful degradation: extract 실패 시 warnings에 기록, 매니페스트는 반환
+
+### 확인 포인트
+- `pytest tests/test_analyze.py -v` → 16개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 136개 통과 (기존 테스트 영향 없음)
+
+---
+
+## Step 6: SAMS API — Upload 엔드포인트 (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**sams/routers/upload.py (3개 엔드포인트)**
+- `POST /api/upload/analyze`: multipart/form-data(파일 + collection_id) → analyze() → Manifest JSON
+  - 임시 디렉토리에 파일 저장 → 파이프라인 실행 → 임시 경로를 원본 파일명으로 치환
+  - collection_id가 있으면 STAC API에서 Collection 기본값 조회 (실패 시 graceful skip)
+- `POST /api/upload/validate`: 매니페스트 필수 필드 검증
+  - 공통 필수 + 카테고리별 필수 + datetime null시 start/end_datetime 필요
+- `POST /api/upload/register`: STAC Item 생성 + S3 업로드
+  - Item ID 자동 생성, STAC Item JSON 구성, stac-fastapi POST 호출
+  - 개별 Item 실패 시 에러 기록하고 나머지 계속 진행
+
+**sams/services/s3.py (S3 서비스 헬퍼)**
+- `upload_file()`, `generate_presigned_url()`, `build_asset_href()`
+- 경로 규칙: `{collection_id}/{data_category}/{item_id}/{filename}`
+
+**sams/main.py**: upload 라우터 등록 (`/api/upload` prefix)
+
+### 확인 포인트
+- `curl -X POST http://localhost:8000/api/upload/analyze -F "files=@sample.laz" -F "collection_id="` → 매니페스트 JSON 반환
+- `pytest tests/test_upload.py -v` → 14개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 150개 통과
+
+---
+
+## Step 7: SAMS API — Collection + Items 엔드포인트 (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**sams/services/stac.py (stac-fastapi 호출 래퍼)**
+- Collection CRUD: create, get, update, delete, list
+- Item CRUD: get, update, delete, search, get_collection_items
+- 공통 에러 처리 (_check_response)
+
+**sams/routers/collections.py**
+- `POST /api/collections`: SAMS 확장 필드 포함 생성 → STAC Collection으로 변환
+- `GET /api/collections`: 목록 조회
+- `GET /api/collections/{id}`: 상세 조회
+- `PUT /api/collections/{id}`: 수정 (변경 필드만 업데이트)
+- `GET /api/collections/{id}/dashboard`: 예상 vs 실제 등록 현황 + draft 목록
+- `GET /api/collections/{id}/spatial-summary`: 유형별 bbox 목록
+
+**sams/routers/items.py**
+- `PUT /api/items/{collection}/{item}/status`: Draft→Published (필수 필드 검증)
+- `GET /api/items/{collection}/{item}/related`: links 양방향 해석
+- `GET /api/items/{collection}/{item}/timeline`: 같은 target+category 시점별 목록
+- `POST /api/items/{collection}/{item}/links`: 관계 추가 (양방향 자동 생성)
+- `DELETE /api/items/{collection}/{item}/links/{index}`: 관계 삭제 (양방향 자동 삭제)
+
+### 확인 포인트
+- `pytest tests/test_collections_items.py -v` → 10개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 160개 통과
+
+---
+
+## Step 8: Worker — 썸네일 생성 (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**sams/pipeline/thumbnail.py (유형별 썸네일 생성)**
+- `generate_thumbnail(filepath, data_category)` → PNG 경로 또는 None
+- 포인트 클라우드: laspy + matplotlib 상위 뷰 산점도 (>50K 포인트 시 샘플링)
+- 3D 모델: trimesh + matplotlib 3D 와이어프레임
+- 정사영상: rasterio 축소 읽기 + Pillow 리사이즈
+- 이미지/파노라마: Pillow 리사이즈
+- 동영상: ffprobe(duration) + ffmpeg(중간 프레임)
+- 문서(PDF): PyMuPDF → pdf2image fallback
+- 크기: 400×300px PNG, graceful degradation
+
+**sams/worker.py (Celery 태스크)**
+- `generate_thumbnail_task`: 썸네일 생성 → S3 업로드 → STAC Item thumbnail Asset 업데이트
+- max_retries=2, 실패 시 에러 로그만 (Item 등록 영향 없음)
+- 동기 httpx로 STAC Item 업데이트 (Celery 내부)
+
+### 확인 포인트
+- `pytest tests/test_thumbnail.py -v` → 6개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 166개 통과
+
+---
+
+## Step 9: Frontend — Explorer (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**공통 기반**
+- `src/index.css`: 다크 테마 CSS 변수, 스크롤바, 리셋
+- `src/constants.js`: CATEGORIES 정의, getCategoryInfo, formatSize 헬퍼
+- `src/main.jsx`: index.css + maplibre-gl.css 임포트
+
+**Explorer 페이지 (src/pages/Explorer.jsx)**
+- 검색 상태 관리 (keyword, categoryFilter, selectedCollection)
+- STAC /search POST 호출 (키워드 q, CQL2 유형 필터, Collection 필터)
+- 300ms debounced 검색
+- 지도/결과 목록/미리보기 패널 간 hover/click 연동
+
+**하위 컴포넌트**
+- `SearchSidebar.jsx`: 키워드 입력, 유형 체크박스(8개), 프로젝트 필터, 결과 수 표시
+- `MapView.jsx`: MapLibre GL 지도, bbox/geometry 기반 마커, hover/select 강조
+- `ResultList.jsx`: Item 목록 (유형 뱃지, 날짜, 크기, target)
+- `PreviewPanel.jsx`: 오른쪽 슬라이드 패널 (메타데이터 요약 + "상세 보기 →" 버튼)
+
+---
+
+## Step 10: Frontend — Detail (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**Detail 페이지 (src/pages/Detail.jsx)**
+- URL: `/detail/:collectionId/:itemId` (App.jsx 라우트 변경)
+- 히어로 헤더: 유형 뱃지, 제목, 태그 (사이트, 날짜, 좌표계, status)
+- 4탭 구현:
+  - 📋 메타데이터: 2×2 그리드 카드 (기본/공간/유형별/시스템)
+  - 📁 파일: Asset 목록 + 다운로드 링크
+  - 🔗 연관관계: links 목록, 클릭 시 해당 Item Detail로 이동
+  - ⏱ 시계열: 같은 target+category 시점별 목록, 현재 Item 강조
+- 편집 모드: 배너 + 저장/취소 UI (스켈레톤)
+- "← Explorer로 돌아가기" navigate('/')
+- API: itemApi.get, getRelated, getTimeline 호출
+
+---
+
+## Step 11: Frontend — Project (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**Project 페이지 (src/pages/Project.jsx)**
+- 왼쪽: Collection 목록 (클릭 시 선택, 상태/사이트 표시)
+- 오른쪽: 프로젝트 헤더 (발주처, 사이트, PM, EPSG, status, 진행률)
+- 4탭:
+  - 📊 현황: expected_vs_actual 테이블 + 유형별 등록 카드
+  - 🗺 공간: spatialSummary로 유형별 bbox 목록
+  - ⚠ Draft: draft_items 목록 + "편집하여 완성 →" 버튼 (Detail 이동)
+  - 📋 전체: STAC search로 Item 목록, 클릭 → Detail
+- "+ 새 프로젝트" 버튼 → 모달 (ID, 프로젝트명, 사이트, 발주처, PM, EPSG)
+- API: collectionApi.list, dashboard, spatialSummary, create
+
+---
+
+## Step 12: Frontend — Upload (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**Upload 페이지 (src/pages/Upload.jsx)**
+- 모드 탭: 벌크 / 단건
+- 벌크 업로드 (3-step):
+  1. Collection 선택 + 드래그앤드롭 → /api/upload/analyze 호출
+  2. 매니페스트 확인 (자동 추출값, 상속값, 필수 빈 필드, 관계 제안 표시)
+  3. Draft로 등록 → 완료 화면 (Project 이동 / 추가 업로드)
+- 단건 업로드: Collection 선택 + 파일 드롭 → 분석 결과 표시
+- Dropzone: 드래그앤드롭 + 파일 선택 + 파일 목록 표시
+- ManifestRow: 유형 뱃지, 필수 빈 필드(빨간), 관계 제안, 확장 시 메타데이터 상세
+- StepIndicator: 3단계 진행 표시
+- API: uploadApi.analyze, register, collectionApi.list
+
+---
+
+## Step 13: 통합 테스트 (COMPLETED)
+
+> **이 단계는 완료되었습니다.**
+
+### 구현 내용
+
+**tests/test_e2e.py (E2E 통합 테스트)**
+- 시나리오 1: 벌크 업로드 전체 흐름
+  - 3개 파일(LAS, OBJ, PDF) analyze → 유형 판별/자동 채움/관계 제안 확인
+  - validate (실패 케이스 + 정상 케이스)
+  - register (mock STAC, Draft 등록)
+- 시나리오 2: Collection 생성 → 목록 → 대시보드 (예상 vs 실제)
+- 시나리오 3: Item Draft→Published (성공 + 필수 필드 누락 거부), related, timeline
+- 시나리오 4: 파이프라인 통합 — Collection 상속 확인, 관계 제안 확인
+
+### 확인 포인트
+- `pytest tests/test_e2e.py -v` → 8개 테스트 통과
+- `pytest tests/ -m "not integration"` → 전체 174개 통과
+
+---
+
+## 트러블슈팅 프롬프트
+
+### Docker 관련 문제
+```
+docker-compose logs [서비스명]으로 에러를 확인하고 수정해줘.
+```
+
+### 파이프라인 추출 실패
+```
+[유형]의 메타데이터 추출이 실패하고 있어. 
+에러 메시지: [에러 내용]
+docs/autofill_pipeline_spec.md의 해당 유형 섹션을 참조해서 수정해줘.
+graceful degradation 원칙을 따라야 해 — 추출 실패해도 등록은 가능해야 함.
+```
+
+### API 응답 형식 불일치
+```
+/api/upload/analyze의 응답이 docs/system_architecture.md 섹션 3.2의 
+예상 형식과 다른데, 문서 기준으로 맞춰줘.
+```
+
+### Frontend-API 연동 문제
+```
+Frontend에서 [엔드포인트]를 호출하는데 [에러/문제].
+frontend/src/services/api.js의 해당 함수와 backend의 라우터를 함께 확인해줘.
+```
