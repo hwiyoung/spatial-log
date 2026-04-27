@@ -22,6 +22,8 @@ miniodata/
 
 # Environment
 .env
+.env.*
+!.env.example
 
 # OS
 .DS_Store
@@ -36,6 +38,7 @@ coverage/
 
 # Data (DB volumes, etc.)
 data/
+.docker-data/
 
 # Archive
 *.tar.gz
