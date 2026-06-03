@@ -3,15 +3,29 @@
  * Item 클릭 시 나타나며, "상세 보기" → /detail/:id 로 이동
  */
 import { useNavigate } from 'react-router-dom'
-import { getCategoryInfo, formatSize } from '../constants'
+import {
+  getCategoryInfo,
+  formatSize,
+  getDisplayLabel,
+  getItemStatus,
+  getStatusInfo,
+  getPreviewStatusInfo,
+} from '../constants'
 
-export default function PreviewPanel({ item, onClose, width = 540 }) {
+export default function PreviewPanel({ item, onClose, width = 540, mockMode = false }) {
   const navigate = useNavigate()
   if (!item) return null
 
   const props = item.properties || {}
   const cat = getCategoryInfo(props.data_category)
+  const status = getItemStatus(item)
+  const statusInfo = getStatusInfo(status)
+  const previewInfo = getPreviewStatusInfo(props.previewStatus)
+  const label = getDisplayLabel(item)
   const collection = item.collection
+  const metadataGaps = props.metadataGaps || props.missingRequiredFields || []
+  const missingRelationTargets = props['mock:missingRelationTargets'] || []
+  const relationCount = props['mock:relation_count'] || 0
 
   return (
     <div style={{
@@ -44,7 +58,7 @@ export default function PreviewPanel({ item, onClose, width = 540 }) {
         {item.assets?.thumbnail?.href ? (
           <img
             src={item.assets.thumbnail.href}
-            alt={props.description || item.id}
+            alt={label}
             style={{
               width: '100%', height: 360, objectFit: 'contain',
               borderRadius: 8, marginBottom: 14,
@@ -64,19 +78,18 @@ export default function PreviewPanel({ item, onClose, width = 540 }) {
 
         {/* 제목 */}
         <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
-          {props.description || item.id}
+          {label}
         </div>
 
         {/* 태그 */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+          {props['project:name'] && <Tag label={`Project: ${props['project:name']}`} />}
           {props['project:site'] && <Tag label={`📍 ${props['project:site']}`} />}
           {props.target && <Tag label={`🎯 ${props.target}`} />}
           {props.datetime && <Tag label={`📅 ${props.datetime.slice(0, 10)}`} />}
           {props['proj:epsg'] && <Tag label={`📐 EPSG:${props['proj:epsg']}`} />}
-          <Tag
-            label={props['sams:status'] === 'published' ? '✅ Published' : '⚠ Draft'}
-            color={props['sams:status'] === 'published' ? 'var(--ok)' : 'var(--warn)'}
-          />
+          <Tag label={statusInfo.label} color={statusInfo.color} />
+          <Tag label={previewInfo.label} color={previewInfo.color} />
         </div>
 
         {/* 메타데이터 요약 */}
@@ -86,6 +99,9 @@ export default function PreviewPanel({ item, onClose, width = 540 }) {
         }}>
           <MetaRow label="Collection" value={collection} />
           <MetaRow label="Item ID" value={item.id} />
+          <MetaRow label="Original filename" value={props.originalFilename || props['file:name']} />
+          <MetaRow label="Preview" value={props.previewStatus} />
+          <MetaRow label="Relations" value={relationCount ? `${relationCount} linked` : '0 linked'} />
           <MetaRow label="파일 크기" value={formatSize(props['file:size'])} />
           {props['pc:count'] && <MetaRow label="포인트 수" value={Number(props['pc:count']).toLocaleString()} />}
           {props['image:image_count'] && <MetaRow label="이미지 수" value={`${props['image:image_count']}장`} />}
@@ -109,6 +125,37 @@ export default function PreviewPanel({ item, onClose, width = 540 }) {
             </div>
           </div>
         )}
+
+        {(props.draftReason || metadataGaps.length > 0 || props.previewFailureReason) && (
+          <div style={{
+            padding: '10px 12px', background: 'var(--s2)',
+            borderRadius: 6, border: '1px solid var(--bd)', marginBottom: 12,
+          }}>
+            <div style={{ color: 'var(--t3)', marginBottom: 6, fontSize: 12, fontWeight: 600 }}>
+              Draft / Preview / Metadata
+            </div>
+            {props.draftReason && <NoticeRow label="Draft reason" value={props.draftReason} />}
+            {props.previewFailureReason && <NoticeRow label="Preview failure" value={props.previewFailureReason} />}
+            {metadataGaps.length > 0 && <NoticeRow label="Gaps" value={metadataGaps.join(', ')} />}
+          </div>
+        )}
+
+        {missingRelationTargets.length > 0 && (
+          <div style={{
+            padding: '10px 12px',
+            background: 'rgba(215,184,74,0.08)',
+            borderRadius: 6,
+            border: '1px solid rgba(215,184,74,0.28)',
+            marginBottom: 12,
+          }}>
+            <div style={{ color: 'var(--warn)', fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+              Relation target outside current results
+            </div>
+            <div style={{ color: 'var(--t2)', fontSize: 13 }}>
+              {missingRelationTargets.join(', ')}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 하단 버튼 */}
@@ -126,41 +173,54 @@ export default function PreviewPanel({ item, onClose, width = 540 }) {
         >
           상세 보기 →
         </button>
-        <button
-          onClick={async () => {
-            if (!confirm(`"${props.description || item.id}" 아이템을 삭제하시겠습니까?`)) return
-            try {
-              const { itemApi } = await import('../services/api')
-              await itemApi.delete(`${collection}/${item.id}`)
-              onClose()
-              window.location.reload()
-            } catch (err) {
-              alert('삭제 실패: ' + (err.response?.data?.detail || err.message))
-            }
-          }}
-          style={{
-            padding: '8px 12px', borderRadius: 6,
-            border: '1px solid var(--err, #e55)', background: 'transparent',
-            color: 'var(--err, #e55)', fontSize: 13, cursor: 'pointer',
-          }}
-        >
-          🗑
-        </button>
+        {!mockMode && (
+          <button
+            onClick={async () => {
+              if (!confirm(`"${label}" 아이템을 삭제하시겠습니까?`)) return
+              try {
+                const { itemApi } = await import('../services/api')
+                await itemApi.delete(`${collection}/${item.id}`)
+                onClose()
+                window.location.reload()
+              } catch (err) {
+                alert('삭제 실패: ' + (err.response?.data?.detail || err.message))
+              }
+            }}
+            style={{
+              padding: '8px 12px', borderRadius: 6,
+              border: '1px solid var(--err, #e55)', background: 'transparent',
+              color: 'var(--err, #e55)', fontSize: 13, cursor: 'pointer',
+            }}
+          >
+            🗑
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
 function Tag({ label, color }) {
+  const background = color?.startsWith('var(') ? 'var(--s2)' : `${color || ''}10`
+  const borderColor = color?.startsWith('var(') ? 'var(--bd)' : `${color || ''}30`
   return (
     <span style={{
       padding: '2px 8px', borderRadius: 4, fontSize: 12,
-      background: color ? color + '10' : 'var(--s2)',
+      background: color ? background : 'var(--s2)',
       color: color || 'var(--t2)',
-      border: `1px solid ${color ? color + '30' : 'var(--bd)'}`,
+      border: `1px solid ${color ? borderColor : 'var(--bd)'}`,
     }}>
       {label}
     </span>
+  )
+}
+
+function NoticeRow({ label, value }) {
+  return (
+    <div style={{ padding: '2px 0', fontSize: 13 }}>
+      <span style={{ color: 'var(--t3)', marginRight: 8 }}>{label}</span>
+      <span style={{ color: 'var(--t2)' }}>{value}</span>
+    </div>
   )
 }
 

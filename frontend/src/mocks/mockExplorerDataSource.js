@@ -1,0 +1,100 @@
+import { mockCollections } from './fixtures/mockCollections.js'
+import { mockItems } from './fixtures/mockItems.js'
+import { getMockRelationsForItem } from './fixtures/mockRelations.js'
+
+const MOCK_SEARCH_DELAY_MS = 120
+
+export function isMockExplorerMode() {
+  if (import.meta.env.VITE_USE_MOCKS === 'true') return true
+  if (typeof window === 'undefined') return false
+  const params = new URLSearchParams(window.location.search)
+  return params.get('mock') === '1' || params.get('mock') === 'true'
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function decorateItem(item) {
+  const relations = getMockRelationsForItem(item.id)
+  const missingRelationTargets = relations
+    .filter(relation => relation.sourceId === item.id && relation.missingTarget)
+    .map(relation => relation.targetId)
+
+  return {
+    ...clone(item),
+    properties: {
+      ...clone(item.properties || {}),
+      'mock:relation_count': relations.length,
+      'mock:missingRelationTargets': [
+        ...new Set([
+          ...((item.properties || {})['mock:missingRelationTargets'] || []),
+          ...missingRelationTargets,
+        ]),
+      ],
+    },
+  }
+}
+
+function matchesKeyword(item, keyword) {
+  if (!keyword) return true
+  const q = keyword.toLowerCase()
+  const props = item.properties || {}
+  const values = [
+    item.id,
+    item.collection,
+    props.title,
+    props.display_name,
+    props.description,
+    props.originalFilename,
+    props['file:name'],
+    props['project:name'],
+    props['project:site'],
+    props.data_category,
+    props.status,
+    ...(props.metadataGaps || []),
+    ...(props.missingRequiredFields || []),
+  ]
+  return values.some(value => String(value || '').toLowerCase().includes(q))
+}
+
+export const mockExplorerDataSource = {
+  async listCollections() {
+    await sleep(MOCK_SEARCH_DELAY_MS)
+    return { data: { collections: clone(mockCollections) } }
+  },
+
+  async search({ keyword = '', categories = [], collectionId = null, status = 'all' } = {}) {
+    await sleep(MOCK_SEARCH_DELAY_MS)
+    const filtered = mockItems
+      .filter(item => !collectionId || item.collection === collectionId)
+      .filter(item => categories.length === 0 || categories.includes(item.properties?.data_category))
+      .filter(item => status === 'all' || item.properties?.status === status)
+      .filter(item => matchesKeyword(item, keyword))
+      .map(decorateItem)
+
+    return {
+      data: {
+        type: 'FeatureCollection',
+        features: filtered,
+        numberMatched: filtered.length,
+        numberReturned: filtered.length,
+      },
+    }
+  },
+
+  async getItem(collectionId, itemId) {
+    await sleep(MOCK_SEARCH_DELAY_MS)
+    const item = mockItems.find(candidate => candidate.collection === collectionId && candidate.id === itemId)
+    return { data: item ? decorateItem(item) : null }
+  },
+
+  async getRelations(itemId) {
+    await sleep(MOCK_SEARCH_DELAY_MS)
+    return { data: { itemId, relations: clone(getMockRelationsForItem(itemId)) } }
+  },
+}

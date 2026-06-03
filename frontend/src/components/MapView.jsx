@@ -3,7 +3,7 @@
  */
 import { useRef, useEffect, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import { getCategoryInfo } from '../constants'
+import { getCategoryInfo, getItemStatus } from '../constants'
 
 export default function MapView({ items, hoveredId, selectedId, onSelectItem }) {
   const containerRef = useRef(null)
@@ -88,8 +88,11 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
       if (!center) return
 
       const cat = getCategoryInfo(item.properties?.data_category)
+      const status = getItemStatus(item)
       const isHovered = item.id === hoveredId
       const isSelected = item.id === selectedId
+      const isFallback = item.properties?.['mock:spatial_state'] === 'fallback'
+      const borderColor = status === 'draft' ? '#D7B84A' : cat.color
 
       const el = document.createElement('div')
       el.style.cssText = `
@@ -97,7 +100,7 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
         display: flex; align-items: center; justify-content: center;
         font-size: 16px; cursor: pointer;
         background: ${cat.color}90;
-        border: 2.5px solid ${cat.color};
+        border: ${isFallback ? '2.5px dashed' : '2.5px solid'} ${borderColor};
         color: #fff;
         box-shadow: 0 1px 4px rgba(0,0,0,0.5);
         transition: transform 0.15s;
@@ -142,6 +145,11 @@ function getItemCenter(item) {
     const lats = ring.map(c => c[1])
     const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2
     const lat = (Math.min(...lats) + Math.max(...lats)) / 2
+    if (isValidLngLat(lng, lat)) return [lng, lat]
+  }
+  const fallbackCenter = item.properties?.['mock:fallback_center']
+  if (Array.isArray(fallbackCenter) && fallbackCenter.length >= 2) {
+    const [lng, lat] = fallbackCenter
     if (isValidLngLat(lng, lat)) return [lng, lat]
   }
   return null

@@ -6,18 +6,22 @@
  *
  * 참조: docs/system_structure_design.md 페이지 1
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { searchApi, collectionApi } from '../services/api'
+import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import SearchSidebar from '../components/SearchSidebar'
 import MapView from '../components/MapView'
 import PreviewPanel from '../components/PreviewPanel'
 
 export default function Explorer() {
+  const mockMode = useMemo(() => isMockExplorerMode(), [])
+
   // 검색 상태
   const [keyword, setKeyword] = useState('')
   const [categoryFilter, setCategoryFilter] = useState(new Set())
   const [collections, setCollections] = useState([])
   const [selectedCollection, setSelectedCollection] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
 
   // 결과 상태
   const [items, setItems] = useState([])
@@ -54,23 +58,35 @@ export default function Explorer() {
 
   // Collection 목록 로드
   useEffect(() => {
-    collectionApi.list()
+    const api = mockMode ? mockExplorerDataSource.listCollections() : collectionApi.list()
+    api
       .then(res => {
         const cols = res.data?.collections || []
         setCollections(cols)
       })
       .catch(() => setCollections([]))
-  }, [])
+  }, [mockMode])
 
   // 검색 실행 (debounced)
   useEffect(() => {
     const timer = setTimeout(() => doSearch(), 300)
     return () => clearTimeout(timer)
-  }, [keyword, categoryFilter, selectedCollection])
+  }, [keyword, categoryFilter, selectedCollection, statusFilter, mockMode])
 
   const doSearch = useCallback(async () => {
     setLoading(true)
     try {
+      if (mockMode) {
+        const res = await mockExplorerDataSource.search({
+          keyword,
+          categories: [...categoryFilter],
+          collectionId: selectedCollection,
+          status: statusFilter,
+        })
+        setItems(res.data?.features || [])
+        return
+      }
+
       const params = { limit: 200 }
 
       // Collection 필터
@@ -107,7 +123,7 @@ export default function Explorer() {
     } finally {
       setLoading(false)
     }
-  }, [keyword, categoryFilter, selectedCollection])
+  }, [keyword, categoryFilter, selectedCollection, statusFilter, mockMode])
 
   const toggleCategory = (cat) => {
     setCategoryFilter(prev => {
@@ -133,12 +149,15 @@ export default function Explorer() {
         collections={collections}
         selectedCollection={selectedCollection}
         onSelectCollection={setSelectedCollection}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
         resultCount={items.length}
         items={items}
         selectedId={selectedItem?.id}
         onHover={setHoveredId}
         onSelect={handleSelectItem}
         width={sidebarWidth}
+        mockMode={mockMode}
       />
 
       {/* 사이드바 리사이즈 핸들 */}
@@ -152,6 +171,23 @@ export default function Explorer() {
           selectedId={selectedItem?.id}
           onSelectItem={handleSelectItem}
         />
+        {mockMode && (
+          <div style={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            padding: '4px 10px',
+            borderRadius: 4,
+            background: 'rgba(19,22,31,0.92)',
+            border: '1px solid rgba(215,184,74,0.36)',
+            color: '#D7B84A',
+            fontSize: 12,
+            fontWeight: 700,
+            zIndex: 2,
+          }}>
+            Mock Demo Mode
+          </div>
+        )}
         {loading && (
           <div style={{
             position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
@@ -171,6 +207,7 @@ export default function Explorer() {
             item={selectedItem}
             onClose={() => setSelectedItem(null)}
             width={previewWidth}
+            mockMode={mockMode}
           />
         </>
       )}

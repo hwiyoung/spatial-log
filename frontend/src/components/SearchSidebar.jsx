@@ -1,15 +1,33 @@
 /**
  * 검색 사이드바 — 키워드, 유형 필터, 프로젝트 필터, 검색 결과 목록
  */
-import { CATEGORIES, getCategoryInfo, formatSize } from '../constants'
+import {
+  CATEGORIES,
+  getCategoryInfo,
+  formatSize,
+  getDisplayLabel,
+  getItemStatus,
+  getStatusInfo,
+  getPreviewStatusInfo,
+} from '../constants'
+
+const STATUS_FILTERS = [
+  { value: 'all', label: '전체' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'published', label: 'Published' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'unknown', label: 'Unknown' },
+]
 
 export default function SearchSidebar({
   keyword, onKeywordChange,
   categoryFilter, onToggleCategory,
   collections, selectedCollection, onSelectCollection,
+  statusFilter = 'all', onStatusFilterChange,
   resultCount,
   items, selectedId, onHover, onSelect,
   width = 380,
+  mockMode = false,
 }) {
   return (
     <div style={{
@@ -19,6 +37,16 @@ export default function SearchSidebar({
     }}>
       {/* 키워드 검색 */}
       <div style={{ padding: '12px 14px' }}>
+        {mockMode && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            marginBottom: 8, padding: '2px 8px', borderRadius: 4,
+            fontSize: 12, fontWeight: 700, color: '#D7B84A',
+            background: 'rgba(215,184,74,0.10)', border: '1px solid rgba(215,184,74,0.28)',
+          }}>
+            Mock Demo Mode
+          </div>
+        )}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '6px 10px', background: 'var(--s2)',
@@ -36,6 +64,33 @@ export default function SearchSidebar({
           />
         </div>
       </div>
+
+      {/* 상태 필터: mock demo 검증용. 실제 API 필터 계약 확정 전에는 mock mode에서만 노출 */}
+      {mockMode && onStatusFilterChange && (
+        <div style={{ padding: '0 14px 10px' }}>
+          <div style={{ fontSize: 13, color: 'var(--t3)', marginBottom: 6, fontWeight: 600 }}>상태</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            {STATUS_FILTERS.map(filter => {
+              const active = statusFilter === filter.value
+              const info = getStatusInfo(filter.value === 'all' ? 'unknown' : filter.value)
+              return (
+                <span
+                  key={filter.value}
+                  onClick={() => onStatusFilterChange(filter.value)}
+                  style={{
+                    padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                    color: active ? (filter.value === 'all' ? 'var(--ac)' : info.color) : 'var(--t3)',
+                    background: active ? 'rgba(74,114,255,0.06)' : 'transparent',
+                    border: `1px solid ${active ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
+                  }}
+                >
+                  {filter.label}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 유형 필터 */}
       <div style={{ padding: '0 14px 12px' }}>
@@ -107,6 +162,9 @@ export default function SearchSidebar({
         {items && items.map(item => {
           const props = item.properties || {}
           const cat = getCategoryInfo(props.data_category)
+          const status = getItemStatus(item)
+          const statusInfo = getStatusInfo(status)
+          const previewInfo = getPreviewStatusInfo(props.previewStatus)
           const isSelected = item.id === selectedId
           return (
             <div
@@ -149,21 +207,35 @@ export default function SearchSidebar({
                   fontSize: 13, fontWeight: 500, color: 'var(--t1)',
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
-                  {props.description || item.id}
+                  {getDisplayLabel(item)}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--t3)' }}>
                   {props.datetime?.slice(0, 10) || ''}
                   {props['file:size'] ? ` · ${formatSize(props['file:size'])}` : ''}
+                  {props['project:site'] ? ` · ${props['project:site']}` : ''}
                 </div>
               </div>
 
-              {/* 유형 뱃지 */}
-              <span style={{
-                padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600,
-                flexShrink: 0, background: cat.color + '12', color: cat.color,
-              }}>
-                {cat.label}
-              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
+                {/* 유형 뱃지 */}
+                <span style={{
+                  padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+                  background: cat.color + '12', color: cat.color,
+                }}>
+                  {cat.label}
+                </span>
+                {mockMode && (
+                  <span
+                    title={previewInfo.label}
+                    style={{
+                      padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+                      background: 'var(--s2)', color: statusInfo.color,
+                    }}
+                  >
+                    {statusInfo.label}
+                  </span>
+                )}
+              </div>
             </div>
           )
         })}
