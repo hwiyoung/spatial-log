@@ -5,14 +5,18 @@ import {
   CATEGORIES,
   getCategoryInfo,
   formatSize,
-  getDisplayLabel,
-  getItemStatus,
-  getStatusInfo,
   getPreviewStatusInfo,
 } from '../constants'
+import DraftBadge from './DraftBadge'
+import ProjectBadge from './ProjectBadge'
+import StatusBadge from './StatusBadge'
+import { getDisplayLabel, getOriginalFilename } from '../features/items/getDisplayLabel.js'
+import { getItemStatus } from '../features/items/getItemStatus.js'
+import { getProjectContext } from '../features/items/getProjectContext.js'
+import { getItemVisibilityFlags } from '../features/items/getItemVisibilityFlags.js'
 
 const STATUS_FILTERS = [
-  { value: 'all', label: '전체' },
+  { value: 'all', label: 'All' },
   { value: 'draft', label: 'Draft' },
   { value: 'published', label: 'Published' },
   { value: 'archived', label: 'Archived' },
@@ -29,6 +33,9 @@ export default function SearchSidebar({
   width = 380,
   mockMode = false,
 }) {
+  const statusCounts = getStatusCounts(items)
+  const projectCounts = getProjectCounts(items)
+
   return (
     <div style={{
       width, minWidth: 280, background: 'var(--s1)',
@@ -72,19 +79,19 @@ export default function SearchSidebar({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
             {STATUS_FILTERS.map(filter => {
               const active = statusFilter === filter.value
-              const info = getStatusInfo(filter.value === 'all' ? 'unknown' : filter.value)
+              const count = filter.value === 'all' ? items?.length || 0 : statusCounts[filter.value] || 0
               return (
                 <span
                   key={filter.value}
                   onClick={() => onStatusFilterChange(filter.value)}
                   style={{
                     padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
-                    color: active ? (filter.value === 'all' ? 'var(--ac)' : info.color) : 'var(--t3)',
+                    color: active ? 'var(--ac)' : 'var(--t3)',
                     background: active ? 'rgba(74,114,255,0.06)' : 'transparent',
                     border: `1px solid ${active ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
                   }}
                 >
-                  {filter.label}
+                  {filter.label} {count}
                 </span>
               )
             })}
@@ -129,22 +136,25 @@ export default function SearchSidebar({
               border: `1px solid ${!selectedCollection ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
             }}
           >
-            전체
+            All {items?.length || 0}
           </span>
-          {collections.map(col => (
-            <span
-              key={col.id}
-              onClick={() => onSelectCollection(selectedCollection === col.id ? null : col.id)}
-              style={{
-                padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
-                color: selectedCollection === col.id ? 'var(--ac)' : 'var(--t3)',
-                background: selectedCollection === col.id ? 'rgba(74,114,255,0.06)' : 'transparent',
-                border: `1px solid ${selectedCollection === col.id ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
-              }}
-            >
-              {col.title || col.id}
-            </span>
-          ))}
+          {collections.map(col => {
+            const isUnassigned = col.id === 'unassigned-inbox'
+            return (
+              <span
+                key={col.id}
+                onClick={() => onSelectCollection(selectedCollection === col.id ? null : col.id)}
+                style={{
+                  padding: '2px 8px', borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                  color: selectedCollection === col.id ? 'var(--ac)' : 'var(--t3)',
+                  background: selectedCollection === col.id ? 'rgba(74,114,255,0.06)' : 'transparent',
+                  border: `1px solid ${selectedCollection === col.id ? 'rgba(74,114,255,0.2)' : 'var(--bd)'}`,
+                }}
+              >
+                {isUnassigned ? 'Unassigned Inbox' : col.title || col.id} {projectCounts[col.id] || 0}
+              </span>
+            )
+          })}
         </div>
       </div>
 
@@ -163,8 +173,10 @@ export default function SearchSidebar({
           const props = item.properties || {}
           const cat = getCategoryInfo(props.data_category)
           const status = getItemStatus(item)
-          const statusInfo = getStatusInfo(status)
           const previewInfo = getPreviewStatusInfo(props.previewStatus)
+          const project = getProjectContext(item, collections)
+          const flags = getItemVisibilityFlags(item, collections)
+          const originalFilename = getOriginalFilename(item)
           const isSelected = item.id === selectedId
           return (
             <div
@@ -210,9 +222,13 @@ export default function SearchSidebar({
                   {getDisplayLabel(item)}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--t3)' }}>
-                  {props.datetime?.slice(0, 10) || ''}
+                  {originalFilename || props.datetime?.slice(0, 10) || item.id}
                   {props['file:size'] ? ` · ${formatSize(props['file:size'])}` : ''}
-                  {props['project:site'] ? ` · ${props['project:site']}` : ''}
+                  {project.projectSite ? ` · ${project.projectSite}` : ''}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                  <ProjectBadge projectName={project.projectName} isUnassigned={project.isUnassigned} compact />
+                  {flags.isDraft ? <DraftBadge compact /> : <StatusBadge status={status} compact />}
                 </div>
               </div>
 
@@ -229,10 +245,10 @@ export default function SearchSidebar({
                     title={previewInfo.label}
                     style={{
                       padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600,
-                      background: 'var(--s2)', color: statusInfo.color,
+                      background: 'var(--s2)', color: previewInfo.color,
                     }}
                   >
-                    {statusInfo.label}
+                    {previewInfo.label.replace('Preview ', '')}
                   </span>
                 )}
               </div>
@@ -247,4 +263,20 @@ export default function SearchSidebar({
       </div>
     </div>
   )
+}
+
+function getStatusCounts(items = []) {
+  return items.reduce((counts, item) => {
+    const status = getItemStatus(item)
+    counts[status] = (counts[status] || 0) + 1
+    return counts
+  }, {})
+}
+
+function getProjectCounts(items = []) {
+  return items.reduce((counts, item) => {
+    const collectionId = item.collection || item.collection_id || 'unassigned'
+    counts[collectionId] = (counts[collectionId] || 0) + 1
+    return counts
+  }, {})
 }

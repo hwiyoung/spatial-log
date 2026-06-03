@@ -72,3 +72,88 @@ NODE
 - Phase 0 does not implement real selected relation overlay lines.
 - Phase 0 does not implement real 3D Tiles, point cloud, model, panorama, video, or document viewers.
 - Relationship Graph Beta must not appear as the default Explorer screen.
+
+## Phase 1 Asset Map Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P1-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears. | Ready |
+| P1-2 | 전체 결과 확인 | Clear all filters. | Result count is 24. | Ready |
+| P1-3 | 지도/목록 동시 표시 | Observe map and list. | Markers and list rows are visible from the same result set. | Ready |
+| P1-4 | 0건 검색 | Search `no-result-keyword`. | List shows 0 results and map markers are cleared. | Ready |
+| P1-5 | 문헌정보 필터 | Click `문헌정보`. | Document item list is shown. | Ready |
+| P1-6 | geometry 없는 document | Select a document without geometry/bbox. | It appears as a fallback marker using `mock:fallback_center`. | Ready |
+| P1-7 | bbox-only 3D model | Select `성수동 로비 BIM 모델` or `다보탑 포토그래메트리 모델`. | Marker is positioned at bbox center. | Ready |
+| P1-8 | marker click | Click a marker. | Right panel opens for that Item. | Ready |
+| P1-9 | list row click | Click the same Item in the list. | Same right panel opens. | Ready |
+| P1-10 | selected state consistency | Compare marker, row, and panel after selection. | Selected marker scales, row is highlighted, and panel shows the same Item. | Ready |
+
+Phase 1 helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { itemsToMapMarkers } from './src/features/explorer-map/itemsToMapMarkers.js'
+const docs = mockItems.filter(item => item.properties.data_category === 'document')
+console.log({
+  allItems: mockItems.length,
+  allMarkers: itemsToMapMarkers(mockItems).length,
+  noResultMarkers: itemsToMapMarkers([]).length,
+  documentMarkers: itemsToMapMarkers(docs).length,
+})
+NODE
+```
+
+## Phase 2 Status / Project / Label Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P2-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears. | Ready |
+| P2-2 | 전체 결과 확인 | Clear all filters. | Result count is 24. | Ready |
+| P2-3 | Draft filter | Click `Draft`. | Result count is 9; Draft badges are visible. | Ready |
+| P2-4 | Published filter | Click `Published`. | Result count is 9; Published badges are visible. | Ready |
+| P2-5 | Archived filter | Click `Archived`. | Result count is 2; Archived badges are visible. | Ready |
+| P2-6 | Unknown filter | Click `Unknown`. | Result count is 4; Unknown badges are visible. | Ready |
+| P2-7 | 성수동 project filter | Click `성수동 오피스 리노베이션`. | Result count is 8. | Ready |
+| P2-8 | 불국사 project filter | Click `2024 경주 불국사 정밀실측`. | Result count is 8. | Ready |
+| P2-9 | Unassigned project filter | Click `Unassigned Inbox`. | Result count is 8; Unassigned badge is visible. | Ready |
+| P2-10 | Draft + 성수동 조합 | Click `Draft`, then `성수동 오피스 리노베이션`. | Result count reflects the combined filter and map/list remain synced. | Ready |
+| P2-11 | 문헌정보 filter | Click `문헌정보`. | Result count is 3. | Ready |
+| P2-12 | Human-readable label | Inspect list rows. | Primary row text is a readable title, not only item id. | Ready |
+| P2-13 | Panel consistency | Click any list item. | Panel label/status/project/site match the selected row meaning. | Ready |
+| P2-14 | Unassigned panel | Click an Unassigned item. | Panel clearly shows `Unassigned Inbox`. | Ready |
+| P2-15 | Empty state | Search `no-result-keyword`. | Result count is 0 and map markers are cleared. | Ready |
+
+Phase 2 helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockCollections } from './src/mocks/fixtures/mockCollections.js'
+import { getItemStatus } from './src/features/items/getItemStatus.js'
+import { getProjectContext } from './src/features/items/getProjectContext.js'
+const count = (items, fn) => items.reduce((acc, item) => {
+  const key = fn(item)
+  acc[key] = (acc[key] || 0) + 1
+  return acc
+}, {})
+console.log({
+  status: count(mockItems, getItemStatus),
+  projects: count(mockItems, item => getProjectContext(item, mockCollections).projectName),
+})
+NODE
+```

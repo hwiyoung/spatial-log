@@ -1,6 +1,9 @@
 import { mockCollections } from './fixtures/mockCollections.js'
 import { mockItems } from './fixtures/mockItems.js'
 import { getMockRelationsForItem } from './fixtures/mockRelations.js'
+import { getDisplayLabel, getOriginalFilename } from '../features/items/getDisplayLabel.js'
+import { getItemStatus } from '../features/items/getItemStatus.js'
+import { getProjectContext } from '../features/items/getProjectContext.js'
 
 const MOCK_SEARCH_DELAY_MS = 120
 
@@ -44,11 +47,17 @@ function matchesKeyword(item, keyword) {
   if (!keyword) return true
   const q = keyword.toLowerCase()
   const props = item.properties || {}
+  const project = getProjectContext(item, mockCollections)
   const values = [
     item.id,
     item.collection,
+    getDisplayLabel(item),
+    getOriginalFilename(item),
+    project.projectName,
+    project.projectSite,
     props.title,
     props.display_name,
+    props['document:title'],
     props.description,
     props.originalFilename,
     props['file:name'],
@@ -73,7 +82,7 @@ export const mockExplorerDataSource = {
     const filtered = mockItems
       .filter(item => !collectionId || item.collection === collectionId)
       .filter(item => categories.length === 0 || categories.includes(item.properties?.data_category))
-      .filter(item => status === 'all' || item.properties?.status === status)
+      .filter(item => status === 'all' || getItemStatus(item) === status)
       .filter(item => matchesKeyword(item, keyword))
       .map(decorateItem)
 

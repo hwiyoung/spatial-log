@@ -1,15 +1,21 @@
 /**
  * MapLibre 2D 지도 — Item의 bbox/geometry를 마커로 표시
  */
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import { getCategoryInfo, getItemStatus } from '../constants'
+import { getCategoryInfo } from '../constants'
+import { itemsToMapMarkers } from '../features/explorer-map/itemsToMapMarkers.js'
+import { getItemsBounds } from '../features/explorer-map/getItemsBounds.js'
+import { getItemStatus, getStatusInfo } from '../features/items/getItemStatus.js'
+import { getItemVisibilityFlags } from '../features/items/getItemVisibilityFlags.js'
 
 export default function MapView({ items, hoveredId, selectedId, onSelectItem }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef([])
+  const hasFitVisibleItemsRef = useRef(false)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const mapMarkers = useMemo(() => itemsToMapMarkers(items), [items])
 
   // 지도 초기화
   useEffect(() => {
@@ -50,30 +56,40 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
     }
   }, [])
 
-  // 선택 아이템 변경 시 bbox로 줌인
+  // visible item 변경 시 전체 marker 범위로 맞춤
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return
+    const bounds = getItemsBounds(items)
+    if (!bounds) {
+      hasFitVisibleItemsRef.current = false
+      return
+    }
+    const [w, s, e, n] = bounds
+    if (w === e && s === n) {
+      mapRef.current.flyTo({ center: [w, s], zoom: 14, duration: hasFitVisibleItemsRef.current ? 350 : 0 })
+    } else {
+      mapRef.current.fitBounds([[w, s], [e, n]], {
+        padding: 80,
+        duration: hasFitVisibleItemsRef.current ? 350 : 0,
+        maxZoom: 15,
+      })
+    }
+    hasFitVisibleItemsRef.current = true
+  }, [items, mapLoaded])
+
+  // 선택 아이템 변경 시 선택 marker로 줌인
   useEffect(() => {
     if (!mapRef.current || !selectedId) return
-    const item = items.find(i => i.id === selectedId)
-    if (!item) return
+    const marker = mapMarkers.find(candidate => candidate.id === selectedId)
+    if (!marker) return
 
-    const bbox = item.bbox
-    if (bbox && bbox.length >= 4) {
-      const [w, s, e, n] = [bbox[0], bbox[1], bbox[2], bbox[3]]
-      if (isValidLngLat(w, s) && isValidLngLat(e, n)) {
-        if (Math.abs(e - w) < 0.0001 && Math.abs(n - s) < 0.0001) {
-          mapRef.current.flyTo({ center: [(w + e) / 2, (s + n) / 2], zoom: 16, duration: 800 })
-        } else {
-          mapRef.current.fitBounds([[w, s], [e, n]], { padding: 80, duration: 800, maxZoom: 18 })
-        }
-        return
-      }
+    const [w, s, e, n] = marker.bounds || []
+    if (Number.isFinite(w) && Number.isFinite(s) && Number.isFinite(e) && Number.isFinite(n) && (w !== e || s !== n)) {
+      mapRef.current.fitBounds([[w, s], [e, n]], { padding: 80, duration: 800, maxZoom: 18 })
+    } else {
+      mapRef.current.flyTo({ center: marker.position, zoom: 15, duration: 800 })
     }
-
-    const center = getItemCenter(item)
-    if (center) {
-      mapRef.current.flyTo({ center, zoom: 15, duration: 800 })
-    }
-  }, [selectedId])
+  }, [selectedId, mapMarkers])
 
   // 마커 업데이트
   useEffect(() => {
@@ -83,16 +99,17 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
     markersRef.current.forEach(m => m.remove())
     markersRef.current = []
 
-    items.forEach(item => {
-      const center = getItemCenter(item)
-      if (!center) return
+    mapMarkers.forEach(markerData => {
+      const { item, position, positionSource } = markerData
 
       const cat = getCategoryInfo(item.properties?.data_category)
       const status = getItemStatus(item)
+      const statusInfo = getStatusInfo(status)
+      const flags = getItemVisibilityFlags(item)
       const isHovered = item.id === hoveredId
       const isSelected = item.id === selectedId
-      const isFallback = item.properties?.['mock:spatial_state'] === 'fallback'
-      const borderColor = status === 'draft' ? '#D7B84A' : cat.color
+      const isFallback = positionSource === 'fallback'
+      const borderColor = flags.isPublished ? cat.color : statusInfo.markerColor
 
       const el = document.createElement('div')
       el.style.cssText = `
@@ -107,50 +124,18 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
         ${isHovered || isSelected ? 'transform: scale(1.5); z-index: 10;' : ''}
       `
       el.textContent = cat.icon
+      el.title = `${statusInfo.label} · ${item.properties?.['project:name'] || item.collection || item.id}`
       el.addEventListener('click', () => onSelectItem(item))
 
       const marker = new maplibregl.Marker({ element: el })
-        .setLngLat(center)
+        .setLngLat(position)
         .addTo(mapRef.current)
 
       markersRef.current.push(marker)
     })
-  }, [items, hoveredId, selectedId, mapLoaded])
+  }, [mapMarkers, hoveredId, selectedId, mapLoaded])
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
   )
-}
-
-function isValidLngLat(lng, lat) {
-  return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90
-    && !(lng === 0 && lat === 0)
-}
-
-function getItemCenter(item) {
-  const bbox = item.bbox
-  if (bbox && bbox.length >= 4) {
-    const lng = (bbox[0] + bbox[2]) / 2
-    const lat = (bbox[1] + bbox[3]) / 2
-    if (isValidLngLat(lng, lat)) return [lng, lat]
-  }
-  const geom = item.geometry
-  if (geom?.type === 'Point' && geom.coordinates) {
-    const [lng, lat] = geom.coordinates
-    if (isValidLngLat(lng, lat)) return [lng, lat]
-  }
-  if (geom?.type === 'Polygon' && geom.coordinates?.[0]) {
-    const ring = geom.coordinates[0]
-    const lngs = ring.map(c => c[0])
-    const lats = ring.map(c => c[1])
-    const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2
-    const lat = (Math.min(...lats) + Math.max(...lats)) / 2
-    if (isValidLngLat(lng, lat)) return [lng, lat]
-  }
-  const fallbackCenter = item.properties?.['mock:fallback_center']
-  if (Array.isArray(fallbackCenter) && fallbackCenter.length >= 2) {
-    const [lng, lat] = fallbackCenter
-    if (isValidLngLat(lng, lat)) return [lng, lat]
-  }
-  return null
 }

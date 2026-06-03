@@ -138,6 +138,15 @@ export default function Explorer() {
     setSelectedItem(prev => prev?.id === item.id ? null : item)
   }
 
+  const visibleItems = items
+
+  useEffect(() => {
+    if (!selectedItem) return
+    if (!visibleItems.some(item => item.id === selectedItem.id)) {
+      setSelectedItem(null)
+    }
+  }, [visibleItems, selectedItem])
+
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       {/* 사이드바 (검색 + 결과 목록 통합) */}
@@ -151,8 +160,8 @@ export default function Explorer() {
         onSelectCollection={setSelectedCollection}
         statusFilter={statusFilter}
         onStatusFilterChange={setStatusFilter}
-        resultCount={items.length}
-        items={items}
+        resultCount={visibleItems.length}
+        items={visibleItems}
         selectedId={selectedItem?.id}
         onHover={setHoveredId}
         onSelect={handleSelectItem}
@@ -166,7 +175,7 @@ export default function Explorer() {
       {/* 메인 영역: 지도 전체 */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <MapView
-          items={items}
+          items={visibleItems}
           hoveredId={hoveredId}
           selectedId={selectedItem?.id}
           onSelectItem={handleSelectItem}
@@ -205,6 +214,7 @@ export default function Explorer() {
           <ResizeHandle onMouseDown={() => { resizingTarget.current = 'preview'; document.body.style.cursor = 'col-resize' }} active={resizingTarget.current === 'preview'} />
           <PreviewPanel
             item={selectedItem}
+            collections={collections}
             onClose={() => setSelectedItem(null)}
             width={previewWidth}
             mockMode={mockMode}

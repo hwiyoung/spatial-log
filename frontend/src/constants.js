@@ -15,34 +15,8 @@ export function getCategoryInfo(cat) {
   return CATEGORIES[cat] || CATEGORIES.unknown
 }
 
-export function getDisplayLabel(item) {
-  const props = item?.properties || {}
-  const firstAssetWithTitle = Object.values(item?.assets || {}).find(asset => asset?.title)
-  return props.display_name
-    || props.title
-    || firstAssetWithTitle?.title
-    || props.description
-    || props.originalFilename
-    || props['file:name']
-    || item?.id
-    || 'Untitled Item'
-}
-
-export function getItemStatus(item) {
-  const props = item?.properties || {}
-  return props.status || props['sams:status'] || 'unknown'
-}
-
-export function getStatusInfo(status) {
-  const normalized = status || 'unknown'
-  const map = {
-    draft: { label: 'Draft', color: 'var(--warn)' },
-    published: { label: 'Published', color: 'var(--ok)' },
-    archived: { label: 'Archived', color: 'var(--t3)' },
-    unknown: { label: 'Unknown', color: 'var(--t3)' },
-  }
-  return map[normalized] || map.unknown
-}
+export { getDisplayLabel, getOriginalFilename } from './features/items/getDisplayLabel.js'
+export { getItemStatus, getStatusInfo } from './features/items/getItemStatus.js'
 
 export function getPreviewStatusInfo(status) {
   const normalized = status || 'missing'

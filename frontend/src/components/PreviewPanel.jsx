@@ -6,22 +6,28 @@ import { useNavigate } from 'react-router-dom'
 import {
   getCategoryInfo,
   formatSize,
-  getDisplayLabel,
-  getItemStatus,
-  getStatusInfo,
   getPreviewStatusInfo,
 } from '../constants'
+import DraftBadge from './DraftBadge'
+import ProjectBadge from './ProjectBadge'
+import StatusBadge from './StatusBadge'
+import { getDisplayLabel, getOriginalFilename } from '../features/items/getDisplayLabel.js'
+import { getItemStatus } from '../features/items/getItemStatus.js'
+import { getProjectContext } from '../features/items/getProjectContext.js'
+import { getItemVisibilityFlags } from '../features/items/getItemVisibilityFlags.js'
 
-export default function PreviewPanel({ item, onClose, width = 540, mockMode = false }) {
+export default function PreviewPanel({ item, collections = [], onClose, width = 540, mockMode = false }) {
   const navigate = useNavigate()
   if (!item) return null
 
   const props = item.properties || {}
   const cat = getCategoryInfo(props.data_category)
   const status = getItemStatus(item)
-  const statusInfo = getStatusInfo(status)
   const previewInfo = getPreviewStatusInfo(props.previewStatus)
   const label = getDisplayLabel(item)
+  const originalFilename = getOriginalFilename(item)
+  const project = getProjectContext(item, collections)
+  const flags = getItemVisibilityFlags(item, collections)
   const collection = item.collection
   const metadataGaps = props.metadataGaps || props.missingRequiredFields || []
   const missingRelationTargets = props['mock:missingRelationTargets'] || []
@@ -83,12 +89,12 @@ export default function PreviewPanel({ item, onClose, width = 540, mockMode = fa
 
         {/* 태그 */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
-          {props['project:name'] && <Tag label={`Project: ${props['project:name']}`} />}
-          {props['project:site'] && <Tag label={`📍 ${props['project:site']}`} />}
+          <ProjectBadge projectName={project.projectName} isUnassigned={project.isUnassigned} />
+          {flags.isDraft ? <DraftBadge /> : <StatusBadge status={status} />}
+          {project.projectSite && <Tag label={`Site: ${project.projectSite}`} />}
           {props.target && <Tag label={`🎯 ${props.target}`} />}
           {props.datetime && <Tag label={`📅 ${props.datetime.slice(0, 10)}`} />}
           {props['proj:epsg'] && <Tag label={`📐 EPSG:${props['proj:epsg']}`} />}
-          <Tag label={statusInfo.label} color={statusInfo.color} />
           <Tag label={previewInfo.label} color={previewInfo.color} />
         </div>
 
@@ -98,8 +104,11 @@ export default function PreviewPanel({ item, onClose, width = 540, mockMode = fa
           borderRadius: 6, border: '1px solid var(--bd)', marginBottom: 12,
         }}>
           <MetaRow label="Collection" value={collection} />
+          <MetaRow label="Project" value={project.projectName} />
+          <MetaRow label="Site" value={project.projectSite} />
           <MetaRow label="Item ID" value={item.id} />
-          <MetaRow label="Original filename" value={props.originalFilename || props['file:name']} />
+          <MetaRow label="Original filename" value={originalFilename} />
+          <MetaRow label="Status" value={status} />
           <MetaRow label="Preview" value={props.previewStatus} />
           <MetaRow label="Relations" value={relationCount ? `${relationCount} linked` : '0 linked'} />
           <MetaRow label="파일 크기" value={formatSize(props['file:size'])} />
