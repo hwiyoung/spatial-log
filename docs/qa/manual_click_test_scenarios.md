@@ -157,3 +157,56 @@ console.log({
 })
 NODE
 ```
+
+## Phase 3 Context Panel Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P3-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears. | Ready |
+| P3-2 | 전체 결과 확인 | Clear all filters. | Result count is 24. | Ready |
+| P3-3 | pointcloud item panel | Click `다보탑 2024 LiDAR 스캔`. | Panel shows preview, status, project, spatial summary, relation summary. | Ready |
+| P3-4 | Draft item panel | Click `지하 기계실 LiDAR 스캔` or another Draft item. | Draft reason and metadata gaps are highlighted. | Ready |
+| P3-5 | preview failed item | Click `다보탑 고해상도 메시 초안` or `계약서 초안`. | Panel shows `Preview failed` and failure reason. | Ready |
+| P3-6 | preview pending item | Click `1층 로비 리노베이션 BIM`. | Panel shows `Preview pending`. | Ready |
+| P3-7 | document fallback item | Click `리노베이션 인허가 메모` or `계약서 초안`. | Document preview placeholder and `Fallback project location` are visible. | Ready |
+| P3-8 | bbox-only 3D model | Click `1층 로비 리노베이션 BIM` or `다보탑 고해상도 메시 초안`. | Panel shows `BBox-derived location`. | Ready |
+| P3-9 | Unassigned item | Click `계약서 초안` or another Unassigned item. | Panel shows `Unassigned Inbox` and metadata gaps. | Ready |
+| P3-10 | relation-rich item | Click `다보탑 2024 LiDAR 스캔`. | Relation counts and missing target warning are visible. | Ready |
+| P3-11 | panel close | Click the panel close button. | Context Panel closes. | Ready |
+| P3-12 | stale selection clear | Select an item, then search `no-result-keyword`. | Panel closes, result count is 0, and map markers are cleared. | Ready |
+| P3-13 | Detail CTA | Select any item and inspect footer. | `상세 보기 ->` CTA is visible. | Ready |
+| P3-14 | Draft metadata CTA | Select a Draft item. | Disabled `메타데이터 보완` CTA is visible. | Ready |
+
+Phase 3 helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockRelations } from './src/mocks/fixtures/mockRelations.js'
+import { getItemPreviewSummary } from './src/features/items/getItemPreviewSummary.js'
+import { getItemSpatialSummary } from './src/features/items/getItemSpatialSummary.js'
+import { getItemRelationSummary } from './src/features/items/getItemRelationSummary.js'
+const count = (items, fn) => items.reduce((acc, item) => {
+  const key = fn(item)
+  acc[key] = (acc[key] || 0) + 1
+  return acc
+}, {})
+console.log({
+  items: mockItems.length,
+  previewStatus: count(mockItems, item => getItemPreviewSummary(item).status),
+  spatialSource: count(mockItems, item => getItemSpatialSummary(item).source),
+  relationRecords: mockRelations.length,
+  relationRich: getItemRelationSummary(
+    mockItems.find(item => item.id === 'bulguksa-pointcloud-dabotap'),
+    mockRelations
+  ),
+})
+NODE
+```

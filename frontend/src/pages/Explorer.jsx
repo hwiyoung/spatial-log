@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { searchApi, collectionApi } from '../services/api'
 import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
+import { mockRelations } from '../mocks/fixtures/mockRelations.js'
 import SearchSidebar from '../components/SearchSidebar'
 import MapView from '../components/MapView'
 import PreviewPanel from '../components/PreviewPanel'
@@ -215,6 +216,7 @@ export default function Explorer() {
           <PreviewPanel
             item={selectedItem}
             collections={collections}
+            relationRecords={mockMode ? mockRelations : []}
             onClose={() => setSelectedItem(null)}
             width={previewWidth}
             mockMode={mockMode}
