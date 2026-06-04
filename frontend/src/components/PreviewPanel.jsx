@@ -76,7 +76,7 @@ export default function PreviewPanel({
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px' }}>
-        <PanelPreviewHero item={item} />
+        <PanelPreviewHero item={item} mockMode={mockMode} />
         <PanelIdentitySection item={item} />
         <PanelProjectStatusSection item={item} collections={collections} />
         <PanelMetadataGapSection item={item} />

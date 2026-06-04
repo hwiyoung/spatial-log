@@ -323,3 +323,55 @@ console.log({
 })
 NODE
 ```
+
+## Phase 6A Preview / Viewer Contract Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P6A-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears. | Ready |
+| P6A-2 | pointcloud available | Click `다보탑 2024 LiDAR 스캔`. | Point cloud preview contract and available state are visible. | Ready |
+| P6A-3 | pointcloud draft/pending | Click `지하 기계실 LiDAR 스캔` and `프로젝트 미할당 원시 스캔`. | Draft metadata and pointcloud pending/available contract states are visible. | Ready |
+| P6A-4 | 3d_model preview | Click `1층 로비 리노베이션 BIM` or `다보탑 고해상도 메시 초안`. | Model screenshot/placeholder contract is visible. | Ready |
+| P6A-5 | 3d_tiles placeholder | Click `성수동 외피 3D Tiles 초안` or `경내 주변 지형 3D Tiles`. | 3D Tiles placeholder / viewer-needed state is visible. | Ready |
+| P6A-6 | orthoimage preview | Click `옥상 정사영상`. | Image-style preview card is visible. | Ready |
+| P6A-7 | image preview | Click `북측 파사드 보수 전 사진 42장`. | Image-style preview card is visible. | Ready |
+| P6A-8 | panorama placeholder | Click `대웅전 전면 파노라마` or `로비 360 파노라마`. | Panorama preview placeholder or failure state is visible. | Ready |
+| P6A-9 | video placeholder | Click `불국사 현장 점검 영상` or another video Item. | Video preview placeholder or poster state is visible. | Ready |
+| P6A-10 | document placeholder | Click `리노베이션 인허가 메모` or `계약서 초안`. | Document preview placeholder is visible. | Ready |
+| P6A-11 | failed preview | Click a failed Item such as `계약서 초안`. | Failure reason is visible. | Ready |
+| P6A-12 | pending preview | Click `1층 로비 리노베이션 BIM`. | Pending/processing state is visible. | Ready |
+| P6A-13 | missing preview | Click `리노베이션 인허가 메모`. | Missing preview state is visible. | Ready |
+| P6A-14 | preview action label | Inspect panel footer. | Preview action button text matches category/status contract. | Ready |
+| P6A-15 | heavy viewer guardrail | Click preview action if enabled. | No real heavy viewer modal opens; mock/future state is clear. | Ready |
+| P6A-16 | 2D/3D consistency | Toggle 2D/3D Beta after selecting an Item. | Same preview contract remains in Context Panel. | Ready |
+
+Phase 6A helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockPreviewAssets } from './src/mocks/fixtures/mockPreviewAssets.js'
+import { getPreviewContract } from './src/features/preview/getPreviewContract.js'
+const contracts = mockItems.map(item => getPreviewContract(item, mockPreviewAssets, { isMock: true }))
+const count = (items, fn) => items.reduce((acc, item) => {
+  const key = fn(item)
+  acc[key] = (acc[key] || 0) + 1
+  return acc
+}, {})
+console.log({
+  total: contracts.length,
+  byCategory: count(contracts, contract => contract.dataCategory),
+  byStatus: count(contracts, contract => contract.status),
+  byViewerType: count(contracts, contract => contract.viewerType),
+  failedWithReason: contracts.filter(contract => contract.status === 'failed' && contract.failureReason).length,
+  actionStates: count(contracts, contract => contract.actionState),
+})
+NODE
+```

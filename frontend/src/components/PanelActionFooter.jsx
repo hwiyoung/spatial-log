@@ -2,6 +2,9 @@ import { useNavigate } from 'react-router-dom'
 import { getDisplayLabel } from '../features/items/getDisplayLabel.js'
 import { getItemVisibilityFlags } from '../features/items/getItemVisibilityFlags.js'
 import { getProjectContext } from '../features/items/getProjectContext.js'
+import { getPreviewContract } from '../features/preview/getPreviewContract.js'
+import { mockPreviewAssets } from '../mocks/fixtures/mockPreviewAssets.js'
+import PreviewActionButton from './PreviewActionButton'
 
 export default function PanelActionFooter({ item, collections = [], mockMode = false, onClose }) {
   const navigate = useNavigate()
@@ -9,6 +12,11 @@ export default function PanelActionFooter({ item, collections = [], mockMode = f
   const label = getDisplayLabel(item)
   const flags = getItemVisibilityFlags(item, collections)
   const project = getProjectContext(item, collections)
+  const previewContract = getPreviewContract(
+    item,
+    mockMode ? mockPreviewAssets : null,
+    { isMock: mockMode },
+  )
 
   return (
     <div style={{
@@ -24,6 +32,9 @@ export default function PanelActionFooter({ item, collections = [], mockMode = f
       >
         상세 보기 →
       </button>
+      <div style={{ gridColumn: '1 / -1' }}>
+        <PreviewActionButton contract={previewContract} />
+      </div>
       {flags.isDraft && (
         <button
           disabled
