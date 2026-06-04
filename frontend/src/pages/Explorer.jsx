@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { searchApi, collectionApi } from '../services/api'
 import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import { mockRelations } from '../mocks/fixtures/mockRelations.js'
+import { getSelectedRelationOverlay } from '../features/relations/getSelectedRelationOverlay.js'
 import SearchSidebar from '../components/SearchSidebar'
 import MapView from '../components/MapView'
 import PreviewPanel from '../components/PreviewPanel'
@@ -31,6 +32,7 @@ export default function Explorer() {
   // UI 상태
   const [hoveredId, setHoveredId] = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
+  const [relationOverlayEnabled, setRelationOverlayEnabled] = useState(false)
 
   // 사이드바 리사이즈
   const [sidebarWidth, setSidebarWidth] = useState(380)
@@ -135,11 +137,19 @@ export default function Explorer() {
     })
   }
 
-  const handleSelectItem = (item) => {
+  const handleSelectItem = useCallback((item) => {
     setSelectedItem(prev => prev?.id === item.id ? null : item)
-  }
+  }, [])
 
   const visibleItems = items
+  const relationRecords = useMemo(() => (mockMode ? mockRelations : []), [mockMode])
+  const relationOverlayModel = useMemo(() => getSelectedRelationOverlay({
+    selectedItem,
+    visibleItems,
+    relationRecords,
+  }), [selectedItem, visibleItems, relationRecords])
+  const hasSelectedRelations = relationOverlayModel.visibleRelations.length > 0
+    || relationOverlayModel.missingTargets.length > 0
 
   useEffect(() => {
     if (!selectedItem) return
@@ -147,6 +157,12 @@ export default function Explorer() {
       setSelectedItem(null)
     }
   }, [visibleItems, selectedItem])
+
+  useEffect(() => {
+    if (!selectedItem || !hasSelectedRelations) {
+      setRelationOverlayEnabled(false)
+    }
+  }, [selectedItem, hasSelectedRelations])
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
@@ -180,6 +196,8 @@ export default function Explorer() {
           hoveredId={hoveredId}
           selectedId={selectedItem?.id}
           onSelectItem={handleSelectItem}
+          relationOverlayEnabled={relationOverlayEnabled}
+          relationOverlayModel={relationOverlayModel}
         />
         {mockMode && (
           <div style={{
@@ -216,8 +234,14 @@ export default function Explorer() {
           <PreviewPanel
             item={selectedItem}
             collections={collections}
-            relationRecords={mockMode ? mockRelations : []}
-            onClose={() => setSelectedItem(null)}
+            relationRecords={relationRecords}
+            relationOverlayEnabled={relationOverlayEnabled}
+            relationOverlayModel={relationOverlayModel}
+            onToggleRelationOverlay={() => setRelationOverlayEnabled(prev => !prev)}
+            onClose={() => {
+              setSelectedItem(null)
+              setRelationOverlayEnabled(false)
+            }}
             width={previewWidth}
             mockMode={mockMode}
           />

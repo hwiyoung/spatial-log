@@ -1,9 +1,18 @@
 import { getItemRelationSummary, RELATION_RELS } from '../features/items/getItemRelationSummary.js'
 
-export default function PanelRelationSummarySection({ item, relationRecords = [] }) {
+export default function PanelRelationSummarySection({
+  item,
+  relationRecords = [],
+  relationOverlayEnabled = false,
+  relationOverlayModel = null,
+  onToggleRelationOverlay,
+}) {
   const summary = getItemRelationSummary(item, relationRecords)
+  const hasRelations = summary.total > 0
   const visibleMissingIds = summary.missingTargetIds.slice(0, 3)
   const hiddenMissingIds = summary.missingTargetIds.slice(3)
+  const visibleLineCount = relationOverlayModel?.visibleRelations?.length || 0
+  const overlayMissingCount = relationOverlayModel?.missingTargets?.length || 0
 
   return (
     <section style={sectionStyle}>
@@ -45,21 +54,39 @@ export default function PanelRelationSummarySection({ item, relationRecords = []
           )}
         </div>
       )}
+      {hasRelations && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 10,
+          color: 'var(--t3)',
+          fontSize: 12,
+          marginBottom: 8,
+        }}>
+          <span>Visible map lines: {visibleLineCount}</span>
+          <span>Warnings: {overlayMissingCount}</span>
+        </div>
+      )}
       <button
-        disabled
-        title="Phase 4에서 선택 Item 관계 overlay로 연결 예정"
+        type="button"
+        disabled={!hasRelations || !onToggleRelationOverlay}
+        onClick={onToggleRelationOverlay}
+        title={hasRelations ? '선택 Item의 1-depth 관계만 지도 위에 표시합니다.' : '이 Item에는 표시할 관계가 없습니다.'}
         style={{
           width: '100%',
           padding: '7px 10px',
           borderRadius: 6,
-          border: '1px solid var(--bd)',
-          background: 'var(--s1)',
-          color: 'var(--t3)',
+          border: `1px solid ${relationOverlayEnabled ? 'rgba(74,114,255,0.35)' : 'var(--bd)'}`,
+          background: relationOverlayEnabled ? 'rgba(74,114,255,0.10)' : 'var(--s1)',
+          color: hasRelations ? (relationOverlayEnabled ? 'var(--ac)' : 'var(--t2)') : 'var(--t3)',
           fontSize: 13,
-          cursor: 'not-allowed',
+          fontWeight: 700,
+          cursor: hasRelations ? 'pointer' : 'not-allowed',
         }}
       >
-        지도에서 관계 보기 · Phase 4 예정
+        {hasRelations
+          ? (relationOverlayEnabled ? '지도 관계 숨기기' : '지도에서 관계 보기')
+          : '관계 없음'}
       </button>
     </section>
   )

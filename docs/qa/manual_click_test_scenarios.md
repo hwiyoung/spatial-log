@@ -210,3 +210,59 @@ console.log({
 })
 NODE
 ```
+
+## Phase 4 Selected Relation Overlay Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P4-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears. | Ready |
+| P4-2 | relation-rich item 선택 | Click `다보탑 2024 LiDAR 스캔`. | Context Panel opens for that Item. | Ready |
+| P4-3 | panel relation summary | Inspect Relation Summary. | Relation count and missing target warning are visible. | Ready |
+| P4-4 | overlay toggle 켜기 | Click `지도에서 관계 보기`. | Selected Item 1-depth relation overlay appears on the map. | Ready |
+| P4-5 | selected-only line scope | Inspect map. | Only selected Item relation lines appear; no global graph board appears. | Ready |
+| P4-6 | related marker highlight | Inspect visible related markers. | Related markers have relation highlight while selected marker keeps stronger selected emphasis. | Ready |
+| P4-7 | missing target warning | Inspect map warning. | Missing target count is shown; no marker is created for missing targets. | Ready |
+| P4-8 | `derived_from` style | Select `1층 로비 리노베이션 BIM` and enable overlay. | `derived_from` appears as the solid style in legend/line. | Ready |
+| P4-9 | `related` style | Select `북측 파사드 보수 전 사진 42장` or `계약서 초안`. | `related` appears as the weak dashed style in legend/line. | Ready |
+| P4-10 | `describedby/describes` style | Select `1층 로비 리노베이션 BIM` or `계약서 초안`. | Document relation styles appear in legend/line. | Ready |
+| P4-11 | `prev/next` warning style | Select `다보탑 2024 LiDAR 스캔`. | `prev` and `next` are counted as missing targets when outside current results. | Ready |
+| P4-12 | relation 없는 item | Select `성수동 옥상 정사영상`. | CTA shows `관계 없음` or stays disabled. | Ready |
+| P4-13 | 다른 relation-rich item 선택 | Select another relation-rich Item while overlay is on. | Overlay updates to the new selected Item. | Ready |
+| P4-14 | related item filter out | Enable overlay, then apply a filter that hides related Items. | Hidden related lines disappear and missing warning count updates. | Ready |
+| P4-15 | no-result cleanup | Search `no-result-keyword`. | Result count is 0; markers, panel, and overlay are cleared. | Ready |
+| P4-16 | global graph guardrail | Inspect Explorer screen. | Relationship Graph Beta/global graph is not displayed. | Ready |
+
+Phase 4 helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockRelations } from './src/mocks/fixtures/mockRelations.js'
+import { getSelectedRelationOverlay } from './src/features/relations/getSelectedRelationOverlay.js'
+const byId = Object.fromEntries(mockItems.map(item => [item.id, item]))
+const overlay = selectedId => getSelectedRelationOverlay({
+  selectedItem: byId[selectedId],
+  visibleItems: mockItems,
+  relationRecords: mockRelations,
+})
+console.log({
+  relationRecords: mockRelations.length,
+  dabotap: {
+    visible: overlay('bulguksa-pointcloud-dabotap').visibleRelations.length,
+    missing: overlay('bulguksa-pointcloud-dabotap').missingTargets.length,
+  },
+  seongsuModel: {
+    visible: overlay('seongsu-model-lobby-bim').visibleRelations.length,
+    missing: overlay('seongsu-model-lobby-bim').missingTargets.length,
+  },
+  noRelation: overlay('seongsu-ortho-rooftop'),
+})
+NODE
+```

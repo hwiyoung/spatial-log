@@ -8,8 +8,19 @@ import { itemsToMapMarkers } from '../features/explorer-map/itemsToMapMarkers.js
 import { getItemsBounds } from '../features/explorer-map/getItemsBounds.js'
 import { getItemStatus, getStatusInfo } from '../features/items/getItemStatus.js'
 import { getItemVisibilityFlags } from '../features/items/getItemVisibilityFlags.js'
+import { getRelationStyle } from '../features/relations/relationStyles.js'
+import RelationLegend from './RelationLegend'
+import RelationOverlayLayer from './RelationOverlayLayer'
+import RelationWarning from './RelationWarning'
 
-export default function MapView({ items, hoveredId, selectedId, onSelectItem }) {
+export default function MapView({
+  items,
+  hoveredId,
+  selectedId,
+  onSelectItem,
+  relationOverlayEnabled = false,
+  relationOverlayModel = null,
+}) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef([])
@@ -108,8 +119,15 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
       const flags = getItemVisibilityFlags(item)
       const isHovered = item.id === hoveredId
       const isSelected = item.id === selectedId
+      const relatedRelation = relationOverlayModel?.visibleRelations?.find(relation => relation.relatedItemId === item.id)
+      const isRelated = relationOverlayEnabled && Boolean(relatedRelation) && !isSelected
       const isFallback = positionSource === 'fallback'
-      const borderColor = flags.isPublished ? cat.color : statusInfo.markerColor
+      const relationStyle = getRelationStyle(relatedRelation?.rel)
+      const borderColor = isRelated
+        ? relationStyle.markerColor
+        : (flags.isPublished ? cat.color : statusInfo.markerColor)
+      const scale = isSelected ? 1.5 : (isHovered || isRelated ? 1.32 : 1)
+      const zIndex = isSelected ? 20 : (isRelated || isHovered ? 12 : 1)
 
       const el = document.createElement('div')
       el.style.cssText = `
@@ -119,9 +137,10 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
         background: ${cat.color}90;
         border: ${isFallback ? '2.5px dashed' : '2.5px solid'} ${borderColor};
         color: #fff;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        box-shadow: ${isRelated ? `0 0 0 4px ${relationStyle.color}40, 0 2px 8px rgba(0,0,0,0.55)` : '0 1px 4px rgba(0,0,0,0.5)'};
         transition: transform 0.15s;
-        ${isHovered || isSelected ? 'transform: scale(1.5); z-index: 10;' : ''}
+        transform: scale(${scale});
+        z-index: ${zIndex};
       `
       el.textContent = cat.icon
       el.title = `${statusInfo.label} · ${item.properties?.['project:name'] || item.collection || item.id}`
@@ -133,9 +152,23 @@ export default function MapView({ items, hoveredId, selectedId, onSelectItem }) 
 
       markersRef.current.push(marker)
     })
-  }, [mapMarkers, hoveredId, selectedId, mapLoaded])
+  }, [mapMarkers, hoveredId, selectedId, mapLoaded, relationOverlayEnabled, relationOverlayModel, onSelectItem])
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+    <>
+      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <RelationOverlayLayer
+        map={mapRef.current}
+        mapLoaded={mapLoaded}
+        enabled={relationOverlayEnabled}
+        overlayModel={relationOverlayModel}
+      />
+      {relationOverlayEnabled && (
+        <>
+          <RelationWarning overlayModel={relationOverlayModel} />
+          <RelationLegend overlayModel={relationOverlayModel} />
+        </>
+      )}
+    </>
   )
 }

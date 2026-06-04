@@ -15,6 +15,9 @@ export default function PreviewPanel({
   item,
   collections = [],
   relationRecords = [],
+  relationOverlayEnabled = false,
+  relationOverlayModel = null,
+  onToggleRelationOverlay,
   onClose,
   width = 540,
   mockMode = false,
@@ -78,7 +81,13 @@ export default function PreviewPanel({
         <PanelProjectStatusSection item={item} collections={collections} />
         <PanelMetadataGapSection item={item} />
         <PanelSpatialSummarySection item={item} />
-        <PanelRelationSummarySection item={item} relationRecords={relationRecords} />
+        <PanelRelationSummarySection
+          item={item}
+          relationRecords={relationRecords}
+          relationOverlayEnabled={relationOverlayEnabled}
+          relationOverlayModel={relationOverlayModel}
+          onToggleRelationOverlay={onToggleRelationOverlay}
+        />
       </div>
 
       <PanelActionFooter
