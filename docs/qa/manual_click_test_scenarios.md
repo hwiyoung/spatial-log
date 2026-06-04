@@ -426,3 +426,131 @@ console.log({
 })
 NODE
 ```
+
+## Phase 6C Preview Asset Source / Image-Ortho Pilot Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P6C-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears; default view is `2D 지도`. | Ready |
+| P6C-2 | image loadable source | Click `북측 파사드 보수 전 사진 42장`, then click preview action. | ViewerShell opens and loads a large image preview from a normalized source. | Ready |
+| P6C-3 | orthoimage loadable source | Click `옥상 정사영상`, then click preview action. | ViewerShell opens and loads a large orthoimage-style preview. | Ready |
+| P6C-4 | image broken URL fallback | Click `업로드자 지정 이름 없는 현장 사진`, then click preview action. | Shell attempts the broken mock image URL, then shows fallback card without breaking the shell. | Ready |
+| P6C-5 | orthoimage missing URL fallback | Click `사이트명 없는 정사영상`, then click preview action. | Shell shows fallback placeholder because no preview URL is available. | Ready |
+| P6C-6 | source metadata | Inspect image/ortho shell footer metadata. | Source label, role, MIME type, source kind, and load state are visible. | Ready |
+| P6C-7 | video unchanged | Click a video Item and open shell. | Existing video poster/placeholder shell remains; no production video policy is added. | Ready |
+| P6C-8 | document unchanged | Click a document Item and open shell. | Document placeholder remains; PDF.js does not load. | Ready |
+| P6C-9 | heavy viewer guardrail | Open pointcloud, 3D Tiles, 3D model, and panorama shells. | Existing viewer-needed shells remain; no heavy viewer opens. | Ready |
+| P6C-10 | shell close | Click `닫기`, backdrop, or press `Escape`. | ViewerShell closes. | Ready |
+| P6C-11 | selected item cleanup | Open a shell, then select another item. | Open shell closes. | Ready |
+| P6C-12 | no-result cleanup | Open a shell, then search `no-result-keyword`. | Shell, Context Panel, list, map, and 3D assets clear. | Ready |
+| P6C-13 | 3D GIS Beta source path | Switch to `3D GIS Beta`, select an image Item, then click preview action. | Same normalized image shell opens from the shared selected Item flow. | Ready |
+| P6C-14 | package guardrail | Inspect package files. | `package.json` and lockfiles are unchanged; `node_modules` is not committed. | Ready |
+
+Phase 6C helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockPreviewAssets } from './src/mocks/fixtures/mockPreviewAssets.js'
+import { getPreviewContract } from './src/features/preview/getPreviewContract.js'
+import { getPreviewAssetSource } from './src/features/preview/getPreviewAssetSource.js'
+const contracts = mockItems.map(item => ({
+  item,
+  contract: getPreviewContract(item, mockPreviewAssets, { isMock: true }),
+}))
+const sources = contracts.map(({ item, contract }) => getPreviewAssetSource(item, contract, mockPreviewAssets))
+const imageSources = sources.filter(source => source.dataCategory === 'image')
+const orthoSources = sources.filter(source => source.dataCategory === 'orthoimage')
+console.log({
+  total: sources.length,
+  image: imageSources.map(source => ({
+    itemId: source.itemId,
+    sourceKind: source.sourceKind,
+    role: source.role,
+    mimeType: source.mimeType,
+    isLoadableImage: source.isLoadableImage,
+    isBrokenMock: source.isBrokenMock,
+  })),
+  orthoimage: orthoSources.map(source => ({
+    itemId: source.itemId,
+    sourceKind: source.sourceKind,
+    role: source.role,
+    mimeType: source.mimeType,
+    isLoadableImage: source.isLoadableImage,
+    isBrokenMock: source.isBrokenMock,
+  })),
+  mockUriDirectImageSrc: sources.filter(source => String(source.url || '').startsWith('mock://')).length,
+})
+NODE
+```
+
+## Phase 6D Image / Ortho Viewer Diagnostics Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P6D-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears; default view is `2D 지도`. | Ready |
+| P6D-2 | image loadable item | Click `북측 파사드 보수 전 사진 42장`, then click preview action. | Image ViewerShell opens and shows a large browser-loaded image preview. | Ready |
+| P6D-3 | image zoom controls | In the image shell, click `+`, `-`, and `Reset`. | Scale percentage changes, image preview scales, and reset returns to 100%. | Ready |
+| P6D-4 | orthoimage loadable item | Click `옥상 설비 배치 정사영상`, then click preview action. | Orthoimage ViewerShell opens with the same image-style preview shell. | Ready |
+| P6D-5 | source diagnostics | Inspect the diagnostics panel in an image/ortho shell. | `sourceKind`, role, MIME, URL scheme, loadState, mock state, and broken state are visible. | Ready |
+| P6D-6 | broken URL fallback | Click `업로드자 지정 이름 없는 현장 사진`, then click preview action. | Broken mock URL attempts to load, then shows fallback card and fallback reason. | Ready |
+| P6D-7 | missing URL fallback | Click `사이트명 없는 정사영상`, then click preview action. | Missing source shows placeholder/fallback and fallback reason. | Ready |
+| P6D-8 | unsupported MIME | Click `경내 주요 권역 정사영상`, then click preview action. | `image/tiff` is shown as unsupported or conversion-needed; it is not treated as browser-loadable. | Ready |
+| P6D-9 | mock URI guardrail | Inspect image/ortho diagnostics and browser DOM if needed. | `mock://` is not used directly as an `<img src>` and appears as blocked/fallback when selected. | Ready |
+| P6D-10 | shell close | Click `닫기`, backdrop, or press `Escape`. | ViewerShell closes. | Ready |
+| P6D-11 | selected item cleanup | Open a shell, then select another Item. | Open shell closes according to the current cleanup policy. | Ready |
+| P6D-12 | no-result cleanup | Open a shell, then search `no-result-keyword`. | Shell, Context Panel, list, map, and 3D assets clear. | Ready |
+| P6D-13 | 3D GIS Beta consistency | Switch to `3D GIS Beta`, select an image Item, then click preview action. | Same image/ortho preview shell opens from the shared selected Item flow. | Ready |
+| P6D-14 | non-image categories unchanged | Open video, document, 3D model, pointcloud, 3D Tiles, and panorama shells. | Existing placeholder/viewer-needed shells remain; no production heavy viewer opens. | Ready |
+| P6D-15 | package guardrail | Inspect package files. | `package.json` and lockfiles are unchanged; `node_modules` is not committed. | Ready |
+
+Phase 6D diagnostics helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockPreviewAssets } from './src/mocks/fixtures/mockPreviewAssets.js'
+import { getPreviewContract } from './src/features/preview/getPreviewContract.js'
+import { getPreviewAssetSource } from './src/features/preview/getPreviewAssetSource.js'
+import { getInitialPreviewLoadState } from './src/features/preview/previewDeliveryPolicy.js'
+import { getPreviewSourceDiagnostics } from './src/features/preview/getPreviewSourceDiagnostics.js'
+const rows = mockItems.map(item => {
+  const contract = getPreviewContract(item, mockPreviewAssets, { isMock: true })
+  const source = getPreviewAssetSource(item, contract, mockPreviewAssets)
+  const loadState = getInitialPreviewLoadState(source)
+  return { item, contract, source, loadState, diagnostics: getPreviewSourceDiagnostics(source, loadState) }
+})
+console.log({
+  total: rows.length,
+  imageOrtho: rows
+    .filter(row => ['image', 'orthoimage'].includes(row.source.dataCategory))
+    .map(row => ({
+      itemId: row.item.id,
+      dataCategory: row.source.dataCategory,
+      sourceKind: row.diagnostics.sourceKind,
+      role: row.diagnostics.role,
+      mimeType: row.diagnostics.mimeType,
+      urlScheme: row.diagnostics.urlScheme,
+      loadState: row.diagnostics.loadState,
+      isLoadableImage: row.source.isLoadableImage,
+      isBrokenMock: row.diagnostics.isBrokenMock,
+      fallbackReason: row.diagnostics.fallbackReason,
+    })),
+  directMockUriImageSrc: rows.filter(row => String(row.source.url || '').startsWith('mock://')).length,
+})
+NODE
+```

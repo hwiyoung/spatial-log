@@ -29,7 +29,7 @@ export default function ViewerShell({ item, contract, mockMode = false, onClose 
         style={shellStyle}
       >
         <ViewerShellHeader contract={contract} onClose={onClose} />
-        <ViewerShellBody item={item} contract={contract} />
+        <ViewerShellBody item={item} contract={contract} mockMode={mockMode} />
         <ViewerShellFooter
           item={item}
           contract={contract}

@@ -26,13 +26,14 @@ function getPreviewAsset(item, previewAssets) {
 }
 
 function getThumbnailUrl(item, previewAsset) {
-  return previewAsset?.thumbnailHref
+  return previewAsset?.thumbnailUrl
+    || previewAsset?.thumbnailHref
     || item?.assets?.thumbnail?.href
     || null
 }
 
 function getPreviewHref(previewAsset) {
-  return previewAsset?.previewHref || null
+  return previewAsset?.previewUrl || previewAsset?.previewHref || null
 }
 
 function getActionForStatus(status, policy, hasThumbnail) {

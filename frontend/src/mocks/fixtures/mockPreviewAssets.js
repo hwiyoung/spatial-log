@@ -23,15 +23,19 @@ export const mockPreviewAssets = {
   },
   'seongsu-ortho-rooftop': {
     status: 'available',
+    thumbnailUrl: svgThumb('Rooftop Ortho Preview', '#273827', '#9055C8'),
     thumbnailHref: svgThumb('Rooftop Ortho', '#273827', '#9055C8'),
     previewHref: 'mock://preview/seongsu-ortho-rooftop',
     previewType: 'image',
+    mimeType: 'image/svg+xml',
   },
   'seongsu-image-facade-set': {
     status: 'available',
+    previewUrl: svgThumb('Facade Preview', '#17354A', '#35A5E0'),
     thumbnailHref: svgThumb('Facade Photos', '#17354A', '#35A5E0'),
     previewHref: 'mock://preview/seongsu-image-facade-set',
     previewType: 'image-set',
+    mimeType: 'image/svg+xml',
   },
   'seongsu-panorama-lobby': {
     status: 'failed',
@@ -76,6 +80,8 @@ export const mockPreviewAssets = {
     thumbnailHref: svgThumb('Bulguksa Ortho', '#1F3238', '#9055C8'),
     previewHref: 'mock://preview/bulguksa-ortho-main-zone',
     previewType: 'image',
+    mimeType: 'image/tiff',
+    label: 'Unsupported TIFF ortho mock',
   },
   'bulguksa-image-drone-set': {
     status: 'missing',
@@ -129,9 +135,12 @@ export const mockPreviewAssets = {
   },
   'inbox-image-field-photo': {
     status: 'available',
-    thumbnailHref: svgThumb('Field Photo', '#1A3345', '#35A5E0'),
+    thumbnailHref: null,
+    previewUrl: '/mock-preview/broken-field-photo.svg',
     previewHref: 'mock://preview/inbox-image-field-photo',
     previewType: 'image',
+    mimeType: 'image/svg+xml',
+    isBrokenMock: true,
   },
   'inbox-panorama-room-raw': {
     status: 'pending',

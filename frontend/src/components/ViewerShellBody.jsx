@@ -5,22 +5,25 @@ import ViewerPanoramaPlaceholder from './ViewerPanoramaPlaceholder'
 import ViewerPointCloudPlaceholder from './ViewerPointCloudPlaceholder'
 import ViewerTilesetPlaceholder from './ViewerTilesetPlaceholder'
 import ViewerVideo from './ViewerVideo'
+import { mockPreviewAssets } from '../mocks/fixtures/mockPreviewAssets.js'
 
-export default function ViewerShellBody({ item, contract }) {
+export default function ViewerShellBody({ item, contract, mockMode = false }) {
+  const previewAssets = mockMode ? mockPreviewAssets : null
+
   return (
     <div style={bodyStyle}>
       <StatusCallout contract={contract} />
-      {renderCategoryShell(item, contract)}
+      {renderCategoryShell(item, contract, previewAssets)}
     </div>
   )
 }
 
-function renderCategoryShell(item, contract) {
+function renderCategoryShell(item, contract, previewAssets) {
   switch (contract.dataCategory) {
     case 'orthoimage':
-      return <ViewerImage contract={contract} label="Orthoimage shell" />
+      return <ViewerImage item={item} contract={contract} previewAssets={previewAssets} label="Orthoimage shell" />
     case 'image':
-      return <ViewerImage contract={contract} label="Image shell" />
+      return <ViewerImage item={item} contract={contract} previewAssets={previewAssets} label="Image shell" />
     case 'video':
       return <ViewerVideo contract={contract} />
     case 'document':
@@ -34,7 +37,7 @@ function renderCategoryShell(item, contract) {
     case '3d_tiles':
       return <ViewerTilesetPlaceholder contract={contract} />
     default:
-      return <ViewerImage contract={contract} label="Unsupported asset shell" />
+      return <ViewerImage item={item} contract={contract} previewAssets={previewAssets} label="Unsupported asset shell" />
   }
 }
 
