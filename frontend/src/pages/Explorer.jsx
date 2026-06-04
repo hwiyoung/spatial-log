@@ -14,6 +14,8 @@ import { getSelectedRelationOverlay } from '../features/relations/getSelectedRel
 import SearchSidebar from '../components/SearchSidebar'
 import MapView from '../components/MapView'
 import PreviewPanel from '../components/PreviewPanel'
+import ExplorerViewToggle from '../components/ExplorerViewToggle'
+import Explorer3dGisBeta from '../features/explorer-3d/Explorer3dGisBeta.jsx'
 
 export default function Explorer() {
   const mockMode = useMemo(() => isMockExplorerMode(), [])
@@ -33,6 +35,7 @@ export default function Explorer() {
   const [hoveredId, setHoveredId] = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
   const [relationOverlayEnabled, setRelationOverlayEnabled] = useState(false)
+  const [viewMode, setViewMode] = useState('2d')
 
   // 사이드바 리사이즈
   const [sidebarWidth, setSidebarWidth] = useState(380)
@@ -191,14 +194,32 @@ export default function Explorer() {
 
       {/* 메인 영역: 지도 전체 */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <MapView
-          items={visibleItems}
-          hoveredId={hoveredId}
-          selectedId={selectedItem?.id}
-          onSelectItem={handleSelectItem}
-          relationOverlayEnabled={relationOverlayEnabled}
-          relationOverlayModel={relationOverlayModel}
-        />
+        {viewMode === '2d' ? (
+          <MapView
+            items={visibleItems}
+            hoveredId={hoveredId}
+            selectedId={selectedItem?.id}
+            onSelectItem={handleSelectItem}
+            relationOverlayEnabled={relationOverlayEnabled}
+            relationOverlayModel={relationOverlayModel}
+          />
+        ) : (
+          <Explorer3dGisBeta
+            items={visibleItems}
+            selectedId={selectedItem?.id}
+            onSelectItem={handleSelectItem}
+            relationOverlayEnabled={relationOverlayEnabled}
+            relationOverlayModel={relationOverlayModel}
+          />
+        )}
+        <div style={{
+          position: 'absolute',
+          top: 10,
+          right: 10,
+          zIndex: 5,
+        }}>
+          <ExplorerViewToggle viewMode={viewMode} onChange={setViewMode} />
+        </div>
         {mockMode && (
           <div style={{
             position: 'absolute',

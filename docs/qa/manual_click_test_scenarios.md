@@ -266,3 +266,60 @@ console.log({
 })
 NODE
 ```
+
+## Phase 5 3D GIS Beta Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P5-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears. | Ready |
+| P5-2 | 기본 view 확인 | Observe the main map area. | Default view is `2D 지도`. | Ready |
+| P5-3 | 3D Beta 열기 | Click `3D GIS Beta`. | 3D GIS Beta surface and Beta badge appear. | Ready |
+| P5-4 | 전체 24건 표시 | Clear all filters in 3D Beta. | 24 mock assets appear as pseudo-3D assets. | Ready |
+| P5-5 | Draft filter sync | Click `Draft`. | 9 assets remain in 3D Beta. | Ready |
+| P5-6 | Project filter sync | Click `성수동 오피스 리노베이션`. | 8 assets remain in 3D Beta. | Ready |
+| P5-7 | Category filter sync | Click a category filter such as `문헌정보`. | 3D Beta reflects the same filtered result set. | Ready |
+| P5-8 | 3D asset click | Click any pseudo-3D asset. | Existing Context Panel opens for that Item. | Ready |
+| P5-9 | Relation overlay reuse | Select `다보탑 2024 LiDAR 스캔`, click `지도에서 관계 보기`, then switch to 3D Beta. | 3D Beta shows selected relation context with lines/highlights/warning. | Ready |
+| P5-10 | Empty state | Search `no-result-keyword`. | 3D Beta shows empty state. | Ready |
+| P5-11 | Return to 2D | Click `2D 지도`. | Existing 2D map/list/panel flow remains available. | Ready |
+| P5-12 | Global graph guardrail | Inspect 3D Beta. | No global Relationship Graph board appears. | Ready |
+| P5-13 | Viewer guardrail | Click pointcloud/model/tiles assets. | No real 3D Tiles, point cloud, or model viewer opens. | Ready |
+
+Phase 5 helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockRelations } from './src/mocks/fixtures/mockRelations.js'
+import { mockExplorerDataSource } from './src/mocks/mockExplorerDataSource.js'
+import { getAsset3dItems } from './src/features/explorer-3d/getAsset3dPosition.js'
+import { getSelectedRelationOverlay } from './src/features/relations/getSelectedRelationOverlay.js'
+const search = async params => (await mockExplorerDataSource.search(params)).data.features
+const all = await search({})
+const draft = await search({ status: 'draft' })
+const seongsu = await search({ collectionId: 'seongsu-office-renovation' })
+const none = await search({ keyword: 'no-result-keyword' })
+const byId = Object.fromEntries(all.map(item => [item.id, item]))
+const overlay = getSelectedRelationOverlay({
+  selectedItem: byId['bulguksa-pointcloud-dabotap'],
+  visibleItems: all,
+  relationRecords: mockRelations,
+})
+console.log({
+  all3dAssets: getAsset3dItems(all).length,
+  draft3dAssets: getAsset3dItems(draft).length,
+  seongsu3dAssets: getAsset3dItems(seongsu).length,
+  noResult3dAssets: getAsset3dItems(none).length,
+  relationOverlay: {
+    visible: overlay.visibleRelations.length,
+    missing: overlay.missingTargets.length,
+  },
+})
+NODE
+```
