@@ -31,6 +31,10 @@ function getThumbnailUrl(item, previewAsset) {
     || null
 }
 
+function getPreviewHref(previewAsset) {
+  return previewAsset?.previewHref || null
+}
+
 function getActionForStatus(status, policy, hasThumbnail) {
   if (status === 'available') {
     return {
@@ -42,7 +46,7 @@ function getActionForStatus(status, policy, hasThumbnail) {
   if (status === 'pending') {
     return {
       actionLabel: policy.pendingActionLabel,
-      actionState: 'disabled',
+      actionState: 'info_only',
       needsConversion: false,
     }
   }
@@ -55,7 +59,7 @@ function getActionForStatus(status, policy, hasThumbnail) {
   }
   return {
     actionLabel: policy.missingActionLabel,
-    actionState: 'disabled',
+    actionState: 'info_only',
     needsConversion: true,
   }
 }
@@ -67,6 +71,7 @@ export function getPreviewContract(item, previewAssets = null, options = {}) {
   const previewAsset = getPreviewAsset(item, previewAssets)
   const status = normalizePreviewStatus(previewAsset?.status || props.previewStatus)
   const thumbnailUrl = getThumbnailUrl(item, previewAsset)
+  const previewHref = getPreviewHref(previewAsset)
   const rawViewerType = previewAsset?.previewType || props.previewType
   const viewerType = normalizeViewerType(rawViewerType, policy.viewerType)
   const failureReason = previewAsset?.failureReason || props.previewFailureReason || null
@@ -80,14 +85,15 @@ export function getPreviewContract(item, previewAssets = null, options = {}) {
     title: policy.title,
     description: policy.description,
     thumbnailUrl,
+    previewHref,
     placeholderLabel: policy.placeholderLabel,
     failureReason,
     actionLabel: action.actionLabel,
     actionState: action.actionState,
-    canOpenInline: false,
+    canOpenInline: action.actionState !== 'disabled',
     canOpenDetail: Boolean(item?.id && item?.collection),
     needsConversion: action.needsConversion,
-    isMock: Boolean(options.isMock || previewAsset || String(previewAsset?.previewHref || '').startsWith('mock://')),
+    isMock: Boolean(options.isMock || previewAsset || String(previewHref || '').startsWith('mock://')),
     displayLabel: getDisplayLabel(item),
   }
 }

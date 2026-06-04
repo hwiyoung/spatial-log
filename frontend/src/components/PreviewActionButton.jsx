@@ -1,9 +1,8 @@
-export default function PreviewActionButton({ contract, compact = false }) {
+export default function PreviewActionButton({ contract, compact = false, onOpen }) {
   if (!contract) return null
 
   const disabled = contract.actionState === 'disabled'
-  const isInfo = contract.actionState === 'info_only'
-  const isMock = contract.actionState === 'mock_only'
+  const tone = getActionTone(contract, disabled)
 
   return (
     <button
@@ -11,18 +10,19 @@ export default function PreviewActionButton({ contract, compact = false }) {
       disabled={disabled}
       onClick={() => {
         if (disabled) return
-        const message = isInfo
-          ? (contract.failureReason || 'Preview failed. Phase 6B viewer work is required.')
-          : 'Mock preview only. Real viewer opens in Phase 6B or later.'
-        window.alert(message)
+        if (onOpen) {
+          onOpen(contract)
+          return
+        }
+        window.alert('Lightweight Viewer Shell is not connected.')
       }}
-      title={disabled ? contract.description : 'Phase 6A contract action. Heavy viewer is not opened.'}
+      title={disabled ? contract.description : 'Open Phase 6B lightweight viewer shell. Heavy viewer is not opened.'}
       style={{
         padding: compact ? '7px 9px' : '8px 10px',
         borderRadius: 6,
-        border: `1px solid ${disabled ? 'var(--bd)' : (isInfo ? 'rgba(229,85,85,0.32)' : 'rgba(74,114,255,0.32)')}`,
-        background: disabled ? 'var(--s2)' : (isInfo ? 'rgba(229,85,85,0.08)' : 'rgba(74,114,255,0.10)'),
-        color: disabled ? 'var(--t3)' : (isInfo ? 'var(--err, #e55)' : 'var(--ac)'),
+        border: `1px solid ${tone.border}`,
+        background: tone.background,
+        color: tone.color,
         fontSize: 13,
         fontWeight: 800,
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -30,7 +30,20 @@ export default function PreviewActionButton({ contract, compact = false }) {
       }}
     >
       {contract.actionLabel}
-      {isMock ? ' · Mock' : ''}
     </button>
   )
+}
+
+function getActionTone(contract, disabled) {
+  if (disabled) return { border: 'var(--bd)', background: 'var(--s2)', color: 'var(--t3)' }
+  if (contract.status === 'failed') {
+    return { border: 'rgba(229,85,85,0.32)', background: 'rgba(229,85,85,0.08)', color: 'var(--err, #e55)' }
+  }
+  if (contract.status === 'pending') {
+    return { border: 'rgba(240,180,42,0.32)', background: 'rgba(240,180,42,0.08)', color: 'var(--warn)' }
+  }
+  if (contract.status === 'missing') {
+    return { border: 'var(--bd)', background: 'var(--s2)', color: 'var(--t2)' }
+  }
+  return { border: 'rgba(74,114,255,0.32)', background: 'rgba(74,114,255,0.10)', color: 'var(--ac)' }
 }

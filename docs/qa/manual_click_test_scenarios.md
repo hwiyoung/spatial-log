@@ -375,3 +375,54 @@ console.log({
 })
 NODE
 ```
+
+## Phase 6B Lightweight Viewer Shell Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P6B-1 | Mock Explorer 열기 | Open `/?mock=1`. | Mock Demo Mode badge appears; default view is `2D 지도`. | Ready |
+| P6B-2 | image shell | Click an `image` Item such as `북측 파사드 보수 전 사진 42장`, then click `썸네일 보기` or the preview action. | Image-style ViewerShell opens with a large image card or image placeholder. | Ready |
+| P6B-3 | orthoimage shell | Click `옥상 정사영상` or another `orthoimage` Item, then click preview action. | Image-style ViewerShell opens for the orthoimage. | Ready |
+| P6B-4 | video shell | Click a `video` Item such as `성수동 안전 점검 영상`, then click preview action. | Video shell opens with HTML video only if a playable mock URL exists; otherwise poster/placeholder appears. No autoplay. | Ready |
+| P6B-5 | document shell | Click `불국사 정밀실측 보고서` or `리노베이션 인허가 메모`, then click preview action. | Document placeholder shell opens. PDF.js does not load. | Ready |
+| P6B-6 | panorama failed shell | Click `대웅전 전면 파노라마` or another failed panorama, then click `실패 사유 보기`. | Failure shell opens and shows failure reason. | Ready |
+| P6B-7 | 3d_model pending shell | Click `1층 로비 리노베이션 BIM`, then click `뷰어 준비 중`. | Pending shell opens and explains viewer preparation state. | Ready |
+| P6B-8 | 3d_model failed shell | Click `다보탑 고해상도 메시 초안`, then click `실패 사유 보기`. | Failure shell opens and shows failure reason. | Ready |
+| P6B-9 | pointcloud shell | Click `다보탑 2024 LiDAR 스캔` or another pointcloud Item, then click preview action. | Point cloud lightweight / viewer-needed shell opens. Potree does not load. | Ready |
+| P6B-10 | 3d_tiles missing shell | Click `성수동 외피 3D Tiles 초안`, then click `변환 필요`. | Conversion-needed / tileset viewer-needed shell opens. Cesium or 3D Tiles renderer does not load. | Ready |
+| P6B-11 | shell close | Click `닫기`, backdrop, or press `Escape`. | ViewerShell closes and Explorer state remains. | Ready |
+| P6B-12 | selected item change cleanup | Open a shell, then select another map marker/list row. | Open shell closes because Phase 6B uses close-on-selection-change. | Ready |
+| P6B-13 | no-result cleanup | Open a shell, then search `no-result-keyword`. | ViewerShell and Context Panel close; result list and map/3D assets clear. | Ready |
+| P6B-14 | 3D GIS Beta entry | Switch to `3D GIS Beta`, select an asset, then click Context Panel preview action. | Same ViewerShell opens from the shared selected Item flow. | Ready |
+| P6B-15 | heavy viewer guardrail | Inspect shell behavior for document, model, pointcloud, 3D Tiles, and panorama. | No PDF.js, model-viewer, Potree, Cesium, or panorama renderer opens. | Ready |
+
+Phase 6B helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockItems } from './src/mocks/fixtures/mockItems.js'
+import { mockPreviewAssets } from './src/mocks/fixtures/mockPreviewAssets.js'
+import { getPreviewContract } from './src/features/preview/getPreviewContract.js'
+const contracts = mockItems.map(item => getPreviewContract(item, mockPreviewAssets, { isMock: true }))
+const count = (items, fn) => items.reduce((acc, item) => {
+  const key = fn(item)
+  acc[key] = (acc[key] || 0) + 1
+  return acc
+}, {})
+console.log({
+  total: contracts.length,
+  shellOpenable: contracts.filter(contract => contract.canOpenInline).length,
+  byCategory: count(contracts, contract => contract.dataCategory),
+  byStatus: count(contracts, contract => contract.status),
+  actionStates: count(contracts, contract => contract.actionState),
+  failedWithReason: contracts.filter(contract => contract.status === 'failed' && contract.failureReason).length,
+})
+NODE
+```

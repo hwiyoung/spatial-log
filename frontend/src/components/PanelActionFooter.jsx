@@ -6,7 +6,13 @@ import { getPreviewContract } from '../features/preview/getPreviewContract.js'
 import { mockPreviewAssets } from '../mocks/fixtures/mockPreviewAssets.js'
 import PreviewActionButton from './PreviewActionButton'
 
-export default function PanelActionFooter({ item, collections = [], mockMode = false, onClose }) {
+export default function PanelActionFooter({
+  item,
+  collections = [],
+  mockMode = false,
+  onClose,
+  onOpenViewerShell,
+}) {
   const navigate = useNavigate()
   const collection = item?.collection
   const label = getDisplayLabel(item)
@@ -33,7 +39,10 @@ export default function PanelActionFooter({ item, collections = [], mockMode = f
         상세 보기 →
       </button>
       <div style={{ gridColumn: '1 / -1' }}>
-        <PreviewActionButton contract={previewContract} />
+        <PreviewActionButton
+          contract={previewContract}
+          onOpen={(contract) => onOpenViewerShell?.({ item, contract })}
+        />
       </div>
       {flags.isDraft && (
         <button

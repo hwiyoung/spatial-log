@@ -15,6 +15,7 @@ import SearchSidebar from '../components/SearchSidebar'
 import MapView from '../components/MapView'
 import PreviewPanel from '../components/PreviewPanel'
 import ExplorerViewToggle from '../components/ExplorerViewToggle'
+import ViewerShell from '../components/ViewerShell'
 import Explorer3dGisBeta from '../features/explorer-3d/Explorer3dGisBeta.jsx'
 
 export default function Explorer() {
@@ -36,6 +37,7 @@ export default function Explorer() {
   const [selectedItem, setSelectedItem] = useState(null)
   const [relationOverlayEnabled, setRelationOverlayEnabled] = useState(false)
   const [viewMode, setViewMode] = useState('2d')
+  const [viewerShell, setViewerShell] = useState(null)
 
   // 사이드바 리사이즈
   const [sidebarWidth, setSidebarWidth] = useState(380)
@@ -144,6 +146,11 @@ export default function Explorer() {
     setSelectedItem(prev => prev?.id === item.id ? null : item)
   }, [])
 
+  const handleOpenViewerShell = useCallback(({ item, contract }) => {
+    if (!item || !contract || contract.actionState === 'disabled') return
+    setViewerShell({ item, contract })
+  }, [])
+
   const visibleItems = items
   const relationRecords = useMemo(() => (mockMode ? mockRelations : []), [mockMode])
   const relationOverlayModel = useMemo(() => getSelectedRelationOverlay({
@@ -160,6 +167,14 @@ export default function Explorer() {
       setSelectedItem(null)
     }
   }, [visibleItems, selectedItem])
+
+  useEffect(() => {
+    setViewerShell(prev => {
+      if (!prev) return prev
+      if (!selectedItem || selectedItem.id !== prev.item?.id) return null
+      return prev
+    })
+  }, [selectedItem])
 
   useEffect(() => {
     if (!selectedItem || !hasSelectedRelations) {
@@ -259,6 +274,7 @@ export default function Explorer() {
             relationOverlayEnabled={relationOverlayEnabled}
             relationOverlayModel={relationOverlayModel}
             onToggleRelationOverlay={() => setRelationOverlayEnabled(prev => !prev)}
+            onOpenViewerShell={handleOpenViewerShell}
             onClose={() => {
               setSelectedItem(null)
               setRelationOverlayEnabled(false)
@@ -267,6 +283,14 @@ export default function Explorer() {
             mockMode={mockMode}
           />
         </>
+      )}
+      {viewerShell && (
+        <ViewerShell
+          item={viewerShell.item}
+          contract={viewerShell.contract}
+          mockMode={mockMode}
+          onClose={() => setViewerShell(null)}
+        />
       )}
     </div>
   )

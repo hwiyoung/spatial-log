@@ -18,6 +18,7 @@ export default function PreviewPanel({
   relationOverlayEnabled = false,
   relationOverlayModel = null,
   onToggleRelationOverlay,
+  onOpenViewerShell,
   onClose,
   width = 540,
   mockMode = false,
@@ -94,6 +95,7 @@ export default function PreviewPanel({
         item={item}
         collections={collections}
         mockMode={mockMode}
+        onOpenViewerShell={onOpenViewerShell}
         onClose={onClose}
       />
     </aside>
