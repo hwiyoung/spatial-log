@@ -47,6 +47,83 @@ console.log(mockCollections.length, mockItems.length)
 NODE
 ```
 
+## Phase 7B Designed 3D GIS Beta Checks
+
+Use the same mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P7B-1 | Mock Explorer 열기 | Open `/?mock=1`. | Explorer opens in the default `2D 지도` view with map/list/filter visible. | Ready |
+| P7B-2 | 3D GIS Beta 선택 | Click `3D GIS Beta`. | Optional pseudo-3D view opens; 2D remains the default when reloading. | Ready |
+| P7B-3 | mock item count | Inspect Beta badge and scene. | 24 mock assets are represented in the 3D scene. | Ready |
+| P7B-4 | category visual language | Inspect all categories. | pointcloud/model/tiles are tall/volumetric; image/ortho/document are low card/plate; icons differ by category. | Ready |
+| P7B-5 | Draft visual | Select or inspect Draft Items. | Draft Items show warning accent/ring/badge. | Ready |
+| P7B-6 | hover tooltip | Hover or keyboard-focus an asset marker. | Tooltip appears without changing selected Item. | Ready |
+| P7B-7 | zSource meaning | Inspect tooltip. | Tooltip shows whether Z is actual elevation property/bbox Z or visual layer. | Ready |
+| P7B-8 | asset click focus | Click an asset marker. | Existing `onSelectItem` flow opens Context Panel and selected focus card/frame appears in 3D. | Ready |
+| P7B-9 | relation-rich selected Item | Select `다보탑 2024 LiDAR 스캔`, then click `지도에서 관계 보기` / selected relation CTA in Context Panel. | Only selected Item 1-depth relations appear in 3D. | Ready |
+| P7B-10 | relation line/legend | Inspect active relation lines and legend. | Relation style matches Phase 4 relation types; legend says selected relation view, not global graph. | Ready |
+| P7B-11 | missing target warning | Use a relation-rich Item with missing targets. | Missing target warning appears in the 3D legend/warning area without fake nodes. | Ready |
+| P7B-12 | Reset view | Click `Reset view`. | Scene returns to spatial layout while Context Panel selection remains available. | Ready |
+| P7B-13 | Draft filter | Click Draft filter. | 9 results and 9 3D assets remain. | Ready |
+| P7B-14 | project filter | Click `성수동 오피스 리노베이션` or another project filter. | 8 results and 8 3D assets remain. | Ready |
+| P7B-15 | no-result cleanup | Search `no-result-keyword`. | 3D empty state appears; panel/focus/overlay are cleared. | Ready |
+| P7B-16 | 2D/3D continuity | Select an Item in 3D, then switch to 2D. | Same selected Item and Context Panel remain. | Ready |
+| P7B-17 | no global graph | Inspect Explorer. | No global Relationship Graph board appears. | Ready |
+| P7B-18 | heavy viewer guardrail | Click around 3D assets without using preview action. | No production heavy viewer opens from the 3D scene itself. | Ready |
+
+Phase 7B helper validation:
+
+```bash
+docker compose exec -T frontend node --input-type=module - <<'NODE'
+import { mockRelations } from './src/mocks/fixtures/mockRelations.js'
+import { mockExplorerDataSource } from './src/mocks/mockExplorerDataSource.js'
+import { getAsset3dItems } from './src/features/explorer-3d/getAsset3dPosition.js'
+import { getSelectedRelationOverlay } from './src/features/relations/getSelectedRelationOverlay.js'
+const count = (items, fn) => items.reduce((acc, item) => {
+  const key = fn(item)
+  acc[key] = (acc[key] || 0) + 1
+  return acc
+}, {})
+const search = async params => (await mockExplorerDataSource.search(params)).data.features
+const all = await search({})
+const draft = await search({ status: 'draft' })
+const seongsu = await search({ collectionId: 'seongsu-office-renovation' })
+const none = await search({ keyword: 'no-result-keyword' })
+const all3d = getAsset3dItems(all)
+const focused3d = getAsset3dItems(all, { selectedId: 'bulguksa-pointcloud-dabotap', focusSelected: true })
+const byId = Object.fromEntries(all.map(item => [item.id, item]))
+const overlay = getSelectedRelationOverlay({
+  selectedItem: byId['bulguksa-pointcloud-dabotap'],
+  visibleItems: all,
+  relationRecords: mockRelations,
+})
+const focusedSelected = focused3d.find(asset => asset.itemId === 'bulguksa-pointcloud-dabotap')
+console.log({
+  allItems: all.length,
+  all3dAssets: all3d.length,
+  draftItems: draft.length,
+  draft3dAssets: getAsset3dItems(draft).length,
+  seongsuItems: seongsu.length,
+  seongsu3dAssets: getAsset3dItems(seongsu).length,
+  noResultItems: none.length,
+  noResult3dAssets: getAsset3dItems(none).length,
+  zSourceDistribution: count(all3d, asset => asset.elevation.zSource),
+  shapeDistribution: count(all3d, asset => asset.visualPolicy.shape),
+  focusedSelectedPosition: focusedSelected ? { x: Math.round(focusedSelected.x), y: Math.round(focusedSelected.y) } : null,
+  relationRichSelected: {
+    visible: overlay.visibleRelations.length,
+    missing: overlay.missingTargets.length,
+  },
+})
+NODE
+```
+
 ## Scenarios
 
 | # | Scenario | Click / Input | Expected Result |

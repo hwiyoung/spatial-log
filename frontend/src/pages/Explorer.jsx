@@ -221,10 +221,13 @@ export default function Explorer() {
         ) : (
           <Explorer3dGisBeta
             items={visibleItems}
+            collections={collections}
             selectedId={selectedItem?.id}
             onSelectItem={handleSelectItem}
             relationOverlayEnabled={relationOverlayEnabled}
             relationOverlayModel={relationOverlayModel}
+            relationRecords={relationRecords}
+            mockMode={mockMode}
           />
         )}
         <div style={{

@@ -135,7 +135,7 @@ export const mockItems = [
     missingRequiredFields: ['proj:epsg', 'pc:density'],
     metadataGaps: ['좌표계 확인 필요', '스캔 장비명 미입력'],
     draftReason: '좌표계와 밀도 메타데이터가 누락됨',
-    extraProperties: { 'pc:count': 15230482 },
+    extraProperties: { 'pc:count': 15230482, elevation: -4.2 },
   }),
   makeItem({
     id: 'seongsu-model-lobby-bim',
@@ -154,7 +154,7 @@ export const mockItems = [
       relationLink('derived_from', 'seongsu-office-renovation', 'seongsu-pc-basement-draft', '지하 기계실 LiDAR 스캔'),
       relationLink('describedby', 'seongsu-office-renovation', 'seongsu-document-permit-draft', '리노베이션 인허가 메모'),
     ],
-    extraProperties: { 'proj:epsg': 5186, 'model:format': 'glb' },
+    extraProperties: { 'proj:epsg': 5186, 'model:format': 'glb', elevation: 5.8 },
   }),
   makeItem({
     id: 'seongsu-tiles-shell-beta',
@@ -185,7 +185,7 @@ export const mockItems = [
     bbox: [127.0521, 37.5432, 127.0562, 37.5465],
     size: 1369020825,
     assetTitle: '옥상 정사영상 GeoTIFF',
-    extraProperties: { 'proj:epsg': 5186, 'raster:resolution': 0.04 },
+    extraProperties: { 'proj:epsg': 5186, 'raster:resolution': 0.04, acquisition_height: 82 },
   }),
   makeItem({
     id: 'seongsu-image-facade-set',
@@ -275,6 +275,7 @@ export const mockItems = [
     extraProperties: {
       'pc:count': 78451220,
       'proj:epsg': 5186,
+      elevation: 11.5,
       'mock:missingRelationTargets': ['bulguksa-pointcloud-dabotap-2022', 'bulguksa-pointcloud-dabotap-2026-plan'],
     },
   }),
