@@ -1,15 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { getCategoryInfo, getPreviewStatusInfo } from '../../constants.js'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getCategoryInfo } from '../../constants.js'
 import Explorer3dControls from '../../components/Explorer3dControls.jsx'
 import Explorer3dFocusCard from '../../components/Explorer3dFocusCard.jsx'
 import Explorer3dLegend from '../../components/Explorer3dLegend.jsx'
 import Explorer3dTooltip from '../../components/Explorer3dTooltip.jsx'
-import { mockPreviewAssets } from '../../mocks/fixtures/mockPreviewAssets.js'
-import { getDisplayLabel } from '../items/getDisplayLabel.js'
-import { getItemStatus, getStatusInfo } from '../items/getItemStatus.js'
-import { getProjectContext } from '../items/getProjectContext.js'
-import { getPreviewContract } from '../preview/getPreviewContract.js'
-import { SUPPORTED_RELATIONS } from '../relations/relationStyles.js'
+import ExplorerThreeGisBeta from '../explorer-3d-three/ExplorerThreeGisBeta.jsx'
+import { getAsset3dSummary } from './getAsset3dSummary.js'
 import { getAsset3dItems } from './getAsset3dPosition.js'
 import Asset3dLayer from './Asset3dLayer.jsx'
 import Relation3dOverlay from './Relation3dOverlay.jsx'
@@ -26,6 +22,7 @@ export default function Explorer3dGisBeta({
 }) {
   const [hoveredAsset, setHoveredAsset] = useState(null)
   const [sceneFocusEnabled, setSceneFocusEnabled] = useState(Boolean(selectedId))
+  const [rendererMode, setRendererMode] = useState('three')
 
   useEffect(() => {
     setSceneFocusEnabled(Boolean(selectedId))
@@ -52,7 +49,7 @@ export default function Explorer3dGisBeta({
     ? projectedById.get(hoveredAsset.itemId)
     : null
   const selectedSummary = selectedAsset
-    ? getAssetSummary(selectedAsset, {
+    ? getAsset3dSummary(selectedAsset, {
       collections,
       relationRecords,
       relationOverlayModel,
@@ -60,7 +57,7 @@ export default function Explorer3dGisBeta({
     })
     : null
   const hoverSummary = hoverAsset
-    ? getAssetSummary(hoverAsset, {
+    ? getAsset3dSummary(hoverAsset, {
       collections,
       relationRecords,
       relationOverlayModel,
@@ -72,6 +69,10 @@ export default function Explorer3dGisBeta({
     setSceneFocusEnabled(true)
     onSelectItem?.(item)
   }
+
+  const handleWebglUnavailable = useCallback(() => {
+    setRendererMode('pseudo')
+  }, [])
 
   const resetView = () => {
     setHoveredAsset(null)
@@ -90,8 +91,28 @@ export default function Explorer3dGisBeta({
     )
   }
 
+  if (rendererMode === 'three') {
+    return (
+      <div style={rootStyle}>
+        <RendererModeSwitch rendererMode={rendererMode} onChange={setRendererMode} />
+        <ExplorerThreeGisBeta
+          items={items}
+          collections={collections}
+          selectedId={selectedId}
+          onSelectItem={handleSelectItem}
+          relationOverlayEnabled={relationOverlayEnabled}
+          relationOverlayModel={relationOverlayModel}
+          relationRecords={relationRecords}
+          mockMode={mockMode}
+          onWebglUnavailable={handleWebglUnavailable}
+        />
+      </div>
+    )
+  }
+
   return (
     <div style={rootStyle}>
+      <RendererModeSwitch rendererMode={rendererMode} onChange={setRendererMode} />
       <BetaBadge count={items.length} />
       <Explorer3dControls
         focusSelected={sceneFocusEnabled}
@@ -138,6 +159,27 @@ export default function Explorer3dGisBeta({
   )
 }
 
+function RendererModeSwitch({ rendererMode, onChange }) {
+  return (
+    <div style={rendererSwitchStyle} aria-label="3D GIS renderer mode">
+      <button
+        type="button"
+        onClick={() => onChange?.('three')}
+        style={modeButtonStyle(rendererMode === 'three')}
+      >
+        True 3D spike
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange?.('pseudo')}
+        style={modeButtonStyle(rendererMode === 'pseudo')}
+      >
+        Pseudo fallback
+      </button>
+    </div>
+  )
+}
+
 function BetaBadge({ count }) {
   return (
     <div style={betaBadgeStyle}>
@@ -177,80 +219,40 @@ function getCategoryCounts(items) {
   }, {})
 }
 
-function countItemRelations(item, relationRecords = []) {
-  const itemId = item?.id
-  if (!itemId) return 0
-  const recordCount = relationRecords.filter(relation => (
-    relation.sourceId === itemId || relation.targetId === itemId
-  )).length
-  const linkCount = (item?.links || []).filter(link => SUPPORTED_RELATIONS.includes(link.rel)).length
-  return Math.max(recordCount, linkCount)
-}
-
-function getZSourceLabel(elevation) {
-  if (elevation?.zSource === 'bbox-z') return 'Actual bbox Z'
-  if (elevation?.zSource === 'property-elevation') return 'Actual elevation property'
-  return 'Visual layer'
-}
-
-function getZDetail(elevation) {
-  if (!elevation) return 'No z source'
-  if (elevation.isActualElevation) {
-    return `${elevation.detail}; visual lift ${Math.round(elevation.visualLift)}`
-  }
-  return `${elevation.detail}; category layer height ${Math.round(elevation.visualLayerHeight)}`
-}
-
-function getAssetSummary(asset, {
-  collections = [],
-  relationRecords = [],
-  relationOverlayModel = null,
-  mockMode = false,
-} = {}) {
-  const item = asset.item
-  const dataCategory = item?.properties?.data_category || 'unknown'
-  const category = getCategoryInfo(dataCategory)
-  const status = getItemStatus(item)
-  const statusInfo = getStatusInfo(status)
-  const project = getProjectContext(item, collections)
-  const previewContract = getPreviewContract(
-    item,
-    mockMode ? mockPreviewAssets : null,
-    { isMock: mockMode },
-  )
-  const previewInfo = getPreviewStatusInfo(previewContract.status)
-  const isSelected = item.id === relationOverlayModel?.selectedItemId
-  const visibleRelationCount = isSelected ? relationOverlayModel?.visibleRelations?.length || 0 : 0
-  const missingRelationCount = isSelected ? relationOverlayModel?.missingTargets?.length || 0 : 0
-  const relationCount = isSelected
-    ? visibleRelationCount + missingRelationCount
-    : countItemRelations(item, relationRecords)
-
-  return {
-    label: getDisplayLabel(item),
-    categoryIcon: category.icon,
-    categoryLabel: category.label,
-    categoryColor: category.color,
-    statusLabel: statusInfo.label,
-    statusColor: statusInfo.markerColor,
-    projectName: project.projectName,
-    projectSite: project.projectSite,
-    previewStatusLabel: previewInfo.label,
-    previewStatusColor: previewInfo.color,
-    relationCount,
-    visibleRelationCount,
-    missingRelationCount,
-    zSourceLabel: getZSourceLabel(asset.elevation),
-    zDetail: getZDetail(asset.elevation),
-  }
-}
-
 const rootStyle = {
   position: 'relative',
   width: '100%',
   height: '100%',
   overflow: 'hidden',
   background: '#11151F',
+}
+
+const rendererSwitchStyle = {
+  position: 'absolute',
+  top: 48,
+  right: 12,
+  zIndex: 790,
+  display: 'inline-flex',
+  gap: 4,
+  padding: 4,
+  borderRadius: 6,
+  border: '1px solid rgba(228,231,240,0.16)',
+  background: 'rgba(12,14,20,0.88)',
+  boxShadow: '0 12px 28px rgba(0,0,0,0.30)',
+}
+
+function modeButtonStyle(active) {
+  return {
+    height: 27,
+    padding: '0 9px',
+    borderRadius: 4,
+    border: active ? '1px solid rgba(122,160,255,0.65)' : '1px solid transparent',
+    background: active ? 'rgba(74,114,255,0.22)' : 'transparent',
+    color: active ? '#F4F6FA' : 'var(--t3)',
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: 'pointer',
+  }
 }
 
 const sceneStyle = {

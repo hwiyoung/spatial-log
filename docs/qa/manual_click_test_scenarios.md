@@ -631,3 +631,36 @@ console.log({
 })
 NODE
 ```
+
+## Phase 7C True 3D Renderer Spike Checks
+
+Use the mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P7C-1 | Default Explorer view | Open `/?mock=1`. | Explorer opens in the 2D map/list view, not 3D. | Ready |
+| P7C-2 | Enter 3D Beta | Click `3D GIS Beta`. | Optional 3D GIS Beta opens. | Ready |
+| P7C-3 | True renderer mode | Confirm `True 3D spike` mode is active or click it. | Canvas-based Three.js scene is visible; pseudo fallback remains selectable. | Ready |
+| P7C-4 | Asset count | Inspect the scene. | 24 mock assets appear as 3D objects. | Ready |
+| P7C-5 | Orbit drag | Drag on the canvas. | Camera rotates around the asset constellation. | Ready |
+| P7C-6 | Wheel zoom | Use mouse wheel on the canvas. | Camera zooms in/out without changing selection. | Ready |
+| P7C-7 | Reset camera | Click `Reset view`. | Camera resets and local focus centering clears while selected Item state remains. | Ready |
+| P7C-8 | Category geometry | Compare pointcloud, 3D model, 3D Tiles, orthoimage, image, panorama, video, document. | Categories use distinct true 3D geometry. | Ready |
+| P7C-9 | Z/elevation | Inspect tall/raised items and hover tooltip. | Actual elevation vs visual layer is visible in object height/position and tooltip. | Ready |
+| P7C-10 | Hover tooltip | Hover a 3D object. | Tooltip appears with label, category, project, status, preview status, relation count, and zSource. | Ready |
+| P7C-11 | Click selection | Click a 3D object. | Existing Context Panel opens/updates for that Item. | Ready |
+| P7C-12 | Selected focus | Select a relation-rich Item. | Selected object receives strong focus and focus card updates. | Ready |
+| P7C-13 | Relation overlay | In Context Panel, enable `선택 관계 보기`. | Only selected Item 1-depth relation lines appear. | Ready |
+| P7C-14 | Missing target warning | Select an Item with outside-result relations. | Warning appears; no fake missing target nodes are created. | Ready |
+| P7C-15 | Draft filter | Set status filter to Draft. | 9 3D assets remain. | Ready |
+| P7C-16 | Project filter | Select the Seongsu project collection. | 8 3D assets remain. | Ready |
+| P7C-17 | no-result cleanup | Search `no-result-keyword`. | Scene empty state appears and panel/focus/overlay are cleared. | Ready |
+| P7C-18 | 2D continuity | Return to `2D 지도`. | Selection/Context Panel continuity remains owned by Explorer. | Ready |
+| P7C-19 | Global graph guardrail | Inspect 3D view. | No global Relationship Graph or all-Item relation board appears. | Ready |
+| P7C-20 | Heavy viewer guardrail | Use preview actions from Context Panel. | Production pointcloud/3D Tiles/model/PDF/panorama viewers do not open. | Ready |
+| P7C-21 | Dependency guardrail | Inspect package changes. | Only `three` is added; no deck.gl, Cesium, Potree, model-viewer, fiber, or drei. | Ready |
