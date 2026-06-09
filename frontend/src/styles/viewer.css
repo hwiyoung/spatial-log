@@ -1,0 +1,220 @@
+/* ViewerShell — full-page asset viewer shell
+ *
+ * Claude Design 핸드오프 `ViewerShell.html` 의 <style> 블록을 .vshell 루트 아래로 스코프 포팅.
+ * 색/폰트 토큰은 index.css 의 전역 디자인 토큰을 그대로 읽는다.
+ * 데모 전용(좌측 rail, 상태 시뮬레이터)은 프로덕션에서 제외했다.
+ */
+
+.vshell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--t1);
+  font-size: 13px;
+  overflow: hidden;
+}
+.vshell button { font-family: inherit; cursor: pointer; }
+.vshell select {
+  font-family: inherit; font-size: 12px; color: var(--t1);
+  background: #121821; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px;
+}
+.vshell select:focus { outline: none; border-color: var(--blue); }
+
+/* ===== top chrome (constant across categories/states) ===== */
+.vshell .chrome {
+  height: 56px; flex: none; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 14px; padding: 0 16px; z-index: 20;
+}
+.vshell .back {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; color: var(--t2);
+  background: #121821; border: 1px solid var(--line); border-radius: 8px; padding: 8px 13px;
+  text-decoration: none;
+}
+.vshell .back:hover { border-color: #3a4655; color: var(--t1); }
+.vshell .ch-id { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.vshell .ch-glyph {
+  width: 38px; height: 38px; flex: none; border-radius: 9px; background: var(--card);
+  border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: #C7D0DC;
+}
+.vshell .ch-txt { min-width: 0; }
+.vshell .ch-name {
+  font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 340px;
+}
+.vshell .ch-sub { font-size: 11px; color: var(--t3); font-family: var(--font-mono); margin-top: 1px; }
+.vshell .badge {
+  font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 6px; border: 1px solid;
+  white-space: nowrap;
+}
+.vshell .ch-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.vshell .asset-sw {
+  display: flex; align-items: center; gap: 7px; background: #121821; border: 1px solid var(--line);
+  border-radius: 8px; padding: 4px 4px 4px 11px;
+}
+.vshell .asset-sw .lbl { font-size: 10px; color: var(--t3); text-transform: uppercase; letter-spacing: .4px; }
+.vshell .dl {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #cfe0ff;
+  background: rgba(59,130,246,.14); border: 1px solid rgba(59,130,246,.4); border-radius: 8px;
+  padding: 8px 13px; white-space: nowrap; text-decoration: none;
+}
+.vshell .dl:hover { background: rgba(59,130,246,.22); }
+.vshell .dl.disabled { color: var(--t3); background: var(--card); border-color: var(--line); cursor: not-allowed; }
+.vshell .pv-badge {
+  display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 600;
+  padding: 5px 11px; border-radius: 7px; border: 1px solid;
+}
+.vshell .pv-badge i { width: 9px; height: 9px; border-radius: 50%; }
+
+/* ===== body ===== */
+.vshell .body { flex: 1; display: flex; min-height: 0; }
+
+/* viewer column */
+.vshell .vcol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vshell .vstage {
+  flex: 1; position: relative; margin: 14px; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--line); background: #0c1016;
+}
+
+.vshell .vmock-tag {
+  position: absolute; left: 12px; top: 12px; z-index: 16; font-size: 10.5px; font-family: var(--font-mono);
+  color: var(--t2); background: rgba(16,22,30,.82); border: 1px solid var(--line); padding: 5px 10px;
+  border-radius: 7px; display: flex; align-items: center; gap: 7px;
+}
+.vshell .vmock-tag .mk { color: var(--t3); border-left: 1px solid var(--line); padding-left: 7px; }
+
+/* ===== category surfaces (mockups, non-functional) ===== */
+.vshell .surf { position: absolute; inset: 0; }
+.vshell .surf-ctls { position: absolute; z-index: 14; }
+.vshell .ctl-col { left: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 5px; }
+.vshell .ctl-bottom { left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; }
+.vshell .ctl-tr { right: 14px; top: 64px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+.vshell .cbtn {
+  min-width: 36px; height: 36px; padding: 0 9px; border-radius: 8px; background: rgba(22,28,36,.92);
+  border: 1px solid var(--line); color: var(--t1); font-size: 13px; display: flex; align-items: center;
+  justify-content: center; gap: 6px; cursor: default;
+}
+.vshell .cbtn.lg { height: auto; padding: 8px 11px; flex-direction: column; gap: 4px; font-size: 11px; color: var(--t2); white-space: nowrap; }
+.vshell .cbtn .ci { font-size: 15px; }
+.vshell .cpill {
+  font-size: 11px; color: var(--t2); background: rgba(22,28,36,.92); border: 1px solid var(--line);
+  border-radius: 20px; padding: 7px 13px; display: flex; align-items: center; gap: 9px; cursor: default; white-space: nowrap;
+}
+.vshell .cslider { width: 90px; height: 4px; background: #3a4452; border-radius: 3px; position: relative; }
+.vshell .cslider i { position: absolute; top: 50%; transform: translate(-50%,-50%); width: 12px; height: 12px; border-radius: 50%; background: var(--blue); }
+.vshell .navcube { position: absolute; right: 16px; bottom: 16px; width: 54px; height: 54px; z-index: 14; opacity: .85; }
+.vshell .navcube div { position: absolute; inset: 0; border: 1px solid #46525f; background: rgba(30,38,48,.6); }
+.vshell .surf-watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(120,135,152,.12); pointer-events: none; }
+
+/* pointcloud */
+.vshell .pc-stage { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 30%, #131c27 0%, #0a0e13 75%); }
+.vshell .pc-dot { position: absolute; border-radius: 50%; }
+
+/* 3d_tiles */
+.vshell .tiles-stage { position: absolute; inset: 0; background: linear-gradient(180deg,#0e1620 0%, #0a0e13 100%); overflow: hidden; }
+.vshell .tiles-grid {
+  position: absolute; left: 50%; top: 54%; transform: translate(-50%,-50%) rotateX(58deg) rotateZ(45deg);
+  transform-style: preserve-3d; display: grid; grid-template-columns: repeat(8,46px); grid-auto-rows: 46px; gap: 3px;
+}
+.vshell .tiles-grid span { background: linear-gradient(135deg,rgba(59,130,246,.12),rgba(59,130,246,.03)); border: 1px solid rgba(91,130,180,.35); }
+
+/* ortho raster */
+.vshell .ortho-stage {
+  position: absolute; inset: 0; background:
+     repeating-linear-gradient(90deg, transparent 0 38px, rgba(255,255,255,.02) 38px 39px),
+     repeating-linear-gradient(0deg, transparent 0 38px, rgba(255,255,255,.02) 38px 39px),
+     radial-gradient(60% 50% at 40% 45%, #2c3a30 0%, #1c2620 45%, #141b18 100%);
+}
+.vshell .ortho-scale { position: absolute; left: 16px; bottom: 16px; z-index: 14; display: flex; flex-direction: column; gap: 3px; color: var(--t2); font-size: 10px; }
+.vshell .ortho-scale .bar { width: 90px; height: 6px; border: 1px solid #56636f; border-top: 0; display: flex; }
+.vshell .ortho-scale .bar span { flex: 1; border-left: 1px solid #56636f; }
+.vshell .ortho-scale .bar span:nth-child(odd) { background: #56636f; }
+
+/* image gallery */
+.vshell .gal-stage { position: absolute; inset: 0; display: flex; flex-direction: column; background: #0a0e13; }
+.vshell .gal-main { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; margin: 14px 14px 8px; border-radius: 10px; overflow: hidden; background: linear-gradient(135deg,#243240,#161d26); }
+.vshell .gal-main .ph { display: flex; flex-direction: column; align-items: center; gap: 8px; color: rgba(150,165,182,.5); }
+.vshell .gal-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%; background: rgba(12,16,22,.7); border: 1px solid var(--line); color: var(--t1); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.vshell .gal-counter { position: absolute; top: 12px; right: 12px; font-size: 11px; font-family: var(--font-mono); color: var(--t2); background: rgba(12,16,22,.7); border: 1px solid var(--line); padding: 4px 9px; border-radius: 6px; }
+.vshell .gal-exif { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; }
+.vshell .gal-exif span { font-size: 10px; font-family: var(--font-mono); color: var(--t2); background: rgba(12,16,22,.7); border: 1px solid var(--line); padding: 3px 8px; border-radius: 5px; }
+.vshell .gal-strip { height: 62px; flex: none; display: flex; gap: 7px; padding: 0 14px 12px; overflow-x: auto; }
+.vshell .gal-thumb { width: 76px; height: 50px; flex: none; border-radius: 6px; background: linear-gradient(135deg,#2a3744,#1a232d); border: 1px solid var(--line); }
+.vshell .gal-thumb.on { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+
+/* panorama */
+.vshell .pano-stage { position: absolute; inset: 0; overflow: hidden; background: #0a0e13; }
+.vshell .pano-strip { position: absolute; inset: -8% -2%; background: linear-gradient(180deg, #2e3c52 0%, #3b4b63 38%, #5a6b54 52%, #3c4636 70%, #232a20 100%); }
+.vshell .pano-strip::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 2px, transparent 2px 60px); }
+.vshell .pano-vignette { position: absolute; inset: 0; background: radial-gradient(60% 60% at 50% 50%, transparent 40%, rgba(8,11,15,.72) 100%); }
+.vshell .pano-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 46px; height: 46px; border: 1.5px solid rgba(207,224,255,.6); border-radius: 50%; }
+.vshell .pano-cross::before,
+.vshell .pano-cross::after { content: ''; position: absolute; background: rgba(207,224,255,.6); }
+.vshell .pano-cross::before { left: 50%; top: 8px; bottom: 8px; width: 1px; transform: translateX(-50%); }
+.vshell .pano-cross::after { top: 50%; left: 8px; right: 8px; height: 1px; transform: translateY(-50%); }
+.vshell .pano-hint { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); font-size: 11px; color: var(--t2); background: rgba(12,16,22,.72); border: 1px solid var(--line); padding: 5px 12px; border-radius: 20px; white-space: nowrap; }
+
+/* video */
+.vshell .vid-stage { position: absolute; inset: 0; background: radial-gradient(80% 70% at 50% 42%, #1b2532 0%, #0a0e13 80%); display: flex; align-items: center; justify-content: center; }
+.vshell .vid-play { width: 74px; height: 74px; border-radius: 50%; background: rgba(59,130,246,.16); border: 1.5px solid rgba(59,130,246,.5); display: flex; align-items: center; justify-content: center; }
+.vshell .vid-play::after { content: ''; border-style: solid; border-width: 14px 0 14px 23px; border-color: transparent transparent transparent #cfe0ff; margin-left: 5px; }
+.vshell .vid-bar { position: absolute; left: 16px; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 11px; color: var(--t2); font-size: 11px; font-family: var(--font-mono); }
+.vshell .vid-track { flex: 1; height: 5px; border-radius: 3px; background: #2a3340; position: relative; }
+.vshell .vid-track i { position: absolute; left: 0; top: 0; bottom: 0; width: 34%; background: var(--blue); border-radius: 3px; }
+.vshell .vid-track i::after { content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%); width: 11px; height: 11px; border-radius: 50%; background: #cfe0ff; }
+
+/* document */
+.vshell .doc-stage { position: absolute; inset: 0; display: flex; background: #0a0e13; }
+.vshell .doc-thumbs { width: 96px; flex: none; border-right: 1px solid var(--line); padding: 14px 0; display: flex; flex-direction: column; align-items: center; gap: 10px; overflow-y: auto; background: var(--panel); }
+.vshell .doc-thumb { width: 58px; height: 78px; border-radius: 3px; background: #e9edf2; border: 1px solid var(--line); position: relative; opacity: .5; }
+.vshell .doc-thumb.on { opacity: 1; box-shadow: 0 0 0 2px var(--blue); }
+.vshell .doc-thumb span { position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--t3); }
+.vshell .doc-page-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 18px; overflow: auto; }
+.vshell .doc-page { width: min(440px,80%); aspect-ratio: 1/1.414; background: #f3f5f8; border-radius: 3px; box-shadow: 0 8px 30px -8px rgba(0,0,0,.6); padding: 34px 36px; }
+.vshell .doc-line { height: 8px; border-radius: 2px; background: #c7d0dc; margin-bottom: 11px; }
+.vshell .doc-line.title { height: 13px; width: 62%; background: #94a2b5; margin-bottom: 20px; }
+.vshell .doc-line.short { width: 48%; }
+.vshell .doc-toolbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: rgba(16,22,30,.92); border: 1px solid var(--line); border-radius: 9px; padding: 6px 10px; z-index: 14; color: var(--t2); font-size: 12px; }
+.vshell .doc-toolbar .pg { font-family: var(--font-mono); color: var(--t1); }
+
+/* model (orbit) */
+.vshell .model-stage { position: absolute; inset: 0; background: radial-gradient(70% 60% at 50% 45%, #1a2330 0%, #0a0e13 80%); display: flex; align-items: center; justify-content: center; }
+.vshell .model-shape { width: 170px; height: 150px; background: linear-gradient(150deg,#3a4a5e 0%, #28323f 55%, #1c242e 100%); clip-path: polygon(50% 4%, 96% 30%, 96% 74%, 50% 96%, 4% 74%, 4% 30%); position: relative; box-shadow: inset 0 0 40px rgba(0,0,0,.5); }
+.vshell .model-shape::after { content: ''; position: absolute; inset: 0; clip-path: inherit; background: linear-gradient(150deg, rgba(207,224,255,.10), transparent 50%); }
+
+/* ===== state panels (pending / missing / failed) ===== */
+.vshell .state-panel { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; z-index: 10; }
+.vshell .sp-ico { width: 74px; height: 74px; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 34px; margin-bottom: 20px; border: 1.5px solid; }
+.vshell .sp-title { font-size: 19px; font-weight: 600; margin-bottom: 8px; white-space: nowrap; }
+.vshell .sp-state { font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; padding: 3px 10px; border-radius: 6px; border: 1px solid; margin-bottom: 16px; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.vshell .sp-state i { width: 8px; height: 8px; border-radius: 50%; }
+.vshell .sp-desc { font-size: 13px; color: var(--t2); max-width: 440px; line-height: 1.6; margin-bottom: 8px; }
+.vshell .sp-reason { font-size: 12px; color: #f4b4b4; font-family: var(--font-mono); background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.3); border-radius: 8px; padding: 9px 14px; margin: 6px 0 18px; max-width: 460px; }
+.vshell .sp-meta { font-size: 11.5px; color: var(--t3); margin-bottom: 20px; display: flex; gap: 8px; align-items: center; }
+.vshell .sp-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.vshell .sp-btn { font-size: 12.5px; font-weight: 600; border-radius: 9px; padding: 10px 16px; border: 1px solid; display: flex; align-items: center; gap: 7px; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.vshell .sp-btn.primary { background: rgba(59,130,246,.16); border-color: rgba(59,130,246,.45); color: #cfe0ff; }
+.vshell .sp-btn.retry { background: rgba(248,113,113,.12); border-color: rgba(248,113,113,.42); color: #f4b4b4; }
+.vshell .sp-btn.ghost { background: #121821; border-color: var(--line); color: var(--t2); }
+/* pending progress */
+.vshell .sp-progress { width: 280px; height: 6px; border-radius: 4px; background: var(--card); overflow: hidden; margin: 4px 0 20px; position: relative; }
+.vshell .sp-progress i { position: absolute; height: 100%; width: 46%; border-radius: 4px; background: var(--pend); animation: vshell-slide 1.3s ease-in-out infinite; }
+@keyframes vshell-slide { 0% { left: -46%; } 100% { left: 100%; } }
+
+/* ===== context strip ===== */
+.vshell .cstrip { flex: none; height: 46px; display: flex; align-items: center; gap: 0; padding: 0 8px 0 16px; margin: 0 14px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; }
+.vshell .cs-scroll { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.vshell .cs-scroll::-webkit-scrollbar { height: 0; }
+.vshell .cs-item { display: flex; align-items: center; gap: 8px; padding: 0 16px; border-right: 1px solid var(--line2); height: 22px; flex: none; }
+.vshell .cs-item:first-child { padding-left: 2px; }
+.vshell .cs-k { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--t3); font-weight: 600; }
+.vshell .cs-v { font-size: 12.5px; color: var(--t1); font-weight: 500; white-space: nowrap; }
+.vshell .cs-v.mono { font-family: var(--font-mono); }
+.vshell .cs-v.unassigned { color: var(--t3); }
+.vshell .cs-more { flex: none; display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #cfe0ff; text-decoration: none; padding: 0 8px 0 14px; margin-left: 4px; border-left: 1px solid var(--line); white-space: nowrap; cursor: pointer; }
+.vshell .cs-more:hover { text-decoration: underline; }
+
+/* ===== loading / not-found ===== */
+.vshell .vshell-fallback { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--t2); }
+.vshell .vshell-fallback .vf-title { font-size: 15px; font-weight: 600; color: var(--t1); }
+.vshell .vshell-fallback .sp-btn { display: inline-flex; }

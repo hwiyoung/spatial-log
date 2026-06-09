@@ -118,6 +118,7 @@ export function getSelectedRelationOverlay({
       sourceItemId: relation.sourceId,
       targetItemId: relation.targetId,
       relatedItemId: resolved.relatedItemId,
+      title: relation.title || null,
       reason: resolved.isVisible ? 'no_map_position' : 'outside_visible_results',
     })
   })

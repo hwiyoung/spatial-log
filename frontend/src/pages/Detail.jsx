@@ -6,14 +6,16 @@
  * 참조: docs/system_structure_design.md 페이지 2-B
  */
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { itemApi, collectionApi, searchApi } from '../services/api'
+import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import { getCategoryInfo, formatSize } from '../constants'
 import LocationPicker from '../components/LocationPicker'
 
 export default function Detail() {
   const { collectionId, itemId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [item, setItem] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -33,7 +35,10 @@ export default function Detail() {
   async function loadItem() {
     setLoading(true)
     try {
-      const res = await itemApi.get(collectionId, itemId)
+      // mock 데모 모드(?mock=1)에서는 mock 데이터 소스로 조회 (Explorer/Viewer 와 동일 경로).
+      const res = isMockExplorerMode()
+        ? await mockExplorerDataSource.getItem(collectionId, itemId)
+        : await itemApi.get(collectionId, itemId)
       setItem(res.data)
 
       // 관련 데이터 + 타임라인 병렬 로드
@@ -118,6 +123,17 @@ export default function Detail() {
                 color={props['sams:status'] === 'published' ? 'var(--ok)' : 'var(--warn)'}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => navigate({ pathname: `/viewer/${collectionId}/${itemId}`, search: location.search })}
+              style={{
+                marginTop: 14, padding: '8px 14px', borderRadius: 8, cursor: 'pointer',
+                fontSize: 13, fontWeight: 600, color: '#cfe0ff',
+                background: 'rgba(59,130,246,0.14)', border: '1px solid rgba(59,130,246,0.4)',
+              }}
+            >
+              🔍 미리보기 열기 →
+            </button>
           </div>
         </div>
 

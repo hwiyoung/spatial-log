@@ -1,314 +1,269 @@
 /**
- * Explorer — 데이터 탐색/검색 메인 페이지
+ * Explorer — 데이터 탐색/검색 메인 페이지 (3-column: 필터 · 지도+목록 · Context Panel)
  *
- * 구성: 검색 사이드바 | 2D 지도 + 결과 목록 | 미리보기 패널(슬라이드)
- * 검색: STAC /search POST (키워드, 유형 필터, Collection 필터)
+ * 구성: FilterSidebar | center(head: 배치/2D·3D/관계 · body: 지도 + divider + 결과목록) | ContextPanel
+ * 데이터: 키워드+프로젝트 범위는 검색(STAC /search 또는 mock)으로 가져오고, 상태·카테고리·지도범위
+ *        필터는 클라이언트에서 적용한다(즉시 반영 + facet 카운트 일관성). 지도/목록/패널이 동일 결과 공유.
  *
- * 참조: docs/system_structure_design.md 페이지 1
+ * 참조: design-reference/project/Explorer.html (+ explorer/panels.jsx, explorer/map.jsx)
+ *      docs/system_structure_design.md 페이지 1
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { searchApi, collectionApi } from '../services/api'
 import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import { mockRelations } from '../mocks/fixtures/mockRelations.js'
 import { getSelectedRelationOverlay } from '../features/relations/getSelectedRelationOverlay.js'
-import SearchSidebar from '../components/SearchSidebar'
+import { getItemStatus } from '../features/items/getItemStatus.js'
+import { getDisplayLabel } from '../features/items/getDisplayLabel.js'
+import { getItemMapPosition } from '../features/explorer-map/getItemMapPosition.js'
+import { getExplorerItemView, EXPLORER_SORTS } from '../features/explorer/getExplorerItemView.js'
+import FilterSidebar from '../components/explorer/FilterSidebar'
+import ResultList from '../components/explorer/ResultList'
+import ContextPanel from '../components/explorer/ContextPanel'
 import MapView from '../components/MapView'
-import PreviewPanel from '../components/PreviewPanel'
-import ExplorerViewToggle from '../components/ExplorerViewToggle'
-import ViewerShell from '../components/ViewerShell'
 import Explorer3dGisBeta from '../features/explorer-3d/Explorer3dGisBeta.jsx'
+import '../styles/explorer.css'
+
+const EMPTY_FILTERS = { kw: '', status: [], cat: [], project: 'all', bboxOnly: false }
 
 export default function Explorer() {
   const mockMode = useMemo(() => isMockExplorerMode(), [])
+  const navigate = useNavigate()
+  const location = useLocation()
 
-  // 검색 상태
-  const [keyword, setKeyword] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState(new Set())
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [collections, setCollections] = useState([])
-  const [selectedCollection, setSelectedCollection] = useState(null)
-  const [statusFilter, setStatusFilter] = useState('all')
-
-  // 결과 상태
-  const [items, setItems] = useState([])
+  const [scopeItems, setScopeItems] = useState([])   // 키워드 범위(상태·카테고리 미적용)
   const [loading, setLoading] = useState(false)
 
-  // UI 상태
-  const [hoveredId, setHoveredId] = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
-  const [relationOverlayEnabled, setRelationOverlayEnabled] = useState(false)
-  const [viewMode, setViewMode] = useState('2d')
-  const [viewerShell, setViewerShell] = useState(null)
+  const [hoveredId, setHoveredId] = useState(null)
+  const [mapBounds, setMapBounds] = useState(null)
 
-  // 사이드바 리사이즈
-  const [sidebarWidth, setSidebarWidth] = useState(380)
-  // 프리뷰 패널 리사이즈
-  const [previewWidth, setPreviewWidth] = useState(540)
-  // 리사이즈 대상: null | 'sidebar' | 'preview'
-  const resizingTarget = useRef(null)
+  // center layout
+  const [mode, setMode] = useState('2d')          // 2d | 3d
+  const [arrange, setArrange] = useState('stack')  // stack | split
+  const [ratio, setRatio] = useState(0.62)
+  const [sort, setSort] = useState('recent')
+  const [showRel, setShowRel] = useState(true)
 
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!resizingTarget.current) return
-      if (resizingTarget.current === 'sidebar') {
-        setSidebarWidth(Math.min(600, Math.max(280, e.clientX)))
-      } else if (resizingTarget.current === 'preview') {
-        setPreviewWidth(Math.min(800, Math.max(320, window.innerWidth - e.clientX)))
-      }
-    }
-    const handleMouseUp = () => { resizingTarget.current = null; document.body.style.cursor = '' }
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [])
-
-  // Collection 목록 로드
+  // ── Collection 목록 ──
   useEffect(() => {
     const api = mockMode ? mockExplorerDataSource.listCollections() : collectionApi.list()
-    api
-      .then(res => {
-        const cols = res.data?.collections || []
-        setCollections(cols)
-      })
-      .catch(() => setCollections([]))
+    api.then(res => setCollections(res.data?.collections || [])).catch(() => setCollections([]))
   }, [mockMode])
 
-  // 검색 실행 (debounced)
+  // ── 키워드+프로젝트 범위 검색 (debounced). 상태/카테고리는 클라이언트 필터. ──
   useEffect(() => {
     const timer = setTimeout(() => doSearch(), 300)
     return () => clearTimeout(timer)
-  }, [keyword, categoryFilter, selectedCollection, statusFilter, mockMode])
+  }, [filters.kw, mockMode])
 
   const doSearch = useCallback(async () => {
     setLoading(true)
     try {
       if (mockMode) {
-        const res = await mockExplorerDataSource.search({
-          keyword,
-          categories: [...categoryFilter],
-          collectionId: selectedCollection,
-          status: statusFilter,
-        })
-        setItems(res.data?.features || [])
+        const res = await mockExplorerDataSource.search({ keyword: filters.kw, categories: [], collectionId: null, status: 'all' })
+        setScopeItems(res.data?.features || [])
         return
       }
-
       const params = { limit: 200 }
-
-      // Collection 필터
-      if (selectedCollection) {
-        params.collections = [selectedCollection]
+      const kw = filters.kw.trim()
+      if (kw) {
+        // pgstac 는 free-text q 를 지원하지 않으므로 CQL2 like 필터로 키워드를 환원
+        // (이 코드베이스가 이미 카테고리 필터에 쓰던 cql2-json 패턴과 동일).
+        const like = (prop) => ({ op: 'like', args: [{ property: prop }, `%${kw}%`] })
+        params.filter = { op: 'or', args: [like('title'), like('description'), like('file:name')] }
+        params['filter-lang'] = 'cql2-json'
       }
-
-      // 키워드 → q 파라미터 (stac-fastapi의 free-text search)
-      if (keyword.trim()) {
-        params.q = keyword.trim()
-      }
-
-      // 유형 필터 → CQL2
-      if (categoryFilter.size > 0) {
-        const cats = [...categoryFilter]
-        if (cats.length === 1) {
-          params.filter = { op: 'eq', args: [{ property: 'data_category' }, cats[0]] }
-          params['filter-lang'] = 'cql2-json'
-        } else {
-          params.filter = {
-            op: 'or',
-            args: cats.map(c => ({ op: 'eq', args: [{ property: 'data_category' }, c] })),
-          }
-          params['filter-lang'] = 'cql2-json'
-        }
-      }
-
       const res = await searchApi.search(params)
-      const features = res.data?.features || []
-      setItems(features)
+      setScopeItems(res.data?.features || [])
     } catch (err) {
       console.error('검색 실패:', err)
-      setItems([])
+      setScopeItems([])
     } finally {
       setLoading(false)
     }
-  }, [keyword, categoryFilter, selectedCollection, statusFilter, mockMode])
+  }, [filters.kw, mockMode])
 
-  const toggleCategory = (cat) => {
-    setCategoryFilter(prev => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
+  // ── facet 카운트 (status/cat: 프로젝트 범위 기준 · project: 전체 범위 기준) ──
+  const inBounds = useCallback((item) => {
+    if (!mapBounds) return true
+    const pos = getItemMapPosition(item)
+    if (!pos) return false
+    const [lon, lat] = pos.position
+    return lon >= mapBounds.minLon && lon <= mapBounds.maxLon && lat >= mapBounds.minLat && lat <= mapBounds.maxLat
+  }, [mapBounds])
+
+  const byProject = useMemo(() => (
+    filters.project === 'all' ? scopeItems : scopeItems.filter(i => i.collection === filters.project)
+  ), [scopeItems, filters.project])
+
+  const facet = useMemo(() => {
+    const status = {}, cat = {}, project = {}
+    byProject.forEach(i => {
+      const s = getItemStatus(i); status[s] = (status[s] || 0) + 1
+      const c = i.properties?.data_category || 'unknown'; cat[c] = (cat[c] || 0) + 1
     })
-  }
+    scopeItems.forEach(i => { const col = i.collection || 'unassigned-inbox'; project[col] = (project[col] || 0) + 1 })
+    const dates = byProject.map(i => i.properties?.datetime).filter(Boolean).map(d => String(d).slice(0, 7)).sort()
+    return { status, cat, project, totalAll: scopeItems.length, timeMin: dates[0], timeMax: dates[dates.length - 1] }
+  }, [byProject, scopeItems])
 
-  const handleSelectItem = useCallback((item) => {
-    setSelectedItem(prev => prev?.id === item.id ? null : item)
-  }, [])
+  // ── 클라이언트 필터 (상태·카테고리). 지도범위(bbox)는 별도 memo 로 분리 —
+  //    bboxOnly 가 꺼져 있을 땐 mapBounds 변동이 결과 배열 식별자를 흔들지 않게 해 카메라-필터 루프를 막는다.
+  const baseFiltered = useMemo(() => {
+    let r = byProject
+    if (filters.status.length) r = r.filter(i => filters.status.includes(getItemStatus(i)))
+    if (filters.cat.length) r = r.filter(i => filters.cat.includes(i.properties?.data_category))
+    return r
+  }, [byProject, filters.status, filters.cat])
 
-  const handleOpenViewerShell = useCallback(({ item, contract }) => {
-    if (!item || !contract || contract.actionState === 'disabled') return
-    setViewerShell({ item, contract })
-  }, [])
+  const filteredItems = useMemo(() => (
+    filters.bboxOnly ? baseFiltered.filter(inBounds) : baseFiltered
+  ), [baseFiltered, filters.bboxOnly, inBounds])
 
-  const visibleItems = items
+  const visibleIds = useMemo(() => new Set(filteredItems.map(i => i.id)), [filteredItems])
+  const itemById = useMemo(() => {
+    const m = new Map()
+    scopeItems.forEach(i => m.set(i.id, i))
+    if (selectedItem) m.set(selectedItem.id, selectedItem)
+    return m
+  }, [scopeItems, selectedItem])
+
+  // 정렬된 결과 view (목록용)
+  const sortedViews = useMemo(() => (
+    filteredItems.map(i => getExplorerItemView(i, collections)).sort(EXPLORER_SORTS[sort] || EXPLORER_SORTS.recent)
+  ), [filteredItems, collections, sort])
+
   const relationRecords = useMemo(() => (mockMode ? mockRelations : []), [mockMode])
   const relationOverlayModel = useMemo(() => getSelectedRelationOverlay({
-    selectedItem,
-    visibleItems,
-    relationRecords,
-  }), [selectedItem, visibleItems, relationRecords])
-  const hasSelectedRelations = relationOverlayModel.visibleRelations.length > 0
-    || relationOverlayModel.missingTargets.length > 0
+    selectedItem, visibleItems: filteredItems, relationRecords,
+  }), [selectedItem, filteredItems, relationRecords])
 
-  useEffect(() => {
-    if (!selectedItem) return
-    if (!visibleItems.some(item => item.id === selectedItem.id)) {
-      setSelectedItem(null)
+  const selectedView = useMemo(() => (selectedItem ? getExplorerItemView(selectedItem, collections) : null), [selectedItem, collections])
+  const outOfResult = Boolean(selectedItem) && !visibleIds.has(selectedItem.id)
+
+  // ── selection / navigation ──
+  const selectById = useCallback((id) => {
+    const item = itemById.get(id)
+    if (item) setSelectedItem(item)
+  }, [itemById])
+  const goViewer = useCallback((item) => {
+    if (item?.collection && item?.id) navigate({ pathname: `/viewer/${item.collection}/${item.id}`, search: location.search })
+  }, [navigate, location.search])
+  const goDetail = useCallback((item) => {
+    if (item?.collection && item?.id) navigate({ pathname: `/detail/${item.collection}/${item.id}`, search: location.search })
+  }, [navigate, location.search])
+
+  // ── divider drag (stack=세로 / split=가로) ──
+  const bodyRef = useRef(null)
+  const [dragging, setDragging] = useState(false)
+  const dragTeardownRef = useRef(null)
+  const startDrag = useCallback((e) => {
+    e.preventDefault()
+    setDragging(true)
+    const rect = bodyRef.current.getBoundingClientRect()
+    const move = (ev) => {
+      const r = arrange === 'split' ? (ev.clientX - rect.left) / rect.width : (ev.clientY - rect.top) / rect.height
+      setRatio(Math.max(0.25, Math.min(0.82, r)))
     }
-  }, [visibleItems, selectedItem])
+    const cleanup = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    function up() { setDragging(false); cleanup(); dragTeardownRef.current = null }
+    dragTeardownRef.current = cleanup
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }, [arrange])
+  // 드래그 중 언마운트되면 window 리스너가 새도록 두지 않는다
+  useEffect(() => () => { dragTeardownRef.current?.() }, [])
 
-  useEffect(() => {
-    setViewerShell(prev => {
-      if (!prev) return prev
-      if (!selectedItem || selectedItem.id !== prev.item?.id) return null
-      return prev
-    })
-  }, [selectedItem])
-
-  useEffect(() => {
-    if (!selectedItem || !hasSelectedRelations) {
-      setRelationOverlayEnabled(false)
-    }
-  }, [selectedItem, hasSelectedRelations])
+  const scopeLabel = filters.project === 'all'
+    ? '전체 프로젝트'
+    : (filters.project === 'unassigned-inbox' ? 'Unassigned Inbox' : (collections.find(c => c.id === filters.project)?.title || filters.project))
+  const mapFlex = { flex: '0 0 ' + (ratio * 100) + '%' }
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-      {/* 사이드바 (검색 + 결과 목록 통합) */}
-      <SearchSidebar
-        keyword={keyword}
-        onKeywordChange={setKeyword}
-        categoryFilter={categoryFilter}
-        onToggleCategory={toggleCategory}
-        collections={collections}
-        selectedCollection={selectedCollection}
-        onSelectCollection={setSelectedCollection}
-        statusFilter={statusFilter}
-        onStatusFilterChange={setStatusFilter}
-        resultCount={visibleItems.length}
-        items={visibleItems}
-        selectedId={selectedItem?.id}
-        onHover={setHoveredId}
-        onSelect={handleSelectItem}
-        width={sidebarWidth}
-        mockMode={mockMode}
-      />
+    <div className="exp">
+      <FilterSidebar filters={filters} setF={setFilters} facet={facet} collections={collections} />
 
-      {/* 사이드바 리사이즈 핸들 */}
-      <ResizeHandle onMouseDown={() => { resizingTarget.current = 'sidebar'; document.body.style.cursor = 'col-resize' }} active={resizingTarget.current === 'sidebar'} />
-
-      {/* 메인 영역: 지도 전체 */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {viewMode === '2d' ? (
-          <MapView
-            items={visibleItems}
-            hoveredId={hoveredId}
-            selectedId={selectedItem?.id}
-            onSelectItem={handleSelectItem}
-            relationOverlayEnabled={relationOverlayEnabled}
-            relationOverlayModel={relationOverlayModel}
-          />
-        ) : (
-          <Explorer3dGisBeta
-            items={visibleItems}
-            collections={collections}
-            selectedId={selectedItem?.id}
-            onSelectItem={handleSelectItem}
-            relationOverlayEnabled={relationOverlayEnabled}
-            relationOverlayModel={relationOverlayModel}
-            relationRecords={relationRecords}
-            mockMode={mockMode}
-          />
-        )}
-        <div style={{
-          position: 'absolute',
-          top: 10,
-          right: 10,
-          zIndex: 5,
-        }}>
-          <ExplorerViewToggle viewMode={viewMode} onChange={setViewMode} />
+      <div className="center">
+        <div className="center-head">
+          <span className="ch-scope">
+            {loading ? '불러오는 중…' : <><b>{filteredItems.length.toLocaleString()}</b> · {scopeLabel}</>}
+          </span>
+          <span className="ch-sub">지도·목록·Context Panel 동기화</span>
+          {mockMode && <span className="ch-sub" style={{ color: 'var(--draft)', marginLeft: 0 }}>· Mock Demo</span>}
+          <div className="ch-r">
+            <div className="seg" title="중앙 배치">
+              <button className={arrange === 'stack' ? 'on' : ''} onClick={() => setArrange('stack')}><span className="ic">▤</span> 상하</button>
+              <button className={arrange === 'split' ? 'on' : ''} onClick={() => setArrange('split')}><span className="ic">▥</span> 좌우</button>
+            </div>
+            <div className="seg" title="지도 렌더">
+              <button className={mode === '2d' ? 'on' : ''} onClick={() => setMode('2d')}>2D</button>
+              <button className={mode === '3d' ? 'on' : ''} onClick={() => setMode('3d')}>3D</button>
+            </div>
+            <div className={'toggle' + (showRel ? ' on' : '')} onClick={() => setShowRel(v => !v)} title="선택 Item의 관계를 지도에 표시">
+              <span className="sw" /> 관계
+            </div>
+          </div>
         </div>
-        {mockMode && (
-          <div style={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            padding: '4px 10px',
-            borderRadius: 4,
-            background: 'rgba(19,22,31,0.92)',
-            border: '1px solid rgba(215,184,74,0.36)',
-            color: '#D7B84A',
-            fontSize: 12,
-            fontWeight: 700,
-            zIndex: 2,
-          }}>
-            Mock Demo Mode
+
+        <div className={'center-body ' + arrange} ref={bodyRef}>
+          <div className="pane-map" style={mapFlex}>
+            {mode === '2d' ? (
+              <MapView
+                items={filteredItems}
+                selectedId={selectedItem?.id}
+                hoveredId={hoveredId}
+                onSelectItem={setSelectedItem}
+                relationOverlayEnabled={showRel}
+                relationOverlayModel={relationOverlayModel}
+                onBoundsChange={setMapBounds}
+                fitToItems={!filters.bboxOnly}
+                loading={loading}
+              />
+            ) : (
+              <Explorer3dGisBeta
+                items={filteredItems}
+                collections={collections}
+                selectedId={selectedItem?.id}
+                onSelectItem={setSelectedItem}
+                relationOverlayEnabled={showRel}
+                relationOverlayModel={relationOverlayModel}
+                relationRecords={relationRecords}
+                mockMode={mockMode}
+              />
+            )}
           </div>
-        )}
-        {loading && (
-          <div style={{
-            position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
-            padding: '4px 12px', background: 'var(--s1)', borderRadius: 4,
-            fontSize: 13, color: 'var(--t2)', border: '1px solid var(--bd)',
-          }}>
-            검색 중...
+          <div className={'divider ' + (arrange === 'split' ? 'v' : 'h') + (dragging ? ' drag' : '')} onMouseDown={startDrag} />
+          <div className="pane-list">
+            <ResultList
+              items={sortedViews}
+              selectedId={selectedItem?.id}
+              onSelect={selectById}
+              onHover={setHoveredId}
+              total={filteredItems.length}
+              sort={sort}
+              setSort={setSort}
+              loading={loading}
+            />
           </div>
-        )}
+        </div>
       </div>
 
-      {/* 미리보기 패널 */}
-      {selectedItem && (
-        <>
-          <ResizeHandle onMouseDown={() => { resizingTarget.current = 'preview'; document.body.style.cursor = 'col-resize' }} active={resizingTarget.current === 'preview'} />
-          <PreviewPanel
-            item={selectedItem}
-            collections={collections}
-            relationRecords={relationRecords}
-            relationOverlayEnabled={relationOverlayEnabled}
-            relationOverlayModel={relationOverlayModel}
-            onToggleRelationOverlay={() => setRelationOverlayEnabled(prev => !prev)}
-            onOpenViewerShell={handleOpenViewerShell}
-            onClose={() => {
-              setSelectedItem(null)
-              setRelationOverlayEnabled(false)
-            }}
-            width={previewWidth}
-            mockMode={mockMode}
-          />
-        </>
-      )}
-      {viewerShell && (
-        <ViewerShell
-          item={viewerShell.item}
-          contract={viewerShell.contract}
-          mockMode={mockMode}
-          onClose={() => setViewerShell(null)}
+      <div className="ctx-col">
+        <ContextPanel
+          view={loading ? null : selectedView}
+          outOfResult={outOfResult}
+          relationModel={relationOverlayModel}
+          resolveName={(id) => { const it = itemById.get(id); return it ? getDisplayLabel(it) : null }}
+          onClear={() => setSelectedItem(null)}
+          onSelectRelated={selectById}
+          onOpenDetail={() => goDetail(selectedItem)}
+          onOpenViewer={() => goViewer(selectedItem)}
         />
-      )}
+      </div>
     </div>
-  )
-}
-
-function ResizeHandle({ onMouseDown }) {
-  return (
-    <div
-      onMouseDown={onMouseDown}
-      style={{
-        width: 4, cursor: 'col-resize', flexShrink: 0,
-        background: 'var(--bd)', transition: 'background 0.15s',
-      }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--ac)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'var(--bd)'}
-    />
   )
 }
