@@ -21,6 +21,8 @@ function makeMaterial(color, {
     metalness,
     transparent: opacity < 1,
     opacity,
+    depthTest: true,
+    depthWrite: opacity >= 0.98,
   })
 }
 
@@ -29,6 +31,8 @@ function makeLineMaterial(color, opacity = 1) {
     color: colorValue(color),
     transparent: opacity < 1,
     opacity,
+    depthTest: false,
+    depthWrite: false,
   })
 }
 

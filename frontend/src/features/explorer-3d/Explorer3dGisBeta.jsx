@@ -4,6 +4,7 @@ import Explorer3dControls from '../../components/Explorer3dControls.jsx'
 import Explorer3dFocusCard from '../../components/Explorer3dFocusCard.jsx'
 import Explorer3dLegend from '../../components/Explorer3dLegend.jsx'
 import Explorer3dTooltip from '../../components/Explorer3dTooltip.jsx'
+import MapGroundedThreeGisBeta from '../explorer-3d-map/MapGroundedThreeGisBeta.jsx'
 import ExplorerThreeGisBeta from '../explorer-3d-three/ExplorerThreeGisBeta.jsx'
 import { getAsset3dSummary } from './getAsset3dSummary.js'
 import { getAsset3dItems } from './getAsset3dPosition.js'
@@ -22,7 +23,7 @@ export default function Explorer3dGisBeta({
 }) {
   const [hoveredAsset, setHoveredAsset] = useState(null)
   const [sceneFocusEnabled, setSceneFocusEnabled] = useState(Boolean(selectedId))
-  const [rendererMode, setRendererMode] = useState('three')
+  const [rendererMode, setRendererMode] = useState('map-grounded')
 
   useEffect(() => {
     setSceneFocusEnabled(Boolean(selectedId))
@@ -74,6 +75,10 @@ export default function Explorer3dGisBeta({
     setRendererMode('pseudo')
   }, [])
 
+  const handleMapGroundedUnavailable = useCallback(() => {
+    setRendererMode('three')
+  }, [])
+
   const resetView = () => {
     setHoveredAsset(null)
     setSceneFocusEnabled(false)
@@ -105,6 +110,25 @@ export default function Explorer3dGisBeta({
           relationRecords={relationRecords}
           mockMode={mockMode}
           onWebglUnavailable={handleWebglUnavailable}
+        />
+      </div>
+    )
+  }
+
+  if (rendererMode === 'map-grounded') {
+    return (
+      <div style={rootStyle}>
+        <RendererModeSwitch rendererMode={rendererMode} onChange={setRendererMode} />
+        <MapGroundedThreeGisBeta
+          items={items}
+          collections={collections}
+          selectedId={selectedId}
+          onSelectItem={handleSelectItem}
+          relationOverlayEnabled={relationOverlayEnabled}
+          relationOverlayModel={relationOverlayModel}
+          relationRecords={relationRecords}
+          mockMode={mockMode}
+          onLayerUnavailable={handleMapGroundedUnavailable}
         />
       </div>
     )
@@ -164,10 +188,17 @@ function RendererModeSwitch({ rendererMode, onChange }) {
     <div style={rendererSwitchStyle} aria-label="3D GIS renderer mode">
       <button
         type="button"
+        onClick={() => onChange?.('map-grounded')}
+        style={modeButtonStyle(rendererMode === 'map-grounded')}
+      >
+        Map-grounded 3D
+      </button>
+      <button
+        type="button"
         onClick={() => onChange?.('three')}
         style={modeButtonStyle(rendererMode === 'three')}
       >
-        True 3D spike
+        True 3D constellation
       </button>
       <button
         type="button"

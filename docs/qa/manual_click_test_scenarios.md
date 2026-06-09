@@ -664,3 +664,54 @@ http://localhost:17800/?mock=1
 | P7C-19 | Global graph guardrail | Inspect 3D view. | No global Relationship Graph or all-Item relation board appears. | Ready |
 | P7C-20 | Heavy viewer guardrail | Use preview actions from Context Panel. | Production pointcloud/3D Tiles/model/PDF/panorama viewers do not open. | Ready |
 | P7C-21 | Dependency guardrail | Inspect package changes. | Only `three` is added; no deck.gl, Cesium, Potree, model-viewer, fiber, or drei. | Ready |
+
+## Phase 7D Map-Grounded 3D GIS Checks
+
+Use the mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P7D-1 | Default Explorer view | Open `/?mock=1`. | Explorer opens in the 2D map/list view. | Ready |
+| P7D-2 | Enter 3D Beta | Click `3D GIS Beta`. | Optional 3D GIS Beta opens. | Ready |
+| P7D-3 | Map-grounded mode | Confirm `Map-grounded 3D` mode is active or click it. | MapLibre base map is visible with 3D asset objects above it. | Ready |
+| P7D-4 | Georeferenced placement | Compare object positions with the map background and 2D marker geography. | Asset objects appear anchored to their lng/lat positions. | Ready |
+| P7D-5 | Map pan/zoom/pitch | Pan, zoom, rotate, and pitch the map. | 3D objects remain aligned with the map. | Ready |
+| P7D-6 | Asset click | Click near a 3D asset object. | Existing Context Panel opens/updates for that Item using screen-nearest selection fallback. | Ready |
+| P7D-7 | Hover tooltip | Hover near a 3D asset object. | Tooltip appears with label, category, project, status, preview status, relation count, and zSource. | Ready |
+| P7D-8 | Selected relation overlay | Select `다보탑 2024 LiDAR 스캔`, then click `지도에서 관계 보기`. | Only selected Item 1-depth relation lines render in the map-grounded 3D layer. | Ready |
+| P7D-9 | Missing target warning | Use a relation-rich Item with missing targets. | Warning appears; no fake missing target object is created. | Ready |
+| P7D-10 | Fallback modes | Switch to `True 3D constellation`, then `Pseudo fallback`, then back to `Map-grounded 3D`. | All renderer modes remain available for comparison/fallback. | Ready |
+| P7D-11 | no-result cleanup | Search `no-result-keyword`. | Map-grounded empty state appears and panel/focus/overlay are cleared. | Ready |
+| P7D-12 | Global graph guardrail | Inspect all renderer modes. | No global Relationship Graph or all-Item relation board appears. | Ready |
+| P7D-13 | Heavy viewer guardrail | Use preview actions from Context Panel. | Production pointcloud/3D Tiles/model/PDF/panorama viewers do not open. | Ready |
+| P7D-14 | Dependency guardrail | Inspect package files. | No package or lockfile change in Phase 7D; existing `three` is reused. | Ready |
+
+## Phase 7D-S Map-Grounded Renderer Stability Checks
+
+Use the mock entry point:
+
+```text
+http://localhost:13000/?mock=1
+http://localhost:17800/?mock=1
+```
+
+| # | Scenario | Click / Input | Expected Result | Status |
+| --- | --- | --- | --- | --- |
+| P7DS-1 | Default Explorer view | Open `/?mock=1`. | Explorer opens in the 2D map/list view. | Ready |
+| P7DS-2 | Enter 3D Beta | Click `3D GIS Beta`. | Optional 3D GIS Beta opens. | Ready |
+| P7DS-3 | Map-grounded mode | Confirm `Map-grounded 3D` mode is active. | MapLibre base map and 3D asset objects are visible. | Ready |
+| P7DS-4 | 30-second map interaction | Pan, zoom, pitch, and bearing for at least 30 seconds. | Object flicker is materially reduced versus Phase 7D. | Ready |
+| P7DS-5 | Hover stability | Hover across several asset objects. | Tooltip appears without scene rebuild/flicker. | Ready |
+| P7DS-6 | Asset click | Click near a 3D asset object. | Existing Context Panel opens/updates for that Item. | Ready |
+| P7DS-7 | Relation overlay stability | Select `다보탑 2024 LiDAR 스캔`, then toggle `지도에서 관계 보기` on/off. | Relation lines update without repeated flicker. | Ready |
+| P7DS-8 | Selected-only relation scope | Inspect active relation lines. | Only selected Item 1-depth relations render. | Ready |
+| P7DS-9 | Renderer modes | Switch to `True 3D constellation`, `Pseudo fallback`, and back to `Map-grounded 3D`. | All fallback modes remain available. | Ready |
+| P7DS-10 | no-result cleanup | Search `no-result-keyword`. | Empty state appears and panel/focus/overlay are cleared. | Ready |
+| P7DS-11 | Global graph guardrail | Inspect all renderer modes. | No global Relationship Graph or all-Item relation board appears. | Ready |
+| P7DS-12 | Heavy viewer guardrail | Use preview actions from Context Panel. | Production pointcloud/3D Tiles/model/PDF/panorama viewers do not open. | Ready |
+| P7DS-13 | Dependency guardrail | Inspect package files. | No package or lockfile change in Phase 7D-S. | Ready |
