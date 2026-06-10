@@ -184,7 +184,7 @@ class TestCollectionFlow:
 class TestItemFlow:
     """Item status + related + timeline."""
 
-    @patch("sams.routers.items.stac.update_item", new_callable=AsyncMock)
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
     @patch("sams.routers.items.stac.get_item", new_callable=AsyncMock)
     def test_draft_to_published(self, mock_get, mock_update):
         """Draft → Published 전환."""
@@ -324,6 +324,8 @@ def _make_stac_item(item_id, category="pointcloud", status="draft", **extra_prop
         "sams:status": status,
         **extra_props,
     }
+    if category == "pointcloud" and "pc:count" not in props:
+        props["pc:count"] = 15230482   # 유형별 Published 필수 필드 (_TYPE_REQUIRED)
     return {
         "type": "Feature",
         "stac_version": "1.0.0",

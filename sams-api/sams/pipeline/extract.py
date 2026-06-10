@@ -650,9 +650,10 @@ def extract_3dtiles(filepath: str | Path) -> dict:
         meta["bbox_4326"] = meta["bbox"]
         meta["_epsg_source"] = "file"
     else:
-        # box 타입도 시도 (center + halfSize)
+        # box 타입도 시도 (center + halfSize). 전부 0 인 box 는 위치 정보가 없는 placeholder 다 —
+        # (0,0) 을 경위도로 오인해 4326 을 주장하지 않는다.
         box = bv.get("box")
-        if box and len(box) >= 12:
+        if box and len(box) >= 12 and any(box):
             cx, cy, cz = box[0], box[1], box[2]
             # box는 [cx,cy,cz, x0,x1,x2, y0,y1,y2, z0,z1,z2] — 단순화
             hx = abs(box[3])
