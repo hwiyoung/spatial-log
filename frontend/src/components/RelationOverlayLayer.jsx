@@ -29,7 +29,9 @@ function toFeatureCollection(visibleRelations = []) {
 }
 
 function removeOverlay(map) {
-  if (!map) return
+  // 언마운트 시 MapView 의 map.remove() 가 먼저 실행될 수 있다. 제거된 맵은 내부 style 이
+  // undefined 라 getLayer/getSource 가 throw → 루트 트리 전체가 내려가 빈 화면이 된다.
+  if (!map || map._removed || !map.style) return
   if (map.getLayer(LABEL_LAYER_ID)) map.removeLayer(LABEL_LAYER_ID)
   SUPPORTED_RELATIONS.forEach(rel => {
     const id = lineLayerId(rel)
@@ -104,7 +106,7 @@ export default function RelationOverlayLayer({ map, mapLoaded, enabled, overlayM
   )
 
   useEffect(() => {
-    if (!map || !mapLoaded) return undefined
+    if (!map || map._removed || !map.style || !mapLoaded) return undefined
     if (!enabled) {
       removeOverlay(map)
       return undefined
