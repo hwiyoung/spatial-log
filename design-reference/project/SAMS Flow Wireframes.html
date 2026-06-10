@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAMS — Navigation Skeleton & Core Flows (Lo-fi)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --canvas:#E9ECF1; --grid:#D5DAE1;
+    --card:#FFFFFF; --ink:#21252E; --line:#3A404C; --muted:#6B7280;
+    --wire:#DDE1E8; --wire2:#E7EAF0; --inputbd:#C3C9D3; --dash:#A9B0BC;
+    --flowA:#2F6BFF;  /* 검색 Search */
+    --flowB:#E08A1E;  /* 등록 Registration */
+    --st-draft:#E0B400; --st-pub:#3FA45A; --st-arch:#9AA0AB; --st-unk:#7C8290;
+    --core:#2F6BFF; --ctx:#8A53D6;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    font-family:'Space Grotesk',system-ui,sans-serif;
+    background:var(--canvas); color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    background:#15181F; color:#E4E7F0;
+    display:flex; align-items:center; gap:20px;
+    padding:11px 22px; border-bottom:1px solid #2C3044;
+  }
+  .topbar h1{font-size:15px; font-weight:600; margin:0; letter-spacing:.2px;}
+  .topbar h1 b{color:var(--flowA); font-weight:700;}
+  .topbar .sub{font-size:11.5px; color:#8A92A6;}
+  .spacer{flex:1;}
+  .seg{display:flex; background:#222633; border:1px solid #333a4b; border-radius:7px; overflow:hidden;}
+  .seg button{
+    font-family:inherit; font-size:12px; font-weight:500; cursor:pointer;
+    background:transparent; color:#9aa2b6; border:0; padding:7px 13px;
+    display:flex; align-items:center; gap:7px;
+  }
+  .seg button .dot{width:9px;height:9px;border-radius:50%;}
+  .seg button[data-on="1"]{background:#2b3142; color:#E4E7F0;}
+  .zoom{display:flex; align-items:center; gap:6px;}
+  .zoom button{
+    font-family:'JetBrains Mono',monospace; font-size:13px; cursor:pointer;
+    width:28px;height:28px; border-radius:6px; border:1px solid #333a4b;
+    background:#222633; color:#cfd4e0;
+  }
+  .zoom .pct{font-size:11.5px; color:#8A92A6; width:42px; text-align:center;}
+  .zoom .fit{width:auto; padding:0 10px;}
+
+  /* ---------- Stage / board ---------- */
+  .stage{ overflow:auto; height:calc(100vh - 49px); padding:26px; }
+  .board-wrap{ transform-origin:0 0; }
+  .board{
+    position:relative; width:1680px; height:1290px;
+    background:
+      radial-gradient(var(--grid) 1.3px, transparent 1.3px);
+    background-size:26px 26px; background-position:8px 8px;
+    background-color:var(--canvas);
+  }
+
+  svg.arrows{position:absolute; inset:0; width:1680px; height:1290px; pointer-events:none; z-index:5;}
+  svg.arrows path{fill:none;}
+
+  /* ---------- Cards ---------- */
+  .card{
+    position:absolute; background:var(--card);
+    border:1.6px solid var(--line); border-radius:10px;
+    box-shadow:0 3px 0 rgba(40,46,58,.07), 0 8px 22px -14px rgba(20,24,32,.4);
+    display:flex; flex-direction:column; overflow:hidden; z-index:10;
+    transition:opacity .25s ease, filter .25s ease;
+  }
+  .card .hd{
+    display:flex; align-items:center; gap:9px;
+    padding:9px 12px; border-bottom:1.4px solid var(--line);
+    background:#F3F5F8;
+  }
+  .card .hd .num{
+    font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600;
+    background:var(--ink); color:#fff; border-radius:5px; padding:2px 7px;
+  }
+  .card .hd .ttl{font-size:14.5px; font-weight:600; letter-spacing:.2px;}
+  .card .hd .role{
+    margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:9.5px;
+    text-transform:uppercase; letter-spacing:.5px; padding:3px 7px; border-radius:20px;
+    border:1.2px solid; font-weight:500;
+  }
+  .role.core{color:var(--core); border-color:var(--core); background:#2f6bff12;}
+  .role.ctx{color:var(--ctx); border-color:var(--ctx); background:#8a53d612;}
+  .card .bd{padding:12px; flex:1; display:flex; flex-direction:column; gap:9px; min-height:0;}
+
+  .cols{display:flex; gap:10px; flex:1; min-height:0;}
+  .col{flex:1; display:flex; flex-direction:column; gap:8px; min-width:0;}
+  .col.sep{border-left:1.4px dashed var(--dash); padding-left:10px;}
+
+  .clab{font-family:'JetBrains Mono',monospace; font-size:9.5px; letter-spacing:.4px;
+        text-transform:uppercase; color:var(--muted); font-weight:600;}
+  .ln{height:8px; background:var(--wire); border-radius:5px;}
+  .lns{display:flex; flex-direction:column; gap:6px;}
+  .input{height:27px; border:1.4px solid var(--inputbd); border-radius:6px; background:#fff;
+         display:flex; align-items:center; padding:0 9px; gap:6px;
+         font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#98a0ad;}
+  .chips{display:flex; flex-wrap:wrap; gap:5px;}
+  .chip{font-family:'JetBrains Mono',monospace; font-size:10px;
+        border:1.3px solid var(--inputbd); border-radius:20px; padding:3px 9px; color:#566; background:#fff;}
+  .chip.on{background:#eef2ff; border-color:var(--flowA); color:var(--flowA);}
+  .area{flex:1; border:1.6px dashed var(--dash); border-radius:8px; position:relative;
+        background:repeating-linear-gradient(-45deg,#fff 0 9px,#f1f3f7 9px 18px);
+        display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:60px;}
+  .area .cap{font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; letter-spacing:1px;
+             color:#8b93a1; text-transform:uppercase; white-space:nowrap;}
+  .area .sub{font-family:'JetBrains Mono',monospace; font-size:9.5px; color:#a6adb9;}
+  .thumb{width:46px;height:46px;border:1.5px dashed var(--dash);border-radius:6px;flex:none;
+         background:repeating-linear-gradient(-45deg,#fff 0 7px,#eef0f4 7px 14px);}
+  .row{display:flex; gap:9px; align-items:center;}
+  .btnw{height:24px; border:1.4px solid var(--line); border-radius:6px; background:#fff;
+        display:flex;align-items:center;justify-content:center; padding:0 9px; flex:1;
+        font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; color:#3a4150;}
+  .btnw.solid{background:var(--ink); color:#fff; border-color:var(--ink);}
+  .listrow{height:30px; border:1.3px solid #E1E5EC; border-radius:6px; display:flex; align-items:center;
+           gap:8px; padding:0 8px; background:#fff;}
+  .glyph{font-size:13px; line-height:1; width:16px; text-align:center;}
+  .note{font-family:'JetBrains Mono',monospace; font-size:9.5px; color:var(--muted); line-height:1.5;}
+
+  /* status badges */
+  .sb{font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:600; padding:2px 6px;
+      border-radius:4px; letter-spacing:.3px; white-space:nowrap;}
+  .sb.draft{background:#fbf2cc; color:#8a6d00; border:1px solid #e7cf66;}
+  .sb.pub{background:#dff0e3; color:#247a3c; border:1px solid #8fcba3;}
+  .sb.arch{background:#eceef1; color:#7b818c; border:1px solid #cfd3da;}
+  .sb.unk{background:#eef0f2; color:#6c727c; border:1px solid #d3d7de;}
+
+  /* in-board legend */
+  .legend{position:absolute; z-index:11; background:#fff; border:1.6px solid var(--line);
+          border-radius:10px; padding:13px 14px; box-shadow:0 8px 22px -14px rgba(20,24,32,.4);}
+  .legend h3{margin:0 0 4px; font-size:12.5px; font-weight:600;}
+  .legend .grp{margin-top:11px;}
+  .legend .glab{font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:.5px;
+                text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:6px;}
+  .legend .li{display:flex; align-items:center; gap:8px; font-size:11px; margin:5px 0; color:#3b424f;}
+  .legend .sw{width:22px;height:0;border-top-width:3px;border-top-style:solid;border-radius:2px;flex:none;}
+  .legend .swd{width:22px;border-top-style:dashed;}
+  .catgrid{display:grid; grid-template-columns:1fr 1fr; gap:5px 12px;}
+  .catgrid .li{margin:2px 0; font-family:'JetBrains Mono',monospace; font-size:10px;}
+
+  /* step badge */
+  .step{position:absolute; z-index:14; width:26px; height:26px; border-radius:50%;
+        display:flex; align-items:center; justify-content:center; color:#fff;
+        font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700;
+        box-shadow:0 2px 6px rgba(0,0,0,.22); transition:opacity .25s;}
+  .step.a{background:var(--flowA);} .step.b{background:var(--flowB);}
+  .step .lab{position:absolute; left:32px; white-space:nowrap; font-size:9.5px;
+             background:#fff; border:1.2px solid currentColor; padding:2px 6px; border-radius:5px;}
+  .step.a .lab{color:var(--flowA);} .step.b .lab{color:var(--flowB);}
+
+  .ptag{position:absolute; z-index:14; font-family:'JetBrains Mono',monospace; font-size:9.5px;
+        background:#fff; border:1.2px solid; padding:3px 7px; border-radius:6px; font-weight:600;
+        box-shadow:0 2px 6px -2px rgba(0,0,0,.2); transition:opacity .25s;}
+  .ptag.a{color:var(--flowA); border-color:var(--flowA);}
+  .ptag.b{color:var(--flowB); border-color:var(--flowB);}
+  .ptag.n{color:#5a626f; border-color:#aab0ba;}
+
+  /* flow dimming */
+  body[data-flow="search"] .reg-only{opacity:.13; filter:grayscale(1);}
+  body[data-flow="reg"] .search-only{opacity:.13; filter:grayscale(1);}
+
+  .hubring{position:absolute; z-index:8; border:2.5px dashed var(--flowA);
+           border-radius:16px; opacity:.5; pointer-events:none;}
+</style>
+</head>
+<body data-flow="all">
+
+  <div class="topbar">
+    <h1>SAMS <b>·</b> Navigation Skeleton & Core Flows</h1>
+    <span class="sub mono">lo-fi · 7 screens · 검색/등록 흐름</span>
+    <div class="spacer"></div>
+    <div class="seg" id="flowSeg">
+      <button data-flow="all" data-on="1">전체</button>
+      <button data-flow="search"><span class="dot" style="background:var(--flowA)"></span>검색 Searcher</button>
+      <button data-flow="reg"><span class="dot" style="background:var(--flowB)"></span>등록 Acquirer</button>
+    </div>
+    <div class="zoom">
+      <button id="zout">−</button>
+      <span class="pct mono" id="pct">100%</span>
+      <button id="zin">+</button>
+      <button class="fit" id="zfit">Fit</button>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="board-wrap" id="bwrap">
+      <div class="board" id="board">
+
+        <!-- ===== SVG ARROWS ===== -->
+        <svg class="arrows" viewBox="0 0 1680 1290">
+          <defs>
+            <marker id="hA" markerWidth="11" markerHeight="11" refX="8" refY="5" orient="auto">
+              <path d="M1,1 L9,5 L1,9" fill="none" stroke="var(--flowA)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </marker>
+            <marker id="hB" markerWidth="11" markerHeight="11" refX="8" refY="5" orient="auto">
+              <path d="M1,1 L9,5 L1,9" fill="none" stroke="var(--flowB)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </marker>
+            <marker id="hN" markerWidth="11" markerHeight="11" refX="8" refY="5" orient="auto">
+              <path d="M1,1 L9,5 L1,9" fill="none" stroke="#7b828f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </marker>
+          </defs>
+
+          <!-- B: Upload -> Explorer (Draft 등록) -->
+          <path class="reg-only" d="M230,410 C230,425 230,432 230,448" stroke="var(--flowB)" stroke-width="2.4" marker-end="url(#hB)"/>
+
+          <!-- zoom connector: Explorer ctx col -> Context Panel -->
+          <path d="M712,720 C740,720 748,795 768,795" stroke="#7b828f" stroke-width="1.8" stroke-dasharray="2 5" marker-end="url(#hN)"/>
+
+          <!-- A: Context Panel -> 4 targets (branch fan) -->
+          <path class="search-only" d="M1072,690 C1110,690 1112,300 1148,250" stroke="var(--flowA)" stroke-width="2.4" marker-end="url(#hA)"/>
+          <path class="search-only" d="M1072,760 C1112,760 1116,560 1148,535" stroke="var(--flowA)" stroke-width="2.4" marker-end="url(#hA)"/>
+          <!-- to Metadata (both flows) -->
+          <path d="M1072,830 C1112,830 1118,825 1148,825" stroke="var(--flowA)" stroke-width="2.4" marker-end="url(#hA)"/>
+          <path d="M1072,842 C1112,860 1118,1000 1148,1095" stroke="var(--flowA)" stroke-width="2.4" marker-end="url(#hA)"/>
+
+          <!-- ViewerShell -> Detail handoff -->
+          <path d="M1395,372 C1395,388 1395,394 1395,408" stroke="#7b828f" stroke-width="1.8" marker-end="url(#hN)"/>
+
+          <!-- return loop to Explorer hub (bottom) -->
+          <path d="M1395,952 C1395,1130 1395,1258 760,1258 C470,1258 400,1258 400,1224"
+                stroke="#7b828f" stroke-width="1.8" stroke-dasharray="3 6" marker-end="url(#hN)"/>
+        </svg>
+
+        <!-- hub ring around Explorer -->
+        <div class="hubring" style="left:24px; top:434px; width:702px; height:802px;"></div>
+
+        <!-- ===== NAV STRIP ===== -->
+        <div class="card" style="left:40px; top:24px; width:1600px; height:46px;">
+          <div class="bd" style="flex-direction:row; align-items:center; padding:0 14px; gap:14px;">
+            <span class="mono" style="font-weight:600; font-size:13px;">SAMS <span style="color:var(--flowA)">v0.1</span></span>
+            <span class="chip on">Explorer</span>
+            <span class="chip">Project</span>
+            <span class="chip">Upload</span>
+            <span class="note" style="margin-left:auto;">상단 전역 메뉴 = <b style="color:var(--core)">Core 3</b> &nbsp;·&nbsp; Context Panel / ViewerShell / Metadata / Detail = <b style="color:var(--ctx)">Contextual surfaces</b> (Item 선택 후 열림)</span>
+          </div>
+        </div>
+
+        <!-- ===== 5. UPLOAD ===== -->
+        <div class="card reg-only" style="left:40px; top:120px; width:380px; height:290px;">
+          <div class="hd"><span class="num">05</span><span class="ttl">Upload</span><span class="role core">core</span></div>
+          <div class="bd">
+            <div class="chips"><span class="chip on">단건</span><span class="chip">벌크</span><span class="note" style="margin-left:auto;">mock file intake</span></div>
+            <div class="input">⊕ &nbsp;mock file 선택 / drop</div>
+            <div class="clab">자동 분류 결과</div>
+            <div class="listrow"><span class="glyph" style="color:#E05555;">⦿</span><div class="ln" style="flex:1"></div><span class="sb draft">Draft</span></div>
+            <div class="listrow"><span class="glyph" style="color:#6AAF50;">△</span><div class="ln" style="flex:1"></div><span class="sb draft">Draft</span></div>
+            <div class="listrow"><span class="glyph" style="color:#9055C8;">▨</span><div class="ln" style="flex:1"></div><span class="sb draft">Draft</span></div>
+            <div class="row"><div class="btnw solid">Draft로 등록 →</div></div>
+          </div>
+        </div>
+
+        <!-- ===== 1. EXPLORER (HUB) ===== -->
+        <div class="card" style="left:40px; top:450px; width:670px; height:770px;">
+          <div class="hd"><span class="num">01</span><span class="ttl">Explorer</span>
+            <span class="note" style="margin-left:8px;">중심 허브 · 3D GIS(목표) + 2D map/list(안정)</span>
+            <span class="role core">core</span></div>
+          <div class="bd">
+            <div class="cols">
+              <!-- col 1: search/filter -->
+              <div class="col" style="max-width:172px;">
+                <div class="clab">Search / Filter</div>
+                <div class="input">⌕ keyword</div>
+                <div class="clab" style="margin-top:2px;">status</div>
+                <div class="chips">
+                  <span class="chip"><span class="sb draft" style="padding:1px 4px;">Draft</span></span>
+                  <span class="chip on">Pub</span><span class="chip">Arch</span>
+                </div>
+                <div class="clab" style="margin-top:2px;">category</div>
+                <div class="chips">
+                  <span class="chip">⦿</span><span class="chip">△</span><span class="chip">▦</span><span class="chip">▨</span>
+                  <span class="chip">▣</span><span class="chip">◉</span><span class="chip">▶</span><span class="chip">▤</span>
+                </div>
+                <div class="clab" style="margin-top:2px;">project</div>
+                <div class="input">▾ 프로젝트</div>
+                <div class="clab" style="margin-top:2px;">time</div>
+                <div class="input">▭ 기간</div>
+                <div class="clab" style="margin-top:2px;">spatial</div>
+                <div class="input">▢ 영역 그리기</div>
+              </div>
+
+              <!-- col 2: map + list -->
+              <div class="col sep">
+                <div class="row"><span class="clab">Asset Map</span>
+                  <span style="margin-left:auto; display:flex; gap:5px; align-items:center;">
+                    <span class="note" style="margin-right:2px;">render:</span>
+                    <span class="chip on" style="font-size:9px;">2D</span>
+                    <span class="chip" style="font-size:9px;">3D</span>
+                  </span>
+                </div>
+                <div class="area" style="flex:none; height:208px;">
+                  <span class="cap">Asset Map</span>
+                  <span class="sub">marker · bbox · footprint · coverage</span>
+                  <!-- scattered category markers -->
+                  <span style="position:absolute; left:18%; top:22%; color:#E05555; font-size:15px;">⦿</span>
+                  <span style="position:absolute; left:62%; top:18%; color:#6AAF50; font-size:15px;">△</span>
+                  <span style="position:absolute; left:14%; top:52%; color:#9055C8; font-size:15px;">▨</span>
+                  <span style="position:absolute; left:74%; top:54%; color:#35A5E0; font-size:15px;">▣</span>
+                  <span style="position:absolute; left:26%; top:68%; color:#E87830; font-size:15px;">◉</span>
+                  <span style="position:absolute; left:55%; top:74%; color:#50AAAF; font-size:15px;">▦</span>
+                  <span style="position:absolute; left:84%; top:30%; color:#E04040; font-size:14px;">▶</span>
+                </div>
+                <div class="clab">Result List · 상시 표시 (토글 아님) · visibleItems 동기화</div>
+                <div class="lns">
+                  <div class="listrow"><span class="glyph" style="color:#E05555;">⦿</span><div class="ln" style="flex:1"></div><span class="sb pub">Pub</span></div>
+                  <div class="listrow" style="outline:2px solid var(--flowA); outline-offset:1px;"><span class="glyph" style="color:#6AAF50;">△</span><div class="ln" style="flex:1"></div><span class="sb draft">Draft</span></div>
+                  <div class="listrow"><span class="glyph" style="color:#35A5E0;">▣</span><div class="ln" style="flex:1"></div><span class="sb arch">Arch</span></div>
+                  <div class="listrow"><span class="glyph" style="color:#8899AA;">▤</span><div class="ln" style="flex:1"></div><span class="sb unk">?</span></div>
+                </div>
+              </div>
+
+              <!-- col 3: context panel (compact, in-explorer) -->
+              <div class="col sep" style="max-width:150px;">
+                <div class="clab" style="color:var(--ctx);">Context Panel ▸</div>
+                <div class="thumb" style="width:100%; height:62px;"></div>
+                <div class="lns"><div class="ln" style="width:80%"></div><div class="ln" style="width:60%"></div></div>
+                <span class="sb draft" style="align-self:flex-start;">Draft · 누락 3</span>
+                <div class="lns"><div class="ln" style="width:90%"></div><div class="ln" style="width:70%"></div><div class="ln" style="width:84%"></div></div>
+                <div class="note" style="margin-top:auto;">선택 시 우측<br>확대 패널로 →</div>
+              </div>
+            </div>
+            <div class="note" style="border-top:1.3px dashed var(--dash); padding-top:8px;">
+              Search/Filter ↔ Map ↔ List ↔ Context Panel = 동일 <b>visibleItems</b> · 선택 Item 1-depth 관계만 overlay
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== in-board LEGEND ===== -->
+        <div class="legend" style="left:768px; top:120px; width:298px;">
+          <h3>읽는 법 · Legend</h3>
+          <div class="grp">
+            <div class="glab">Flows</div>
+            <div class="li"><span class="sw" style="border-color:var(--flowA)"></span> 검색 흐름 (Searcher)</div>
+            <div class="li"><span class="sw" style="border-color:var(--flowB)"></span> 등록 흐름 (Acquirer)</div>
+            <div class="li"><span class="sw swd" style="border-color:#7b828f"></span> 보조 이동 / 허브 복귀</div>
+          </div>
+          <div class="grp">
+            <div class="glab">Status</div>
+            <div class="li"><span class="sb draft">Draft</span><span class="sb pub">Published</span><span class="sb arch">Archived</span><span class="sb unk">Unknown</span></div>
+          </div>
+          <div class="grp">
+            <div class="glab">Data category (색·형태)</div>
+            <div class="catgrid">
+              <div class="li"><span style="color:#E05555">⦿</span> pointcloud</div>
+              <div class="li"><span style="color:#6AAF50">△</span> 3d_model</div>
+              <div class="li"><span style="color:#50AAAF">▦</span> 3d_tiles</div>
+              <div class="li"><span style="color:#9055C8">▨</span> orthoimage</div>
+              <div class="li"><span style="color:#35A5E0">▣</span> image</div>
+              <div class="li"><span style="color:#E87830">◉</span> panorama</div>
+              <div class="li"><span style="color:#E04040">▶</span> video</div>
+              <div class="li"><span style="color:#8899AA">▤</span> document</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 2. CONTEXT PANEL (branch hub) ===== -->
+        <div class="card" style="left:768px; top:560px; width:300px; height:470px; border-color:var(--ctx);">
+          <div class="hd" style="background:#f6f1fc; border-color:var(--ctx);">
+            <span class="num" style="background:var(--ctx);">02</span><span class="ttl">Context Panel</span><span class="role ctx">분기점</span></div>
+          <div class="bd" style="gap:7px;">
+            <div class="row"><div class="thumb"></div>
+              <div style="flex:1;"><span class="sb draft">Preview pending</span><div class="lns" style="margin-top:5px;"><div class="ln" style="width:90%"></div><div class="ln" style="width:64%"></div></div></div>
+            </div>
+            <div class="clab">Identity</div>
+            <div class="lns"><div class="ln" style="width:88%"></div><div class="ln" style="width:55%"></div></div>
+            <div class="clab">Project / Status</div>
+            <div class="row"><span class="sb pub">Site-A</span><span class="sb draft">Draft</span></div>
+            <div class="clab">Metadata gap · 누락 필드</div>
+            <div class="chips"><span class="chip" style="border-color:var(--st-draft); color:#8a6d00;">epsg</span><span class="chip" style="border-color:var(--st-draft); color:#8a6d00;">datetime</span></div>
+            <div class="clab">Spatial / Relation</div>
+            <div class="lns"><div class="ln" style="width:70%"></div></div>
+            <div class="clab" style="margin-top:3px; color:var(--ctx);">Action footer → 작업 화면 분기</div>
+            <div class="row"><div class="btnw">Detail</div><div class="btnw">Viewer</div></div>
+            <div class="row"><div class="btnw">보완</div><div class="btnw">Project</div></div>
+          </div>
+        </div>
+
+        <!-- ===== 3. VIEWERSHELL ===== -->
+        <div class="card search-only" style="left:1150px; top:120px; width:490px; height:250px;">
+          <div class="hd"><span class="num">03</span><span class="ttl">ViewerShell</span><span class="role ctx">contextual</span></div>
+          <div class="bd" style="flex-direction:row;">
+            <div class="area" style="flex:1.4;">
+              <span class="cap">Preview / Viewer</span>
+              <span class="sub">category별 경량 진입</span>
+            </div>
+            <div class="col" style="flex:1; gap:7px;">
+              <div class="clab">Preview 상태 계약</div>
+              <div class="listrow"><span class="sb pub">available</span><div class="ln" style="flex:1"></div></div>
+              <div class="listrow"><span class="sb draft">pending</span><div class="ln" style="flex:1"></div></div>
+              <div class="listrow"><span class="sb arch">missing</span><div class="ln" style="flex:1"></div></div>
+              <div class="listrow"><span class="sb" style="background:#fbe3e3;color:#b33;border:1px solid #e9a;">failed</span><div class="ln" style="flex:1"></div></div>
+              <div class="note">zoom/reset · failureReason · diagnostics</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 7. DETAIL ===== -->
+        <div class="card search-only" style="left:1150px; top:410px; width:490px; height:250px;">
+          <div class="hd"><span class="num">07</span><span class="ttl">Detail</span><span class="role ctx">contextual</span>
+            <span class="ptag a" style="position:static; margin-left:8px;">관계/시계열 authoring</span></div>
+          <div class="bd" style="flex-direction:row;">
+            <div class="col" style="flex:1;">
+              <div class="clab">Assets · 전체 metadata</div>
+              <div class="lns"><div class="ln" style="width:92%"></div><div class="ln" style="width:78%"></div><div class="ln" style="width:85%"></div></div>
+              <div class="note">자동 추출 ↔ 수동 입력 구분 · 파일/교체 이력</div>
+            </div>
+            <div class="col sep" style="flex:1;">
+              <div class="clab">Relation · Timeline <span style="color:var(--flowA)">✎ authoring 여기서</span></div>
+              <div class="area" style="min-height:0;">
+                <span class="cap" style="font-size:10px;">relation graph</span>
+                <span class="sub">derived_from · related · describes</span>
+              </div>
+              <div class="row"><span class="sb arch">prev</span><div class="ln" style="flex:1"></div><span class="sb pub">next</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 6. METADATA COMPLETION ===== -->
+        <div class="card" style="left:1150px; top:700px; width:490px; height:250px;">
+          <div class="hd"><span class="num">06</span><span class="ttl">Metadata Completion</span><span class="role ctx">contextual</span>
+            <span class="ptag b" style="position:static; margin-left:8px;">등록 합류</span></div>
+          <div class="bd" style="flex-direction:row;">
+            <div class="col" style="flex:1;">
+              <div class="clab">Required fields · Draft 보완</div>
+              <div class="input" style="border-color:var(--st-draft);">project:name <span style="margin-left:auto;color:var(--st-draft)">!</span></div>
+              <div class="input" style="border-color:var(--st-draft);">proj:epsg <span style="margin-left:auto;color:var(--st-draft)">!</span></div>
+              <div class="input">datetime</div>
+              <div class="note">type-specific: pc:count · ortho:gsd …</div>
+            </div>
+            <div class="col sep" style="flex:1;">
+              <div class="clab">Quality gate</div>
+              <div class="area" style="min-height:0;">
+                <span class="cap" style="font-size:10px;">Draft → Published?</span>
+                <span class="sub">통과 / 아직 보완 필요</span>
+              </div>
+              <div class="row"><div class="btnw solid">저장</div><div class="btnw">Explorer</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 4. PROJECT ===== -->
+        <div class="card" style="left:1150px; top:990px; width:490px; height:250px;">
+          <div class="hd"><span class="num">04</span><span class="ttl">Project</span><span class="role core">core</span>
+            <span class="ptag b" style="position:static; margin-left:8px;">등록 합류</span></div>
+          <div class="bd" style="flex-direction:row;">
+            <div class="col" style="flex:.7; max-width:120px;">
+              <div class="clab">Projects</div>
+              <div class="listrow" style="outline:2px solid var(--flowA); outline-offset:1px;"><div class="ln" style="flex:1"></div></div>
+              <div class="listrow"><div class="ln" style="flex:1"></div></div>
+              <div class="chips"><span class="chip">active</span><span class="chip">archived</span></div>
+              <div class="chips"><span class="chip" style="border-color:var(--st-draft);color:#8a6d00;">unassigned</span></div>
+            </div>
+            <div class="col sep" style="flex:1.4;">
+              <div class="row"><span class="clab">Header · site/client/PM/EPSG</span></div>
+              <div class="row" style="gap:6px;">
+                <div class="listrow" style="flex:1; justify-content:center;"><span class="note">등록 12/18</span></div>
+                <div class="listrow" style="flex:1; justify-content:center;"><span class="sb draft">Draft 4</span></div>
+              </div>
+              <div class="chips"><span class="chip on">현황</span><span class="chip">공간</span><span class="chip">Draft</span><span class="chip">Item</span><span class="chip">Timeline</span></div>
+              <div class="area" style="min-height:0;"><span class="cap" style="font-size:10px;">project extent map</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== STEP BADGES ===== -->
+        <!-- Search flow A -->
+        <div class="step a search-only" style="left:48px; top:560px;">A1<span class="lab">필터</span></div>
+        <div class="step a search-only" style="left:300px; top:560px;">A2<span class="lab">지도/목록 선택</span></div>
+        <div class="step a" style="left:758px; top:560px;">A3<span class="lab" style="left:-150px;">Context Panel</span></div>
+        <div class="step a search-only" style="left:1118px; top:236px;">A4<span class="lab" style="left:-58px; top:-26px;">Preview</span></div>
+        <div class="step a search-only" style="left:1118px; top:520px;">A4<span class="lab" style="left:-50px; top:-26px;">Detail</span></div>
+        <div class="step a" style="left:1118px; top:810px;">A4<span class="lab" style="left:-58px; top:-26px;">보완</span></div>
+        <div class="step a" style="left:1118px; top:1080px;">A4<span class="lab" style="left:-60px; top:-26px;">Project</span></div>
+
+        <!-- Registration flow B -->
+        <div class="step b reg-only" style="left:6px; top:106px;">B1</div>
+        <div class="step b reg-only" style="left:48px; top:286px;">B2<span class="lab">자동 분류</span></div>
+        <div class="step b reg-only" style="left:198px; top:418px;">B3<span class="lab">Draft 등록</span></div>
+        <div class="step b reg-only" style="left:660px; top:462px;">B4<span class="lab" style="left:-128px;">Explorer 새 Item</span></div>
+        <div class="ptag b reg-only" style="left:1180px; top:760px;">B5 · 보완 / 연결로 합류</div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ---- flow toggle ----
+  const seg = document.getElementById('flowSeg');
+  seg.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    document.body.dataset.flow = b.dataset.flow;
+    [...seg.children].forEach(c=>c.dataset.on = (c===b)?'1':'0');
+  });
+
+  // ---- zoom / fit ----
+  const stage=document.getElementById('stage'), wrap=document.getElementById('bwrap'),
+        board=document.getElementById('board'), pct=document.getElementById('pct');
+  const BW=1680, BH=1290; let scale=1;
+  function apply(){
+    wrap.style.transform='scale('+scale+')';
+    wrap.style.width=(BW*scale)+'px'; wrap.style.height=(BH*scale)+'px';
+    pct.textContent=Math.round(scale*100)+'%';
+  }
+  function fit(){
+    const pad=52;
+    scale=Math.min((stage.clientWidth-pad)/BW, 1.4);
+    scale=Math.max(scale,0.3); apply();
+  }
+  document.getElementById('zin').onclick=()=>{scale=Math.min(scale+0.1,2);apply();};
+  document.getElementById('zout').onclick=()=>{scale=Math.max(scale-0.1,0.3);apply();};
+  document.getElementById('zfit').onclick=fit;
+  window.addEventListener('resize',()=>{});
+  fit();
+</script>
+</body>
+</html>

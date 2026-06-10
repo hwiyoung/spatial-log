@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAMS · Detail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F1419; --panel:#161C24; --card:#1E2630; --line:#2B333F; --line2:#222932;
+    --t1:#E8ECF1; --t2:#98A2B3; --t3:#5B6573;
+    --blue:#3B82F6; --orange:#F97316;
+    --draft:#FBBF24; --pub:#34D399; --arch:#64748B; --unk:#6B7280;
+    --auto:#7FB1E8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; height:100%;}
+  body{background:var(--bg); color:var(--t1); font-family:'IBM Plex Sans',system-ui,sans-serif; font-size:13px; -webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#2C3540; border-radius:6px; border:2px solid var(--bg);}
+  .oc-glyph{font-size:32px; color:var(--t3); line-height:1;}
+  .sdot{border-radius:50%; border:1px solid; display:inline-block; flex:none;}
+
+  /* nav */
+  .nav{height:50px; position:sticky; top:0; z-index:30; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:0 18px;}
+  .logo{font-weight:600; font-size:15px; margin-right:20px;}
+  .logo b{color:var(--blue);} .logo .v{color:var(--t3); font-weight:400; font-size:11px;}
+  .navtab{padding:7px 15px; border-radius:7px; font-size:13px; font-weight:500; color:var(--t2); border:0; background:transparent;}
+  .navtab.on{color:var(--blue); background:rgba(59,130,246,.12);}
+  .crumb{margin-left:14px; font-size:12px; color:var(--t3);}
+  .crumb b{color:var(--t2);}
+  .nav-r{margin-left:auto; display:flex; align-items:center; gap:8px;}
+  .back{font-size:12.5px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:7px; padding:7px 12px;}
+
+  /* page */
+  .page{max-width:1240px; margin:0 auto; padding:20px 24px 80px;}
+
+  /* item switcher */
+  .switch{display:flex; align-items:center; gap:8px; margin-bottom:16px; flex-wrap:wrap;}
+  .switch-l{font-size:11px; color:var(--t3); text-transform:uppercase; letter-spacing:.5px;}
+  .chip{font-size:12px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:20px; padding:6px 12px; display:flex; gap:7px; align-items:center;}
+  .chip.on{color:var(--t1); border-color:var(--blue); background:rgba(59,130,246,.1);}
+  .chip small{color:var(--t3); font-size:10.5px;}
+  .switch select{margin-left:auto; background:var(--card); border:1px solid var(--line); color:var(--t1); border-radius:8px; padding:8px 10px; font-size:12.5px; font-family:inherit; max-width:280px;}
+
+  /* header card */
+  .dhead{display:flex; gap:18px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:18px;}
+  .dhead-tile{width:92px; height:92px; flex:none; border-radius:12px; background:#0e141b; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:#aeb7c4;}
+  .dhead-main{flex:1; min-width:0;}
+  .dhead-top{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:5px;}
+  .dhead h1{font-size:23px; font-weight:600; margin:0; letter-spacing:.2px;}
+  .badge{font-size:11px; font-weight:600; padding:3px 9px; border-radius:6px; border:1px solid; white-space:nowrap;}
+  .proj-chip{font-size:11.5px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:3px 9px;}
+  .proj-chip.un{color:var(--draft); border-color:rgba(251,191,36,.35);}
+  .dhead-file{font-size:12.5px; color:var(--t3); font-family:'IBM Plex Mono',monospace; margin-bottom:14px; word-break:break-all;}
+  .dhead-facts{display:flex; flex-wrap:wrap; gap:22px;}
+  .fact{display:flex; flex-direction:column; gap:2px;}
+  .fact .k{font-size:10px; color:var(--t3); text-transform:uppercase; letter-spacing:.4px;}
+  .fact .v{font-size:13px; color:var(--t1); font-weight:500;}
+  .fact .v.mono{font-family:'IBM Plex Mono',monospace; font-size:12px;}
+  .dhead-act{display:flex; flex-direction:column; gap:8px; flex:none;}
+  .act{font-size:12.5px; padding:9px 16px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--t1); font-weight:500; white-space:nowrap;}
+  .act.primary{background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600;}
+  .act.warn{border-color:rgba(251,191,36,.4); color:var(--draft);}
+
+  /* sections */
+  .dsec{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin-bottom:18px;}
+  .dsec-h{display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;}
+  .dsec-h h2{font-size:15px; font-weight:600; margin:0;}
+  .dsec-sub{font-size:11.5px; color:var(--t3);}
+  .btn-add{margin-left:auto; font-size:12.5px; font-weight:600; color:#fff; background:var(--blue); border:0; border-radius:8px; padding:8px 14px;}
+  .btn-add.lg{margin:0; padding:10px 18px;}
+
+  /* assets */
+  .assets{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  .asset{background:var(--card); border:1px solid var(--line); border-radius:11px; padding:14px; display:flex; flex-direction:column; gap:10px;}
+  .asset-role{font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--t3); font-weight:600;}
+  .asset-vis{height:84px; border-radius:8px; background:repeating-linear-gradient(-45deg,#10161e 0 8px,#141b24 8px 16px); display:flex; align-items:center; justify-content:center; color:#6f7b8a; position:relative;}
+  .asset-vis .big{opacity:.8;}
+  .asset-pvb{position:absolute; top:8px; right:8px; font-size:10px; font-weight:600; padding:2px 7px; border-radius:5px; font-family:'IBM Plex Mono',monospace;}
+  .asset-nm{font-size:12.5px; color:var(--t1); font-weight:500;}
+  .asset-meta{font-size:11px; color:var(--t3); display:flex; justify-content:space-between; gap:8px;}
+  .asset-note{font-size:11px; color:var(--orange);}
+  .asset-btn{margin-top:auto; font-size:12px; font-weight:500; padding:8px; border-radius:7px; border:1px solid var(--line); background:#121821; color:var(--t1);}
+  .asset-btn:disabled{color:var(--t3); cursor:not-allowed;}
+  .asset-thumbtag{position:absolute; bottom:8px; left:8px; font-size:9.5px; font-family:'IBM Plex Mono',monospace; color:var(--t2); background:rgba(16,22,30,.78); border:1px solid var(--line); padding:2px 6px; border-radius:5px;}
+  .asset-vis.pv-available{background:linear-gradient(135deg,#1a2632,#141d27); border:1px solid var(--line);}
+  .asset-vis.pv-available .big{color:#cdd6e2; opacity:1;}
+  .asset-vis.pv-pending{background:repeating-linear-gradient(-45deg,#1a1f12 0 8px,#20260f 8px 16px);}
+  .asset-vis.pv-pending .big{color:var(--draft);}
+  .asset-vis.pv-failed{background:rgba(248,113,113,.07);}
+  .asset-vis.pv-failed .big{color:#F87171; font-size:26px;}
+  .asset-vis.pv-missing{background:transparent; border:1px dashed var(--line);}
+
+  /* spatial */
+  .spatial-body{display:flex; gap:18px; align-items:stretch;}
+  .spatial-map{flex:none; width:420px;}
+  .spatial-fields{flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center;}
+  .mini{width:420px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#0e141b;}
+  .mini.empty{height:182px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--t3); font-size:12px;}
+  .mini-canvas{position:relative; overflow:hidden; background:radial-gradient(120% 100% at 50% 40%,#131a22,#0e141b);}
+  .mini-grat-layer{position:absolute; inset:0; z-index:1;}
+  .mini-grat{stroke:#1b232d; stroke-width:1;}
+  .mini-tiles{position:absolute; inset:0; z-index:2;}
+  .mini-tile{position:absolute; width:256px; height:256px; filter:saturate(.6) brightness(.82) contrast(1.05); user-select:none; -webkit-user-drag:none;}
+  .mini-tint{position:absolute; inset:0; z-index:3; background:linear-gradient(180deg,rgba(15,20,25,.28),rgba(15,20,25,.42)); pointer-events:none;}
+  .mini-overlay{position:absolute; inset:0; z-index:4;}
+  .mini-shape{stroke-width:2;}
+  .mini-fbring{fill:none; stroke:var(--draft); stroke-width:1.6; stroke-dasharray:3 3; opacity:.85;}
+  .mini-attr{position:absolute; right:6px; bottom:4px; z-index:5; font-size:8.5px; color:rgba(152,162,179,.55); font-family:'IBM Plex Mono',monospace;}
+  .mini-cap{display:flex; align-items:center; gap:12px; padding:9px 12px; border-top:1px solid var(--line2); flex-wrap:wrap;}
+  .mini-type{font-size:11px; font-family:'IBM Plex Mono',monospace; font-weight:600; text-transform:uppercase; letter-spacing:.4px;}
+  .mini-dim{font-size:11px; color:var(--t2); font-family:'IBM Plex Mono',monospace;}
+  .mini-fb{font-size:11px; color:var(--draft);}
+
+  /* metadata */
+  .meta-legend{display:flex; gap:14px; margin-bottom:14px; flex-wrap:wrap;}
+  .ml{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--t2);}
+  .prov{font-size:9.5px; font-weight:600; font-family:'IBM Plex Mono',monospace; padding:1px 6px; border-radius:4px; border:1px solid; text-transform:uppercase; letter-spacing:.3px; white-space:nowrap;}
+  .prov.auto{color:var(--auto); border-color:rgba(127,177,232,.32); background:rgba(127,177,232,.08);}
+  .prov.manual{color:var(--t2); border-color:var(--line); background:var(--card);}
+  .prov.needed{color:var(--draft); border-color:rgba(251,191,36,.35); background:rgba(251,191,36,.08);}
+  .meta-grid{display:grid; grid-template-columns:1fr 1fr; gap:6px 26px;}
+  .meta-group{margin-bottom:10px;}
+  .meta-gh{font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--t2); font-weight:600; margin:12px 0 7px; padding-bottom:5px; border-bottom:1px solid var(--line2);}
+  .mrow{display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid rgba(34,41,50,.5);}
+  .mrow .mk{width:140px; flex:none; font-size:11.5px; color:var(--t3); display:flex; align-items:center; gap:6px;}
+  .mrow .mv{flex:1; min-width:0; font-size:12.5px; color:var(--t1); word-break:break-word;}
+  .mrow .mv.mono{font-family:'IBM Plex Mono',monospace; font-size:11.5px;}
+  .mrow .mv.needed{color:var(--draft);}
+
+  /* relations */
+  .rel-body{display:flex; gap:18px;}
+  .rel-graph-wrap{flex:none; width:560px;}
+  .rgraph{position:relative; width:560px; height:332px; background:radial-gradient(120% 100% at 50% 45%, #131a22, #0e141b); border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+  .rgraph-svg{position:absolute; inset:0;}
+  .rg-edge{stroke:#3a4452; stroke-width:1.6;}
+  .rg-edge.warn{stroke:var(--orange); stroke-dasharray:5 4;}
+  .rg-d2{fill:#2d3744;}
+  .rg-node{position:absolute; transform:translate(-50%,-50%); width:150px; background:var(--card); border:1.6px solid var(--line); border-radius:9px; padding:7px 9px; display:flex; flex-direction:column; gap:3px; box-shadow:0 4px 14px -6px rgba(0,0,0,.6);}
+  .rg-node.center{width:160px; background:#1b2530; box-shadow:0 0 0 3px rgba(59,130,246,.2),0 6px 18px -6px rgba(0,0,0,.7); z-index:5;}
+  .rg-node.clickable{cursor:pointer;}
+  .rg-node.clickable:hover{border-color:var(--blue);}
+  .rg-node.missing{border-style:dashed; border-color:rgba(249,115,22,.5); background:rgba(249,115,22,.06);}
+  .rg-rel{font-size:9.5px; font-family:'IBM Plex Mono',monospace; color:var(--t3);}
+  .rg-row{display:flex; align-items:center; justify-content:space-between;}
+  .rg-g{color:#aeb7c4; display:flex;}
+  .rg-nm{font-size:11.5px; color:var(--t1); font-weight:500; line-height:1.25; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}
+  .rg-miss{font-size:10.5px; color:var(--orange);}
+  .rg-legend{position:absolute; left:10px; bottom:8px; font-size:10px; color:var(--t3); font-family:'IBM Plex Mono',monospace;}
+
+  .rel-auth{flex:1; min-width:0;}
+  .rel-grp-h{font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--t2); font-weight:600; display:flex; gap:8px; align-items:baseline; margin-bottom:8px;}
+  .rel-grp-h.mt{margin-top:16px;}
+  .rel-grp-h span{font-size:10px; font-weight:400; text-transform:none; color:var(--t3); letter-spacing:0;}
+  .rel-mini-empty{font-size:11.5px; color:var(--t3); padding:8px 0;}
+  .rel-row{display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--card); border:1px solid var(--line2); border-radius:8px; margin-bottom:6px;}
+  .rel-row.warn{border-color:rgba(249,115,22,.35); background:rgba(249,115,22,.05);}
+  .rel-row.ro{cursor:pointer;} .rel-row.ro:hover{border-color:#3a4655;}
+  .rr-g{width:22px; flex:none; display:flex; justify-content:center; color:#aeb7c4; cursor:pointer;}
+  .rr-g.warn{color:var(--orange);}
+  .rr-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; cursor:pointer;}
+  .rr-nm{font-size:12.5px; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rr-nm.strike{text-decoration:line-through; color:var(--t3);}
+  .rr-sub{font-size:10.5px; color:var(--t3);}
+  .rr-sub.warn{color:var(--orange);}
+  .rr-sel{background:#121821; border:1px solid var(--line); color:var(--t1); border-radius:6px; padding:5px 6px; font-size:11px; font-family:'IBM Plex Mono',monospace;}
+  .rr-del{width:26px; height:26px; border-radius:6px; border:1px solid var(--line); background:#121821; color:var(--t3); font-size:16px; line-height:1; flex:none;}
+  .rr-del:hover{color:#F87171; border-color:rgba(248,113,113,.4);}
+  .rr-lock{font-size:10px; color:var(--t3); border:1px solid var(--line); border-radius:5px; padding:2px 6px;}
+
+  .rel-empty{display:flex; flex-direction:column; align-items:center; gap:10px; padding:40px; text-align:center; border:1px dashed var(--line); border-radius:12px;}
+  .rel-empty b{font-size:15px;} .rel-empty small{color:var(--t3);}
+  .rcount{font-size:10.5px; font-family:'IBM Plex Mono',monospace; color:var(--t2); border:1px solid var(--line); border-radius:12px; padding:2px 8px;}
+  .rcount b{color:var(--blue);}
+  .rel-counts{display:flex; gap:5px; flex-wrap:wrap;}
+
+  /* timeline */
+  .tl-lane{display:flex; align-items:stretch; gap:12px;}
+  .tl-arrow{display:flex; align-items:center; color:var(--t3); font-size:18px;}
+  .tl-card{flex:1; min-width:0; background:var(--card); border:1.6px solid var(--line); border-radius:11px; padding:12px 14px; display:flex; flex-direction:column; gap:5px; position:relative;}
+  .tl-card.current{background:#1b2530; border-color:rgba(59,130,246,.4); flex:1.1;}
+  .tl-card.clickable{cursor:pointer;} .tl-card.clickable:hover{border-color:var(--blue);}
+  .tl-card.warn{border-style:dashed; border-color:rgba(249,115,22,.5); background:rgba(249,115,22,.06);}
+  .tl-rel{font-size:10px; font-family:'IBM Plex Mono',monospace; color:var(--t3); text-transform:uppercase;}
+  .tl-rel.cur{color:var(--blue);}
+  .tl-row{display:flex; align-items:center; gap:7px; color:#aeb7c4;}
+  .tl-nm{font-size:13px; color:var(--t1); font-weight:500;}
+  .tl-nm.strike{text-decoration:line-through; color:var(--t3);}
+  .tl-dt{font-size:11px; color:var(--t3); font-family:'IBM Plex Mono',monospace;}
+  .tl-warn{font-size:11px; color:var(--orange);}
+  .tl-x{position:absolute; top:8px; right:8px; width:22px; height:22px; border-radius:6px; border:1px solid var(--line); background:#121821; color:var(--t3); font-size:14px; line-height:1;}
+  .tl-empty{flex:1; border:1.6px dashed var(--line); border-radius:11px; background:transparent; color:var(--t2); font-size:12.5px; padding:12px;}
+  .tl-empty:hover{border-color:var(--blue); color:var(--t1);}
+
+  /* history */
+  .hist{display:flex; flex-direction:column;}
+  .hrow{display:flex; gap:14px; padding:11px 0; border-bottom:1px solid var(--line2);}
+  .hrow:last-child{border-bottom:0;}
+  .hic{width:30px; height:30px; flex:none; border-radius:8px; background:var(--card); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--t2);}
+  .hrow.warn .hic{border-color:rgba(251,191,36,.4); color:var(--draft);}
+  .hmain{flex:1; min-width:0;}
+  .htext{font-size:12.5px; color:var(--t1);}
+  .hmeta{font-size:10.5px; color:var(--t3); margin-top:2px;}
+  .hdate{font-size:11px; color:var(--t3); font-family:'IBM Plex Mono',monospace; flex:none; white-space:nowrap;}
+
+  /* picker modal */
+  .pick-overlay{position:fixed; inset:0; background:rgba(7,9,12,.72); display:flex; align-items:center; justify-content:center; z-index:100; backdrop-filter:blur(2px);}
+  .pick{width:560px; max-width:92vw; max-height:84vh; background:var(--panel); border:1px solid var(--line); border-radius:14px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 80px -20px rgba(0,0,0,.8);}
+  .pick-head{display:flex; align-items:center; padding:15px 18px; border-bottom:1px solid var(--line);}
+  .pick-head b{font-size:15px;} .pick-x{margin-left:auto; background:transparent; border:0; color:var(--t3); font-size:21px;}
+  .pick-search{display:flex; align-items:center; gap:9px; margin:14px 18px; background:var(--card); border:1px solid var(--line); border-radius:9px; padding:0 12px; height:40px;}
+  .pick-search span{color:var(--t3);}
+  .pick-search input{flex:1; background:transparent; border:0; outline:0; color:var(--t1); font-size:13px;}
+  .pick-list{flex:1; overflow-y:auto; padding:0 12px; min-height:120px;}
+  .pick-row{display:flex; align-items:center; gap:11px; padding:9px 10px; border-radius:8px; cursor:pointer; border:1px solid transparent;}
+  .pick-row:hover{background:var(--card);}
+  .pick-row.on{background:#1b2735; border-color:rgba(59,130,246,.5);}
+  .pick-g{width:22px; flex:none; display:flex; justify-content:center; color:#aeb7c4;}
+  .pick-main{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .pick-nm{font-size:12.5px; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .pick-sub{font-size:10.5px; color:var(--t3); font-family:'IBM Plex Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .pick-check{color:var(--blue); font-weight:700;}
+  .pick-empty{text-align:center; color:var(--t3); padding:24px; font-size:12px;}
+  .pick-rel{padding:12px 18px; border-top:1px solid var(--line);}
+  .pick-rell{font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3);}
+  .pick-reltypes{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:9px;}
+  .pick-relbtn{display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:9px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--t2); text-align:left;}
+  .pick-relbtn b{font-size:12px; font-family:'IBM Plex Mono',monospace; color:var(--t1);}
+  .pick-relbtn span{font-size:10.5px; color:var(--t3);}
+  .pick-relbtn.on{border-color:var(--blue); background:rgba(59,130,246,.1);}
+  .pick-relbtn.on b{color:var(--blue);}
+  .pick-foot{display:flex; gap:10px; justify-content:flex-end; padding:14px 18px; border-top:1px solid var(--line);}
+  .pick-cancel{font-size:12.5px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:9px 16px;}
+  .pick-add{font-size:12.5px; font-weight:600; color:#fff; background:var(--blue); border:0; border-radius:8px; padding:9px 18px;}
+  .pick-add:disabled{opacity:.4; cursor:not-allowed;}
+
+  @media (max-width:1080px){ .rel-body{flex-direction:column;} .rel-graph-wrap{width:100%;} .rgraph{width:100%;} .assets{grid-template-columns:1fr;} .meta-grid{grid-template-columns:1fr;} .spatial-body{flex-direction:column;} .spatial-map{width:100%;} .mini{width:100%;} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="explorer/data.jsx"></script>
+<script type="text/babel" src="explorer/map.jsx"></script>
+<script type="text/babel" src="detail/build.jsx"></script>
+<script type="text/babel" src="detail/minimap.jsx"></script>
+<script type="text/babel" src="detail/relations.jsx"></script>
+
+<script type="text/babel">
+(function () {
+const { useState, useEffect, useMemo } = React;
+const S = window.SAMS, D = window.DETAIL;
+
+const EXAMPLES = [
+  { id: 'bulguksa-pointcloud-dabotap', tag: '풍부 + 시계열' },
+  { id: 'seongsu-model-lobby-bim', tag: '가공본' },
+  { id: 'bulguksa-panorama-main-hall', tag: '관계 없음' },
+  { id: 'inbox-document-contract-draft', tag: '대상 결과 밖' },
+];
+
+function Badge({ status }) {
+  const v = S.STATUS[status];
+  return <span className="badge" style={{ color: v.color, borderColor: v.color + '66', background: v.color + '14', borderStyle: v.dashed ? 'dashed' : 'solid' }}>{v.label}</span>;
+}
+const PV_COLOR = { available: 'var(--pub)', pending: 'var(--draft)', missing: 'var(--t3)', failed: '#F87171' };
+
+function App() {
+  const [itemId, setItemId] = useState('bulguksa-pointcloud-dabotap');
+  const item = S.BY_ID[itemId];
+  const [rels, setRels] = useState([]);
+  const [timeline, setTimeline] = useState({ prev: null, next: null });
+
+  useEffect(() => {
+    const all = item.rel || [];
+    setRels(all.filter(r => !['prev', 'next'].includes(r.rel)).map((r, i) => ({ id: 'seed' + i, rel: r.rel, target: r.target, title: r.title, missing: !!r.missing })));
+    const p = all.find(r => r.rel === 'prev'), n = all.find(r => r.rel === 'next');
+    setTimeline({ prev: p ? { target: p.target, title: p.title } : null, next: n ? { target: n.target, title: n.title } : null });
+  }, [itemId]);
+
+  const incoming = useMemo(() => D.deriveIncoming(item, rels), [itemId, rels]);
+  const meta = useMemo(() => D.buildMetadata(item), [itemId]);
+  const spatialRows = meta.groups['Spatial'] || [];
+  const metaOrder = meta.order.filter(g => g !== 'Spatial');
+  const assets = useMemo(() => D.buildAssets(item), [itemId]);
+  const history = useMemo(() => D.buildHistory(item), [itemId]);
+  const col = S.collectionById(item.col);
+  const onFocus = (id) => { if (S.BY_ID[id]) { setItemId(id); window.scrollTo({ top: 0, behavior: 'smooth' }); } };
+
+  return (
+    <div>
+      <nav className="nav">
+        <span className="logo">SAMS<span className="v">v0.1</span></span>
+        <button className="navtab">Explorer</button>
+        <button className="navtab">Project</button>
+        <button className="navtab">Upload</button>
+        <span className="crumb"><b>Explorer</b> › Detail</span>
+        <div className="nav-r"><button className="back">← Explorer로</button></div>
+      </nav>
+
+      <div className="page">
+        <div className="switch">
+          <span className="switch-l">예시 상태</span>
+          {EXAMPLES.map(ex => (
+            <button key={ex.id} className={'chip' + (itemId === ex.id ? ' on' : '')} onClick={() => setItemId(ex.id)}>
+              {S.BY_ID[ex.id].name.length > 14 ? S.BY_ID[ex.id].name.slice(0, 13) + '…' : S.BY_ID[ex.id].name}<small>{ex.tag}</small>
+            </button>
+          ))}
+          <select value={itemId} onChange={e => setItemId(e.target.value)}>
+            {S.COLLECTIONS.map(c => (
+              <optgroup key={c.id} label={c.title}>
+                {S.ITEMS.filter(i => i.col === c.id).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
+        {/* header */}
+        <div className="dhead">
+          <div className="dhead-tile"><CategoryGlyph cat={item.cat} s={40} /></div>
+          <div className="dhead-main">
+            <div className="dhead-top">
+              <h1>{item.name}</h1>
+              <Badge status={item.status} />
+              <span className={'proj-chip' + (item.col === 'unassigned-inbox' ? ' un' : '')}>{item.col === 'unassigned-inbox' ? '◇ Unassigned' : col.title}</span>
+            </div>
+            <div className="dhead-file">{item.file} · {item.id}</div>
+            <div className="dhead-facts">
+              <div className="fact"><span className="k">데이터 유형</span><span className="v">{S.CAT[item.cat].ko}</span></div>
+              <div className="fact"><span className="k">취득일</span><span className="v mono">{item.dt}</span></div>
+              <div className="fact"><span className="k">크기</span><span className="v">{S.formatSize(item.size)}</span></div>
+              <div className="fact"><span className="k">위치 근거</span><span className="v">{S.SPATIAL_LABEL[item.src]}</span></div>
+              <div className="fact"><span className="k">preview</span><span className="v" style={{ color: PV_COLOR[item.preview] }}>{item.preview}</span></div>
+            </div>
+          </div>
+          <div className="dhead-act">
+            <button className="act primary">Viewer 열기</button>
+            <button className="act">원본 다운로드</button>
+            {item.status === 'draft' && <button className="act warn">메타데이터 보완</button>}
+          </div>
+        </div>
+
+        {/* assets */}
+        <section className="dsec">
+          <div className="dsec-h"><h2>Assets</h2><span className="dsec-sub">원본 · preview · download</span></div>
+          <div className="assets">
+            {assets.map(a => (
+              <div className="asset" key={a.key}>
+                <div className="asset-role">{a.label}</div>
+                <div className={'asset-vis' + (a.key === 'preview' ? ' pv-' + a.status : '')}>
+                  <span className="big">{a.key === 'preview' && a.status === 'failed' ? '⚠' : a.key === 'preview' && a.status === 'missing' ? '▢' : <CategoryGlyph cat={item.cat} s={a.key === 'preview' && a.status === 'available' ? 38 : 30} />}</span>
+                  {a.key === 'preview' && a.status === 'available' && <span className="asset-thumbtag">대표 썸네일</span>}
+                  {a.key === 'preview' && <span className="asset-pvb" style={{ color: PV_COLOR[a.status], border: '1px solid', borderColor: PV_COLOR[a.status] + '55', background: PV_COLOR[a.status] + '14' }}>{a.status}</span>}
+                </div>
+                <div className="asset-nm">{a.name}</div>
+                <div className="asset-meta"><span>{a.role}</span><span>{a.size}</span></div>
+                {a.note && <div className="asset-note">⚠ {a.note}</div>}
+                <button className="asset-btn" disabled={a.key === 'preview' && (a.status === 'missing' || a.status === 'failed')}>
+                  {a.key === 'original' ? '원본 보기' : a.key === 'preview' ? (a.status === 'available' ? 'Preview 열기' : a.status === 'pending' ? '변환 대기' : '미지원') : '다운로드'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* metadata */}
+        <section className="dsec">
+          <div className="dsec-h"><h2>전체 Metadata</h2><span className="dsec-sub">자동 추출 ↔ 수동 입력 provenance 구분</span></div>
+          <div className="meta-legend">
+            <span className="ml"><span className="prov auto">자동추출</span> {meta.counts.auto}</span>
+            <span className="ml"><span className="prov manual">수동입력</span> {meta.counts.manual}</span>
+            <span className="ml"><span className="prov needed">미입력</span> {meta.counts.needed}</span>
+          </div>
+          {meta.order.filter(g => g !== 'Spatial').map(g => (
+            <div className="meta-group" key={g}>
+              <div className="meta-gh">{g}</div>
+              <div className="meta-grid">
+                {meta.groups[g].map(r => (
+                  <div className="mrow" key={r.k}>
+                    <span className="mk">{r.glyph && <CategoryGlyph cat={r.glyph} s={14} />}{r.label}</span>
+                    <span className={'mv' + (r.mono ? ' mono' : '') + (r.prov === 'needed' ? ' needed' : '')}>
+                      {r.status ? <Badge status={r.status} /> : r.value}
+                    </span>
+                    <span className={'prov ' + r.prov}>{r.prov === 'auto' ? 'AUTO' : r.prov === 'manual' ? '수동' : '미입력'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {/* spatial */}
+        <section className="dsec">
+          <div className="dsec-h"><h2>Spatial</h2><span className="dsec-sub">위치 · 범위 — point / bbox / footprint</span></div>
+          <div className="spatial-body">
+            <div className="spatial-map"><SpatialMiniMap item={item} /></div>
+            <div className="spatial-fields">
+              {spatialRows.map(r => (
+                <div className="mrow" key={r.k}>
+                  <span className="mk">{r.label}</span>
+                  <span className={'mv' + (r.mono ? ' mono' : '') + (r.prov === 'needed' ? ' needed' : '')}>{r.value}</span>
+                  <span className={'prov ' + r.prov}>{r.prov === 'auto' ? 'AUTO' : r.prov === 'manual' ? '수동' : '미입력'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* relations (authoring) */}
+        <RelationsSection item={item} rels={rels} setRels={setRels} incoming={incoming} onFocus={onFocus} />
+
+        {/* timeline (authoring) */}
+        <TimelineSection item={item} timeline={timeline} setTimeline={setTimeline} onFocus={onFocus} />
+
+        {/* history */}
+        <section className="dsec">
+          <div className="dsec-h"><h2>History</h2><span className="dsec-sub">파일 교체 · 메타데이터 · project assignment 이력</span></div>
+          <div className="hist">
+            {history.map((h, i) => (
+              <div className={'hrow' + (h.warn ? ' warn' : '')} key={i}>
+                <span className="hic">{({ register: '＋', assign: '◇', preview: '▤', file: '⇄', meta: '✎', status: '◉' })[h.type] || '·'}</span>
+                <div className="hmain"><div className="htext">{h.text}</div><div className="hmeta">{h.actor}</div></div>
+                <span className="hdate">{h.date}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>
