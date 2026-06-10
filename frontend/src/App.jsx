@@ -18,6 +18,7 @@ import Detail from './pages/Detail'
 import Project from './pages/Project'
 import Upload from './pages/Upload'
 import ViewerShell from './pages/ViewerShell'
+import MetadataCompletion from './pages/MetadataCompletion'
 import { UploadTasksProvider } from './contexts/UploadTasksContext'
 import UploadStatusBar from './components/UploadStatusBar'
 import AppErrorBoundary from './components/AppErrorBoundary'
@@ -79,6 +80,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Explorer />} />
                 <Route path="/detail/:collectionId/:itemId" element={<Detail />} />
+                <Route path="/complete/:collectionId/:itemId" element={<MetadataCompletion />} />
                 <Route path="/viewer/:collectionId/:itemId" element={<ViewerShell />} />
                 <Route path="/project" element={<Project />} />
                 <Route path="/upload" element={<Upload />} />

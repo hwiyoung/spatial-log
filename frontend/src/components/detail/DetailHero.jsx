@@ -19,7 +19,7 @@ function Badge({ status }) {
   )
 }
 
-export function DetailHeader({ view, isUnassigned, projectTitle, onOpenViewer, onDownload, canDownload, onEdit, editMode }) {
+export function DetailHeader({ view, isUnassigned, projectTitle, onOpenViewer, onDownload, canDownload, onEdit, onComplete, editMode }) {
   const pv = PREVIEW_META[view.preview] || PREVIEW_META.missing
   const isDraft = view.status === 'draft'
   return (
@@ -54,10 +54,12 @@ export function DetailHeader({ view, isUnassigned, projectTitle, onOpenViewer, o
         >
           원본 다운로드
         </button>
+        {/* Draft = 보완 화면(품질 게이트)으로, 그 외 = 인라인 편집 모드 */}
+        {!editMode && isDraft && onComplete && (
+          <button type="button" className="act warn" onClick={onComplete}>메타데이터 보완</button>
+        )}
         {!editMode && onEdit && (
-          <button type="button" className={'act' + (isDraft ? ' warn' : '')} onClick={onEdit}>
-            {isDraft ? '메타데이터 보완' : '편집'}
-          </button>
+          <button type="button" className="act" onClick={onEdit}>편집</button>
         )}
       </div>
     </div>

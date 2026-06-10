@@ -156,6 +156,9 @@ export default function Explorer() {
   const goDetail = useCallback((item) => {
     if (item?.collection && item?.id) navigate({ pathname: `/detail/${item.collection}/${item.id}`, search: location.search })
   }, [navigate, location.search])
+  const goCompletion = useCallback((item) => {
+    if (item?.collection && item?.id) navigate({ pathname: `/complete/${item.collection}/${item.id}`, search: location.search }, { state: { from: 'explorer' } })
+  }, [navigate, location.search])
 
   // ── divider drag (stack=세로 / split=가로) ──
   const bodyRef = useRef(null)
@@ -262,6 +265,7 @@ export default function Explorer() {
           onSelectRelated={selectById}
           onOpenDetail={() => goDetail(selectedItem)}
           onOpenViewer={() => goViewer(selectedItem)}
+          onOpenCompletion={() => goCompletion(selectedItem)}
         />
       </div>
     </div>

@@ -58,8 +58,9 @@ async def _pgstac_update_item(collection_id: str, item_id: str, item: dict) -> N
             if cur.rowcount > 0:
                 break
         cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
-        conn.commit()
 
+        # DELETE 와 create_item 은 반드시 한 트랜잭션 — 중간 commit 이 있으면 create 실패
+        # (예: 잘못된 datetime) 시 Item 이 영구 삭제된다.
         cur.execute("SELECT pgstac.create_item(%s::jsonb)", (json.dumps(item),))
         conn.commit()
     except Exception as e:
@@ -110,13 +111,40 @@ async def update_item_status(collection_id: str, item_id: str, req: StatusUpdate
     return {"status": req.status, "item_id": item_id}
 
 
+# proj:epsg 가 Published 필수인 유형 — v4 메타데이터 설계서 필수/선택 매트릭스 기준
+# (image/panorama/video/document 는 선택. document 는 좌표 자체가 없을 수 있다.)
+_EPSG_REQUIRED_CATS = {"pointcloud", "3d_model", "3d_tiles", "orthoimage"}
+
+# 유형별 Published 필수 필드 — 보완 화면(buildCompletionSpec)의 차단 목록과 동일해야 한다.
+# 키는 추출 파이프라인(extract.py)/v4 설계서의 정식 네임스페이스를 쓴다.
+_TYPE_REQUIRED: dict[str, list[str]] = {
+    "pointcloud": ["pc:count"],
+    "3d_model": ["3dmodel:format"],
+    "3d_tiles": ["3dtiles:geometric_error"],
+    "orthoimage": ["ortho:gsd"],
+    "image": ["image:camera_model"],
+    "panorama": ["panorama:type"],
+    "video": ["video:duration", "video:codec"],
+    "document": ["document:title", "document:authors"],
+}
+
+
 def _check_required_for_publish(props: dict) -> list[str]:
-    """Published 전환 시 필수 필드 누락 확인."""
-    required = ["datetime", "description", "data_category", "project:name", "project:site", "proj:epsg"]
+    """Published 전환 시 필수 필드 누락 확인.
+
+    디자인 핸드오프(MetadataCompletion) 원칙에 따라 project:name/site 는 비차단 —
+    "프로젝트 미배정이어도 Published 가능, 배정은 status 와 별개 축".
+    proj:epsg 는 v4 매트릭스상 필수인 유형에만, 유형별 품질 필드는 _TYPE_REQUIRED 로 요구한다.
+    """
+    required = ["datetime", "description", "data_category"]
+    category = props.get("data_category")
+    if category in _EPSG_REQUIRED_CATS:
+        required.append("proj:epsg")
+    required.extend(_TYPE_REQUIRED.get(category, []))
     missing = []
     for field in required:
         val = props.get(field)
-        if val is None or (isinstance(val, str) and val.strip() == ""):
+        if val is None or (isinstance(val, str) and val.strip() == "") or (isinstance(val, (list, dict)) and len(val) == 0):
             # datetime이 null이면 start/end 확인
             if field == "datetime" and props.get("start_datetime") and props.get("end_datetime"):
                 continue
@@ -483,10 +511,20 @@ async def update_item_properties(collection_id: str, item_id: str, req: dict[str
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item을 찾을 수 없습니다: {item_id}")
 
+    # datetime 은 pgSTAC 필수(NOT NULL) — 비우거나 파싱 불가한 값은 저장 전에 거부한다.
+    if "datetime" in req:
+        dt_val = req["datetime"]
+        if dt_val is None or (isinstance(dt_val, str) and dt_val.strip() == ""):
+            raise HTTPException(status_code=400, detail="datetime 은 비울 수 없습니다 (ISO8601 필수).")
+        try:
+            datetime.fromisoformat(str(dt_val).replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"datetime 형식이 올바르지 않습니다 (ISO8601): {dt_val}")
+
     props = item.get("properties", {})
     old_status = props.get("sams:status")
     for key, value in req.items():
-        if value is None or value == "":
+        if value is None or (isinstance(value, str) and value.strip() == ""):
             props.pop(key, None)
         else:
             props[key] = value
@@ -559,7 +597,7 @@ async def update_item_location(collection_id: str, item_id: str, req: LocationUp
     props["sams:location_source"] = "manual"
     item["properties"] = props
 
-    # pgSTAC는 partition 변경을 위해 update_item 사용
+    # pgSTAC는 partition 변경을 위해 update_item 사용 — 삭제·삽입은 한 트랜잭션 (실패 시 원복)
     try:
         conn = psycopg2.connect(settings.DATABASE_URL)
         try:
@@ -578,11 +616,13 @@ async def update_item_location(collection_id: str, item_id: str, req: LocationUp
                     break
 
             cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
-            conn.commit()
 
-            # 새 항목 삽입
+            # 새 항목 삽입 (같은 트랜잭션 — create 실패 시 삭제도 롤백)
             cur.execute("SELECT pgstac.create_item(%s::jsonb)", (json.dumps(item),))
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
     except Exception as e:
@@ -662,7 +702,16 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
         logger.warning("S3 이동 중 오류 (DB 이동은 계속 진행): %s", item_id)
         moved_assets = item.get("assets", {})
 
-    # 4. DB에서 이동 (구 파티션 삭제 → 새 파티션 삽입)
+    # 4. DB에서 이동 — 구 파티션 삭제와 새 Collection 삽입을 한 트랜잭션으로 (실패 시 원복)
+    item["collection"] = req.target_collection_id
+    item["assets"] = moved_assets
+    item["properties"]["updated"] = datetime.now(timezone.utc).isoformat()
+
+    # stac-fastapi 링크 등 불필요 필드 정리
+    item.pop("type", None)
+    item["type"] = "Feature"
+    item.pop("stac_extensions", None)
+
     try:
         conn = psycopg2.connect(settings.DATABASE_URL)
         try:
@@ -681,35 +730,18 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
                     break
 
             cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
+
+            # 새 Collection 에 삽입 (같은 트랜잭션 — 실패 시 삭제 롤백)
+            cur.execute("SELECT pgstac.create_item(%s::jsonb)", (json.dumps(item),))
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
     except Exception as e:
-        logger.exception("Item 삭제 실패 (이동 중): %s", item_id)
+        logger.exception("Item 이동 실패 (DB): %s", item_id)
         raise HTTPException(status_code=500, detail=f"이동 실패: {e}")
-
-    # 5. 새 Collection에 삽입
-    item["collection"] = req.target_collection_id
-    item["assets"] = moved_assets
-    item["properties"]["updated"] = datetime.now(timezone.utc).isoformat()
-
-    # stac-fastapi 링크 등 불필요 필드 정리
-    item.pop("type", None)
-    item["type"] = "Feature"
-    item.pop("stac_extensions", None)
-
-    try:
-        import json as _json
-        conn = psycopg2.connect(settings.DATABASE_URL)
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT pgstac.create_item(%s::jsonb)", (_json.dumps(item),))
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception as e:
-        logger.exception("Item 삽입 실패 (이동 중): %s", item_id)
-        raise HTTPException(status_code=500, detail=f"이동 실패 (삽입): {e}")
 
     logger.info("Item 이동 완료: %s/%s → %s", collection_id, item_id, req.target_collection_id)
     # 이력이 Item 을 따라가도록 collection_id 갱신 후, 새 collection 기준으로 이동 이벤트 기록

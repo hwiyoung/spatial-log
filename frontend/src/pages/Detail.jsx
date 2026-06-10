@@ -157,6 +157,7 @@ export default function Detail() {
   // ── navigation ──
   const goExplorer = () => navigate({ pathname: '/', search: location.search })
   const goViewer = () => navigate({ pathname: `/viewer/${collectionId}/${itemId}`, search: location.search })
+  const goComplete = () => navigate({ pathname: `/complete/${collectionId}/${itemId}`, search: location.search }, { state: { from: 'detail' } })
   const goFocus = (targetCol, targetId) => {
     if (!targetId) return
     navigate({ pathname: `/detail/${targetCol || collectionId}/${targetId}`, search: location.search })
@@ -313,6 +314,7 @@ export default function Detail() {
           onDownload={handleDownload}
           canDownload={canDownload}
           onEdit={isMock ? undefined : () => { setEditMode(true); setEditDraft({}) }}
+          onComplete={goComplete}
           editMode={editMode}
         />
 

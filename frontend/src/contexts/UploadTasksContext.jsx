@@ -115,6 +115,8 @@ export function UploadTasksProvider({ children }) {
       sessionId,
       manifest: null,
       locationOverrides: {},
+      rowEdits: {},        // {idx: {data_category?, description?, datetime?}} — 검토 단계 사용자 수정
+      excludedRows: [],    // 등록에서 제외한 manifest 인덱스
       error: null,
       startedAt: Date.now(),
       uploadProgress: 0,
@@ -179,13 +181,22 @@ export function UploadTasksProvider({ children }) {
     updateTask(taskId, { status: 'registering' })
     try {
       const collectionId = task.collectionId || `upload-${Date.now()}`
+      const excluded = new Set(task.excludedRows || [])
       const items = task.manifest.manifest.map((item, idx) => {
+        if (excluded.has(idx)) return null
         const base = {
           data_category: item.detected_category,
           ...flattenExtracted(item.auto_extracted),
           ...flattenExtracted(item.inherited),
           _filename: item.file_path,
           _bundled_files: item.bundled_files || [],
+        }
+        // 검토 단계의 사용자 수정(카테고리 교정·표시 이름·취득일)이 자동 추출값을 덮어쓴다
+        const edits = task.rowEdits?.[idx]
+        if (edits) {
+          for (const [k, v] of Object.entries(edits)) {
+            if (v !== undefined && v !== '') base[k] = v
+          }
         }
         if (!base.description) {
           base.description = item.file_path.split('/').pop()
@@ -195,7 +206,13 @@ export function UploadTasksProvider({ children }) {
           base.bbox_4326 = [loc[0] - 0.0001, loc[1] - 0.0001, loc[0] + 0.0001, loc[1] + 0.0001]
         }
         return base
-      })
+      }).filter(Boolean)
+
+      if (items.length === 0) {
+        updateTask(taskId, { status: 'analyzed' })
+        alert('등록할 항목이 없습니다 — 모든 행이 제외되었습니다.')
+        return
+      }
 
       const res = await uploadApi.register({
         collection_id: collectionId,
@@ -210,7 +227,13 @@ export function UploadTasksProvider({ children }) {
       if (registered === 0 && errors.length > 0) {
         updateTask(taskId, { status: 'failed', error: `등록 실패: ${errors.join('; ')}` })
       } else {
-        updateTask(taskId, { status: 'registered', registeredCount: registered, partialErrors: errors })
+        updateTask(taskId, {
+          status: 'registered',
+          registeredCount: registered,
+          registeredItemIds: data.item_ids || [],
+          registeredCollectionId: collectionId,
+          partialErrors: errors,
+        })
       }
     } catch (err) {
       console.error('등록 실패:', err)
@@ -250,6 +273,26 @@ export function UploadTasksProvider({ children }) {
     }))
   }, [])
 
+  // 검토 단계의 행 단위 수정 (카테고리 교정·표시 이름·취득일) — 등록 payload 에 반영된다
+  const updateRowEdit = useCallback((taskId, idx, patch) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      const cur = t.rowEdits?.[idx] || {}
+      return { ...t, rowEdits: { ...(t.rowEdits || {}), [idx]: { ...cur, ...patch } } }
+    }))
+  }, [])
+
+  // 행 제외/복원 토글 — 제외된 행은 등록에서 빠진다
+  const toggleRowExclude = useCallback((taskId, idx) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      const cur = new Set(t.excludedRows || [])
+      if (cur.has(idx)) cur.delete(idx)
+      else cur.add(idx)
+      return { ...t, excludedRows: [...cur] }
+    }))
+  }, [])
+
   const value = {
     tasks,
     startAnalysis,
@@ -257,6 +300,8 @@ export function UploadTasksProvider({ children }) {
     cancelTask,
     removeTask,
     updateLocationOverride,
+    updateRowEdit,
+    toggleRowExclude,
   }
 
   return (
