@@ -126,8 +126,13 @@ export default function MetadataCompletion() {
     detail: { label: 'Detail', pathname: `/detail/${collectionId}/${itemId}` },
     explorer: { label: 'Explorer', pathname: '/' },
     upload: { label: 'Upload', pathname: '/upload' },
+    project: { label: 'Project', pathname: '/project' },
   }[origin] || { label: 'Detail', pathname: `/detail/${collectionId}/${itemId}` }
-  const goBack = () => navigate({ pathname: BACK.pathname, search: location.search })
+  const goBack = () => {
+    const search = new URLSearchParams(location.search)
+    if (origin === 'project') search.set('col', collectionId)   // Project 복귀 시 원래 프로젝트 복원
+    navigate({ pathname: BACK.pathname, search: search.toString() })
+  }
 
   if (loading) return <div className="mc"><div className="mc-fallback"><div className="t">불러오는 중…</div></div></div>
   if (!item || !view || !spec) {
