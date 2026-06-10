@@ -24,6 +24,9 @@ router = APIRouter()
 
 
 _SYSTEM_RELS = {"collection", "parent", "root", "self", "items", "next", "prev", "license"}
+# 사용자 관계 링크(양방향 포함). get_related(나열)와 delete_link(인덱스)가 동일한 링크 집합을 같은
+# 순서로 열거하도록 두 곳에서 이 INCLUDE 목록을 공유한다 — 인덱스 공간 불일치로 인한 오삭제 방지.
+_USER_RELS = {"derived_from", "has_derived", "related", "describedby", "describes", "prev", "next"}
 
 def _strip_system_links(item: dict) -> dict:
     """stac-api가 자동으로 붙이는 시스템 링크를 제거한다. 사용자 링크만 유지."""
@@ -128,12 +131,11 @@ async def get_related_items(collection_id: str, item_id: str):
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item '{item_id}'을(를) 찾을 수 없습니다.")
 
-    _user_rels = {"derived_from", "has_derived", "related", "describedby", "describes", "prev", "next"}
     links = item.get("links", [])
     related = []
     for link in links:
         rel = link.get("rel", "")
-        if rel not in _user_rels:
+        if rel not in _USER_RELS:
             continue
         href = link.get("href", "")
         target_id = _extract_item_id_from_href(href)
@@ -144,15 +146,19 @@ async def get_related_items(collection_id: str, item_id: str):
             if idx > 0:
                 target_col = parts[idx - 1]
 
-        # 대상 Item 조회하여 description, category 가져오기
+        # 대상 Item 조회하여 description, category, 상태, 존재 여부 가져오기
         description = ""
         data_category = ""
+        target_status = "unknown"
+        target_found = False
         try:
             target_item = await stac.get_item(target_col, target_id)
             if target_item:
+                target_found = True
                 tp = target_item.get("properties", {})
                 description = tp.get("description", "")
                 data_category = tp.get("data_category", "")
+                target_status = tp.get("sams:status", "draft")
         except Exception:
             pass
 
@@ -164,6 +170,8 @@ async def get_related_items(collection_id: str, item_id: str):
             "title": link.get("title", "") or description,
             "description": description,
             "data_category": data_category,
+            "status": target_status,
+            "missing": not target_found,
         })
 
     return {"item_id": item_id, "related": related}
@@ -205,6 +213,7 @@ async def get_item_timeline(collection_id: str, item_id: str):
             "datetime": dt,
             "description": it_props.get("description", ""),
             "status": it_props.get("sams:status", "draft"),
+            "data_category": it_props.get("data_category", "unknown"),
             "is_current": iid == item_id,
         })
 
@@ -347,11 +356,11 @@ async def delete_link(collection_id: str, item_id: str, link_index: int):
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item '{item_id}'을(를) 찾을 수 없습니다.")
 
-    _stac_system_rels = {"collection", "parent", "root", "self", "items", "license"}
     links = item.get("links", [])
 
-    # 사용자 링크만 추출하여 인덱스 매핑
-    user_links = [(i, l) for i, l in enumerate(links) if l.get("rel") not in _stac_system_rels]
+    # 사용자 링크만 추출하여 인덱스 매핑 — get_related 와 동일한 INCLUDE 목록(_USER_RELS)을 써서
+    # 프론트가 related[] 순번으로 보낸 link_index 가 정확히 같은 링크를 가리키게 한다.
+    user_links = [(i, l) for i, l in enumerate(links) if l.get("rel") in _USER_RELS]
     if link_index < 0 or link_index >= len(user_links):
         raise HTTPException(status_code=400, detail=f"유효하지 않은 link_index: {link_index}")
 
