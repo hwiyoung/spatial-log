@@ -20,6 +20,7 @@ import Upload from './pages/Upload'
 import ViewerShell from './pages/ViewerShell'
 import { UploadTasksProvider } from './contexts/UploadTasksContext'
 import UploadStatusBar from './components/UploadStatusBar'
+import AppErrorBoundary from './components/AppErrorBoundary'
 
 function NavBar() {
   const location = useLocation()
@@ -74,13 +75,15 @@ export default function App() {
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
           <NavBar />
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            <Routes>
-              <Route path="/" element={<Explorer />} />
-              <Route path="/detail/:collectionId/:itemId" element={<Detail />} />
-              <Route path="/viewer/:collectionId/:itemId" element={<ViewerShell />} />
-              <Route path="/project" element={<Project />} />
-              <Route path="/upload" element={<Upload />} />
-            </Routes>
+            <AppErrorBoundary>
+              <Routes>
+                <Route path="/" element={<Explorer />} />
+                <Route path="/detail/:collectionId/:itemId" element={<Detail />} />
+                <Route path="/viewer/:collectionId/:itemId" element={<ViewerShell />} />
+                <Route path="/project" element={<Project />} />
+                <Route path="/upload" element={<Upload />} />
+              </Routes>
+            </AppErrorBoundary>
           </div>
         </div>
       </UploadTasksProvider>
