@@ -26,6 +26,7 @@ from sams.config import settings
 from sams.models.manifest import Manifest
 from sams.pipeline import analyze
 from sams.pipeline.thumbnail import generate_thumbnail
+from sams.services import history
 from sams.services.s3 import build_asset_href, upload_file
 
 logger = logging.getLogger(__name__)
@@ -477,6 +478,20 @@ async def upload_register(req: RegisterRequest):
 
             registered += 1
             item_ids.append(item_id)
+
+            history.record_event(
+                req.collection_id, item_id, "register",
+                f"{req.status.capitalize()}로 등록 · 자동 분류 → {category}",
+                {"status": req.status, "category": category},
+            )
+            # 동기 썸네일 경로(이 루프 상단)가 실제로 thumbnail asset 을 붙인 경우에만 기록.
+            # 등록 성공 후에 기록해야 등록 실패 시 고아 이벤트가 남지 않는다.
+            if (stac_item.get("assets") or {}).get("thumbnail"):
+                history.record_event(
+                    req.collection_id, item_id, "preview",
+                    "preview(썸네일) 생성 완료",
+                    {"asset": "thumbnail"}, actor="시스템",
+                )
 
         except Exception as e:
             logger.exception("Item 등록 실패 [%d]: %s", idx, e)

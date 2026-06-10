@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from sams.config import settings
-from sams.services import stac
+from sams.services import history, stac
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -95,15 +95,19 @@ async def update_item_status(collection_id: str, item_id: str, req: StatusUpdate
                 detail=f"Published 전환 불가: 필수 필드 누락 — {', '.join(missing)}",
             )
 
+    old_status = props.get("sams:status")
     props["sams:status"] = req.status
     props["updated"] = datetime.now(timezone.utc).isoformat()
     item["properties"] = props
 
     try:
         await _pgstac_update_item(collection_id, item_id, item)
-        return {"status": req.status, "item_id": item_id}
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    if req.status != old_status:
+        history.record_event(collection_id, item_id, "status", f"상태 전환 → {req.status}", {"status": req.status})
+    return {"status": req.status, "item_id": item_id}
 
 
 def _check_required_for_publish(props: dict) -> list[str]:
@@ -276,6 +280,26 @@ async def _follow_prev_next_chain(item: dict, collection_id: str, seen_ids: set,
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# GET /api/items/{collection_id}/{item_id}/history — 이력 조회
+# ─────────────────────────────────────────────────────────────────────────
+
+@router.get("/{collection_id}/{item_id}/history")
+async def get_item_history(collection_id: str, item_id: str):
+    """Item 의 이력(등록·상태·메타데이터·위치·이동·관계·preview)을 최신순으로 반환한다."""
+    item = await stac.get_item(collection_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Item '{item_id}'을(를) 찾을 수 없습니다.")
+
+    try:
+        events = history.list_events(collection_id, item_id)
+    except Exception:
+        logger.exception("이력 조회 실패: %s/%s", collection_id, item_id)
+        events = []
+
+    return {"item_id": item_id, "history": events}
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # POST /api/items/{collection_id}/{item_id}/links — 관계 추가
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -341,6 +365,18 @@ async def add_link(collection_id: str, item_id: str, req: LinkCreate):
 
     await _pgstac_update_item(collection_id, item_id, source_item)
 
+    history.record_event(
+        collection_id, item_id, "relation",
+        f"관계 추가: {req.rel} → {req.target_item_id}",
+        {"rel": req.rel, "target": req.target_item_id, "target_collection": req.target_collection_id},
+    )
+    if reverse_rel:
+        history.record_event(
+            req.target_collection_id, req.target_item_id, "relation",
+            f"관계 추가(역방향): {reverse_rel} → {item_id}",
+            {"rel": reverse_rel, "target": item_id, "target_collection": collection_id},
+        )
+
     return {"created": True, "rel": req.rel, "reverse_rel": reverse_rel}
 
 
@@ -368,14 +404,30 @@ async def delete_link(collection_id: str, item_id: str, link_index: int):
     links.pop(actual_index)
     item["links"] = links
 
-    # 역방향 링크 삭제
-    reverse_rel = _REVERSE_REL.get(removed_link.get("rel", ""))
-    if reverse_rel:
-        target_id = _extract_item_id_from_href(removed_link.get("href", ""))
-        if target_id:
-            await _remove_reverse_link(collection_id, target_id, item_id, reverse_rel)
+    # 역방향 링크 삭제 — 대상 collection 은 href 에서 파생 (cross-collection 링크 지원)
+    removed_rel = removed_link.get("rel", "")
+    removed_href = removed_link.get("href", "")
+    removed_target = _extract_item_id_from_href(removed_href)
+    target_col = _extract_collection_from_href(removed_href, collection_id)
+    reverse_rel = _REVERSE_REL.get(removed_rel)
+    reverse_removed = False
+    if reverse_rel and removed_target:
+        reverse_removed = await _remove_reverse_link(target_col, removed_target, item_id, reverse_rel)
 
     await _pgstac_update_item(collection_id, item_id, item)
+
+    history.record_event(
+        collection_id, item_id, "relation",
+        f"관계 삭제: {removed_rel} → {removed_target}",
+        {"rel": removed_rel, "target": removed_target},
+    )
+    # 역방향 이벤트는 역방향 링크가 실제로 정리된 경우에만 — 일어나지 않은 일을 기록하지 않는다
+    if reverse_removed:
+        history.record_event(
+            target_col, removed_target, "relation",
+            f"관계 삭제(역방향): {reverse_rel} → {item_id}",
+            {"rel": reverse_rel, "target": item_id, "target_collection": collection_id},
+        )
 
     return {"deleted": True, "removed_link": removed_link}
 
@@ -385,20 +437,22 @@ async def _remove_reverse_link(
     target_item_id: str,
     source_item_id: str,
     reverse_rel: str,
-) -> None:
-    """타겟 Item에서 소스를 가리키는 역방향 링크를 삭제한다."""
+) -> bool:
+    """타겟 Item에서 소스를 가리키는 역방향 링크를 삭제한다. 실제로 갱신했을 때만 True."""
     try:
         target = await stac.get_item(collection_id, target_item_id)
         if target is None:
-            return
+            return False
         links = target.get("links", [])
         target["links"] = [
             l for l in links
             if not (l.get("rel") == reverse_rel and source_item_id in l.get("href", ""))
         ]
         await _pgstac_update_item(collection_id, target_item_id, target)
+        return True
     except Exception:
         logger.exception("역방향 링크 삭제 실패: %s → %s", target_item_id, source_item_id)
+        return False
 
 
 def _extract_item_id_from_href(href: str) -> str:
@@ -406,6 +460,16 @@ def _extract_item_id_from_href(href: str) -> str:
     # 형식: "./item-id" 또는 "../../collection/items/item-id"
     parts = href.rstrip("/").split("/")
     return parts[-1] if parts else ""
+
+
+def _extract_collection_from_href(href: str, fallback_collection: str) -> str:
+    """STAC link href에서 대상 collection 을 추출한다. 같은 collection("./id")이면 fallback."""
+    if "items/" in href and not href.startswith("./"):
+        parts = href.split("/")
+        idx = parts.index("items") if "items" in parts else -1
+        if idx > 0:
+            return parts[idx - 1]
+    return fallback_collection
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -420,6 +484,7 @@ async def update_item_properties(collection_id: str, item_id: str, req: dict[str
         raise HTTPException(status_code=404, detail=f"Item을 찾을 수 없습니다: {item_id}")
 
     props = item.get("properties", {})
+    old_status = props.get("sams:status")
     for key, value in req.items():
         if value is None or value == "":
             props.pop(key, None)
@@ -432,6 +497,19 @@ async def update_item_properties(collection_id: str, item_id: str, req: dict[str
         await _pgstac_update_item(collection_id, item_id, item)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    changed = [k for k in req.keys() if k not in ("updated",)]
+    meta_fields = [k for k in changed if k != "sams:status"]
+    if meta_fields:
+        history.record_event(
+            collection_id, item_id, "meta",
+            f"메타데이터 수정 — {', '.join(meta_fields[:6])}{' 외' if len(meta_fields) > 6 else ''}",
+            {"fields": meta_fields},
+        )
+    new_status = props.get("sams:status")
+    if "sams:status" in changed and new_status != old_status:
+        summary = f"상태 전환 → {new_status}" if new_status is not None else "상태 해제"
+        history.record_event(collection_id, item_id, "status", summary, {"status": new_status})
 
     return {"updated": True, "item_id": item_id}
 
@@ -512,6 +590,11 @@ async def update_item_location(collection_id: str, item_id: str, req: LocationUp
         raise HTTPException(status_code=500, detail=f"위치 갱신 실패: {e}")
 
     logger.info("Item 위치 갱신: %s/%s → [%f, %f]", collection_id, item_id, lng, lat)
+    history.record_event(
+        collection_id, item_id, "location",
+        f"위치 수동 지정 ({lng:.4f}, {lat:.4f})",
+        {"longitude": lng, "latitude": lat},
+    )
     return {"updated": True, "bbox": bbox, "longitude": lng, "latitude": lat}
 
 
@@ -629,6 +712,13 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
         raise HTTPException(status_code=500, detail=f"이동 실패 (삽입): {e}")
 
     logger.info("Item 이동 완료: %s/%s → %s", collection_id, item_id, req.target_collection_id)
+    # 이력이 Item 을 따라가도록 collection_id 갱신 후, 새 collection 기준으로 이동 이벤트 기록
+    history.move_history(collection_id, item_id, req.target_collection_id)
+    history.record_event(
+        req.target_collection_id, item_id, "assign",
+        f"프로젝트 이동: {collection_id} → {req.target_collection_id}",
+        {"from": collection_id, "to": req.target_collection_id},
+    )
     return {
         "moved": True,
         "item_id": item_id,
@@ -706,4 +796,5 @@ async def delete_item(collection_id: str, item_id: str):
         logger.warning("S3 정리 실패 (Item은 이미 삭제됨): %s", item_id)
 
     logger.info("Item 삭제 완료: %s/%s", collection_id, item_id)
+    history.delete_history(collection_id, item_id)
     return {"deleted": True, "item_id": item_id}

@@ -51,6 +51,17 @@ from sams.routers.files import router as files_router
 app.include_router(files_router, prefix="/api/files", tags=["files"])
 
 
+@app.on_event("startup")
+def init_history_table():
+    """Item 이력 테이블 멱등 생성. DB 미가용 시 앱 기동은 막지 않는다 (이력은 부가 기능)."""
+    import logging
+    from sams.services.history import ensure_history_table
+    try:
+        ensure_history_table()
+    except Exception:
+        logging.getLogger(__name__).warning("이력 테이블 초기화 실패 — 이력 기록이 비활성화될 수 있습니다.", exc_info=True)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "sams-api"}

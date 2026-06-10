@@ -26,6 +26,7 @@ import { DetailHeader, AssetsSection } from '../components/detail/DetailHero'
 import { MetadataSection, SpatialSection } from '../components/detail/MetadataSection'
 import RelationsSection from '../components/detail/RelationsSection'
 import TimelineSection from '../components/detail/TimelineSection'
+import HistorySection from '../components/detail/HistorySection'
 import MoveModal from '../components/detail/MoveModal'
 import LocationPicker from '../components/LocationPicker'
 import '../styles/detail.css'
@@ -99,6 +100,7 @@ export default function Detail() {
   const [collections, setCollections] = useState([])
   const [relatedRaw, setRelatedRaw] = useState([])
   const [timeline, setTimeline] = useState([])
+  const [historyEvents, setHistoryEvents] = useState([])
   const [loading, setLoading] = useState(true)
 
   const [editMode, setEditMode] = useState(false)
@@ -123,13 +125,16 @@ export default function Detail() {
       if (isMock) {
         setRelatedRaw(mockRelatedFor(itemId))
         setTimeline(buildMockTimeline(itemRes.data, mockItems))
+        setHistoryEvents([])   // mock 은 영속 이력이 없다 — 데모 세션 중의 행위만 로컬로 쌓인다
       } else {
-        const [relRes, tlRes] = await Promise.allSettled([
+        const [relRes, tlRes, histRes] = await Promise.allSettled([
           itemApi.getRelated(`${collectionId}/${itemId}`),
           itemApi.getTimeline(`${collectionId}/${itemId}`),
+          itemApi.getHistory(`${collectionId}/${itemId}`),
         ])
         setRelatedRaw(relRes.status === 'fulfilled' ? (relRes.value.data?.related || []) : [])
         setTimeline(tlRes.status === 'fulfilled' ? (tlRes.value.data?.timeline || []) : [])
+        setHistoryEvents(histRes.status === 'fulfilled' ? (histRes.value.data?.history || []) : [])
       }
     } catch (err) {
       console.error('Item 로드 실패:', err)
@@ -185,6 +190,14 @@ export default function Detail() {
     }
   }, [isMock, collectionId, itemId])
 
+  // mock 데모 세션에서 실제로 일어난 행위만 로컬 이력으로 기록한다 (허구 이력 합성 금지)
+  const pushMockEvent = useCallback((summary) => {
+    setHistoryEvents(prev => [
+      { event_type: 'relation', summary, actor: null, created_at: new Date().toISOString() },
+      ...prev,
+    ])
+  }, [])
+
   const handleAddRelation = useCallback(async ({ targetId, targetCol, rel, title }) => {
     if (isMock) {
       const t = mockItems.find(i => i.id === targetId)
@@ -194,6 +207,7 @@ export default function Detail() {
         data_category: t ? (t.properties?.data_category || 'unknown') : 'unknown',
         status: t ? getItemStatus(t) : 'unknown', missing: !t,
       }])
+      pushMockEvent(`관계 추가: ${rel} → ${targetId} (데모 세션)`)
       return
     }
     setRelBusy(true)
@@ -205,12 +219,13 @@ export default function Detail() {
     } finally {
       setRelBusy(false)
     }
-  }, [isMock, collectionId, itemId, loadItem])
+  }, [isMock, collectionId, itemId, loadItem, pushMockEvent])
 
   const handleDeleteRelation = useCallback(async (relation) => {
     if (!confirm('이 관계를 삭제하시겠습니까? (양방향 자동 삭제)')) return
     if (isMock) {
       setRelatedRaw(prev => prev.filter((_, i) => i !== relation.linkIndex))
+      pushMockEvent(`관계 삭제: ${relation.rel} → ${relation.targetId} (데모 세션)`)
       return
     }
     setRelBusy(true)
@@ -222,7 +237,7 @@ export default function Detail() {
     } finally {
       setRelBusy(false)
     }
-  }, [isMock, collectionId, itemId, loadItem])
+  }, [isMock, collectionId, itemId, loadItem, pushMockEvent])
 
   // ── metadata edit ──
   const onEditChange = useCallback((key, value) => setEditDraft(prev => ({ ...prev, [key]: value })), [])
@@ -322,6 +337,8 @@ export default function Detail() {
         />
 
         <TimelineSection timeline={timeline} currentId={itemId} currentView={view} onFocus={goFocus} />
+
+        <HistorySection events={historyEvents} item={item} />
       </div>
 
       {showMoveModal && (

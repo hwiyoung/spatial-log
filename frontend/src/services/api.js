@@ -48,6 +48,7 @@ export const itemApi = {
   updateStatus: (id, status) => samsApi.put(`/items/${id}/status`, { status }),
   getTimeline: (id) => samsApi.get(`/items/${id}/timeline`),
   getRelated: (id) => samsApi.get(`/items/${id}/related`),
+  getHistory: (id) => samsApi.get(`/items/${id}/history`),
   addLink: (id, link) => samsApi.post(`/items/${id}/links`, link),
   removeLink: (id, linkIndex) => samsApi.delete(`/items/${id}/links/${linkIndex}`),
   update: (id, properties) => samsApi.put(`/items/${id}`, properties),

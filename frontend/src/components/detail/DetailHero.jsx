@@ -75,9 +75,10 @@ const PREVIEW_TYPE = {
   document: 'PDF pages',
 }
 
+// 원본 카드는 두지 않는다 — "원본 보기"는 다운로드와 같은 행위라 중복이고(기획 문서에도 없음),
+// 원본 파일명·크기는 헤더가 이미 보여준다. 원본↔경량본 구분 표시는 Phase 2(경량 변환) 범위.
 function buildAssets(view) {
   return [
-    { key: 'original', label: '원본 (original)', name: view.file, size: formatSize(view.size), role: 'data', status: 'stored', note: null },
     { key: 'preview', label: 'Preview', name: PREVIEW_TYPE[view.cat] || 'asset preview', size: '—', role: 'preview', status: view.preview, note: view.previewFail },
     { key: 'download', label: 'Download / Export', name: '원본 다운로드 · 메타데이터(JSON)', size: formatSize(view.size), role: 'download', status: view.status === 'archived' ? 'restricted' : 'ready', note: view.status === 'archived' ? 'Archived — 복원 후 다운로드' : null },
   ]
@@ -87,7 +88,7 @@ export function AssetsSection({ view, onOpenViewer, onDownload, canDownload }) {
   const assets = buildAssets(view)
   return (
     <section className="dsec">
-      <div className="dsec-h"><h2>Assets</h2><span className="dsec-sub">원본 · preview · download</span></div>
+      <div className="dsec-h"><h2>Assets</h2><span className="dsec-sub">preview · download / export</span></div>
       <div className="assets">
         {assets.map(a => {
           const pv = PREVIEW_META[a.status] || null
@@ -125,9 +126,7 @@ export function AssetsSection({ view, onOpenViewer, onDownload, canDownload }) {
                   else onOpenViewer()
                 }}
               >
-                {a.key === 'original' ? '원본 보기'
-                  : isPreview ? (a.status === 'available' ? 'Preview 열기' : a.status === 'pending' ? '변환 대기' : '미지원')
-                    : '다운로드'}
+                {isPreview ? (a.status === 'available' ? 'Preview 열기' : a.status === 'pending' ? '변환 대기' : '미지원') : '다운로드'}
               </button>
             </div>
           )

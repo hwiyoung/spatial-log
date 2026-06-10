@@ -69,12 +69,16 @@ def generate_thumbnail_task(
         )
 
         # 3) STAC Item의 thumbnail Asset 업데이트
-        _update_item_thumbnail(
+        updated = _update_item_thumbnail(
             collection_id, item_id,
             build_asset_href(collection_id, data_category, item_id, thumb_filename),
         )
 
         logger.info("썸네일 완료: %s → %s", item_id, s3_key)
+        # Item 갱신이 실제로 성공했을 때만 이력 기록 — 일어나지 않은 일을 기록하지 않는다
+        if updated:
+            from sams.services.history import record_event
+            record_event(collection_id, item_id, "preview", "preview(썸네일) 생성 완료", {"s3_key": s3_key}, actor="시스템")
         return {"status": "completed", "item_id": item_id, "s3_key": s3_key}
 
     except Exception as exc:
@@ -87,8 +91,8 @@ def generate_thumbnail_task(
             os.unlink(thumb_path)
 
 
-def _update_item_thumbnail(collection_id: str, item_id: str, href: str) -> None:
-    """STAC Item의 thumbnail Asset을 동기적으로 업데이트한다.
+def _update_item_thumbnail(collection_id: str, item_id: str, href: str) -> bool:
+    """STAC Item의 thumbnail Asset을 동기적으로 업데이트한다. 성공 시에만 True.
 
     Celery 태스크 내부에서는 async를 쓸 수 없으므로 httpx 동기 클라이언트 사용.
     """
@@ -101,7 +105,7 @@ def _update_item_thumbnail(collection_id: str, item_id: str, href: str) -> None:
     )
     if resp.status_code != 200:
         logger.error("Item 조회 실패: %s (HTTP %s)", item_id, resp.status_code)
-        return
+        return False
 
     item = resp.json()
     assets = item.get("assets", {})
@@ -121,3 +125,5 @@ def _update_item_thumbnail(collection_id: str, item_id: str, href: str) -> None:
     )
     if resp.status_code >= 400:
         logger.error("Item 썸네일 업데이트 실패: %s (HTTP %s)", item_id, resp.status_code)
+        return False
+    return True
