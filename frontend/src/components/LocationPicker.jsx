@@ -41,7 +41,7 @@ export default function LocationPicker({ initialLocation, onConfirm, onCancel })
 
     // 초기 마커
     if (initialLocation) {
-      markerRef.current = new maplibregl.Marker({ color: '#4A72FF' })
+      markerRef.current = new maplibregl.Marker({ color: '#3B82F6' })
         .setLngLat(initialLocation)
         .addTo(map)
     }
@@ -52,7 +52,7 @@ export default function LocationPicker({ initialLocation, onConfirm, onCancel })
       setLocation([lng, lat])
 
       if (markerRef.current) markerRef.current.remove()
-      markerRef.current = new maplibregl.Marker({ color: '#4A72FF' })
+      markerRef.current = new maplibregl.Marker({ color: '#3B82F6' })
         .setLngLat([lng, lat])
         .addTo(map)
     })

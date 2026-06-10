@@ -81,7 +81,7 @@ function StatusSwatch({ status, label }) {
         height: 9,
         borderRadius: '50%',
         background: info.markerColor,
-        boxShadow: status === 'draft' ? '0 0 0 3px rgba(240,180,42,0.18)' : 'none',
+        boxShadow: status === 'draft' ? '0 0 0 3px rgba(251,191,36,0.18)' : 'none',
       }} />
       {label}
     </span>
@@ -180,9 +180,9 @@ const warningStyle = {
   marginTop: 3,
   padding: '7px 8px',
   borderRadius: 5,
-  border: '1px solid rgba(240,180,42,0.28)',
+  border: '1px solid rgba(251,191,36,0.28)',
   color: 'var(--warn)',
-  background: 'rgba(240,180,42,0.09)',
+  background: 'rgba(251,191,36,0.09)',
   lineHeight: 1.35,
 }
 

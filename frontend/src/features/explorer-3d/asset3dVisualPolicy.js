@@ -114,19 +114,19 @@ export function getAsset3dStateVisual({
     : isRelated && relationColor
       ? relationColor
       : isDraft
-        ? '#F0B42A'
+        ? '#FBBF24'
         : isUnknown
-          ? '#C8CEDA'
+          ? '#6B7280'
           : policy.category.color
 
   const accentColor = isRelated && relationColor
     ? relationColor
     : isDraft
-      ? '#F0B42A'
+      ? '#FBBF24'
       : isArchived
         ? '#687084'
         : isUnknown
-          ? '#C8CEDA'
+          ? '#6B7280'
           : policy.category.color
 
   return {
@@ -138,10 +138,10 @@ export function getAsset3dStateVisual({
     accentColor,
     opacity: isArchived ? 0.58 : 1,
     background: isArchived
-      ? 'linear-gradient(180deg, rgba(92,100,120,0.78), rgba(49,55,70,0.62))'
+      ? 'linear-gradient(180deg, rgba(100,116,139,0.78), rgba(49,55,70,0.62))'
       : `linear-gradient(180deg, ${policy.category.color}E8 0%, ${policy.category.color}68 100%)`,
     ring: isSelected
-      ? '0 0 0 5px rgba(74,114,255,0.25), 0 18px 34px rgba(0,0,0,0.48)'
+      ? '0 0 0 5px rgba(59,130,246,0.25), 0 18px 34px rgba(0,0,0,0.48)'
       : isRelated
         ? `0 0 0 4px ${accentColor}45, 0 12px 24px rgba(0,0,0,0.38)`
         : isHovered

@@ -61,7 +61,7 @@ export default function UploadStatusBar() {
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '6px 12px', borderRadius: 6,
-          background: open ? 'var(--s2)' : 'rgba(74,114,255,0.08)',
+          background: open ? 'var(--s2)' : 'rgba(59,130,246,0.08)',
           border: '1px solid var(--bd)',
           cursor: 'pointer', fontSize: 13,
         }}
@@ -119,7 +119,7 @@ export default function UploadStatusBar() {
                         <span style={{ color: 'var(--ac)', fontWeight: 400 }}>{task.uploadProgress}%</span>
                       )}
                       {task.autoRegister && task.status !== 'registered' && (
-                        <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 2, background: 'rgba(74,114,255,0.12)', color: 'var(--ac)' }}>자동</span>
+                        <span style={{ fontSize: 9, padding: '0 4px', borderRadius: 2, background: 'rgba(59,130,246,0.12)', color: 'var(--ac)' }}>자동</span>
                       )}
                     </div>
                     <div style={{ color: 'var(--t3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

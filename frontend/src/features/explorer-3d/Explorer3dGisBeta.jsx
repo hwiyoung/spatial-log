@@ -278,7 +278,7 @@ function modeButtonStyle(active) {
     padding: '0 9px',
     borderRadius: 4,
     border: active ? '1px solid rgba(122,160,255,0.65)' : '1px solid transparent',
-    background: active ? 'rgba(74,114,255,0.22)' : 'transparent',
+    background: active ? 'rgba(59,130,246,0.22)' : 'transparent',
     color: active ? '#F4F6FA' : 'var(--t3)',
     fontSize: 11,
     fontWeight: 900,
@@ -323,7 +323,7 @@ const depthGlowStyle = {
   position: 'absolute',
   inset: 0,
   background: `
-    radial-gradient(circle at 50% 62%, rgba(74,114,255,0.14), transparent 34%),
+    radial-gradient(circle at 50% 62%, rgba(59,130,246,0.14), transparent 34%),
     radial-gradient(circle at 50% 18%, rgba(80,170,175,0.12), transparent 24%)
   `,
 }
@@ -334,7 +334,7 @@ const horizonStyle = {
   right: 0,
   top: '28%',
   height: 1,
-  background: 'linear-gradient(90deg, transparent, rgba(200,206,218,0.22), transparent)',
+  background: 'linear-gradient(90deg, transparent, rgba(107,114,128,0.22), transparent)',
 }
 
 const zAxisStyle = {
@@ -375,7 +375,7 @@ const nearGridStyle = {
   transformOrigin: '50% 100%',
   border: '1px solid rgba(122,160,255,0.18)',
   borderRadius: '50%',
-  boxShadow: '0 0 42px rgba(74,114,255,0.12)',
+  boxShadow: '0 0 42px rgba(59,130,246,0.12)',
 }
 
 const emptyStyle = {

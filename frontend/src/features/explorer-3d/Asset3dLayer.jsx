@@ -107,7 +107,7 @@ export default function Asset3dLayer({
                 height: 12,
                 transform: 'translateX(-50%) rotateX(62deg)',
                 borderRadius: '50%',
-                background: isSelected ? 'rgba(74,114,255,0.38)' : `${visual.accentColor}30`,
+                background: isSelected ? 'rgba(59,130,246,0.38)' : `${visual.accentColor}30`,
               }} />
             </span>
             {isSelected && <span style={selectedLabelStyle}>Selected</span>}
@@ -241,7 +241,7 @@ const draftBadgeStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: '#F0B42A',
+  background: '#FBBF24',
   color: '#11151F',
   border: '2px solid rgba(12,14,20,0.82)',
   fontSize: 11,

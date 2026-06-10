@@ -60,7 +60,7 @@ const cardStyle = {
   width: 320,
   padding: '12px 13px',
   borderRadius: 7,
-  border: '1px solid rgba(74,114,255,0.35)',
+  border: '1px solid rgba(59,130,246,0.35)',
   background: 'rgba(12,14,20,0.92)',
   boxShadow: '0 18px 36px rgba(0,0,0,0.36)',
 }

@@ -385,8 +385,8 @@ function BetaBadge({ count, layerFailed }) {
   return (
     <div style={{
       ...betaBadgeStyle,
-      borderColor: layerFailed ? 'rgba(240,180,42,0.36)' : 'rgba(80,170,175,0.42)',
-      color: layerFailed ? '#F0B42A' : '#50AAAF',
+      borderColor: layerFailed ? 'rgba(251,191,36,0.36)' : 'rgba(80,170,175,0.42)',
+      color: layerFailed ? '#FBBF24' : '#50AAAF',
     }}>
       Map-grounded 3D · {count} assets
     </div>

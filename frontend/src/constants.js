@@ -8,7 +8,7 @@ export const CATEGORIES = {
   panorama:    { icon: '◉', label: '파노라마',       color: '#E87830' },
   video:       { icon: '▶', label: '동영상',         color: '#E04040' },
   document:    { icon: '▤', label: '문헌정보',       color: '#8899AA' },
-  unknown:     { icon: '?', label: '알 수 없음',     color: '#5C6478' },
+  unknown:     { icon: '?', label: '알 수 없음',     color: '#64748B' },
 }
 
 export function getCategoryInfo(cat) {

@@ -221,7 +221,7 @@ export function createThreeAssetObject(asset, {
     addFocusRing(group, '#F4F6FA', ringRadius + 0.06, 0.04)
   }
 
-  if (state.isDraft) addDraftBadge(group, '#F0B42A', asset.objectHeight)
+  if (state.isDraft) addDraftBadge(group, '#FBBF24', asset.objectHeight)
   if (asset.elevation?.isActualElevation) addActualZMarker(group, asset.objectHeight)
 
   group.position.set(asset.position.x, asset.position.y, asset.position.z)
