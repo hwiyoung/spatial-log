@@ -25,6 +25,32 @@ import CategoryGlyph from './viewer/CategoryGlyph'
 import RelationOverlayLayer from './RelationOverlayLayer'
 
 const SRC = 'assets'
+
+// 드래그 두 모서리 → [w,s,e,n] — 월드 카피/날짜변경선 드래그의 unwrapped 경도를 [-180,180]로
+// 정규화한다 (pgSTAC 은 범위 밖 bbox 를 400 으로 거부 → 조용한 0건이 되므로)
+function cornersToBbox(a, b) {
+  let w = Math.min(a.lng, b.lng)
+  let e = Math.max(a.lng, b.lng)
+  const s = Math.min(a.lat, b.lat)
+  const n = Math.max(a.lat, b.lat)
+  if (e - w >= 360) { w = -180; e = 180 }                       // 한 바퀴 이상 → 전 경도
+  else {
+    const shift = 360 * Math.floor(((w + e) / 2 + 180) / 360)   // 박스 중심 기준 기준월드로 평행이동
+    w = Math.max(-180, w - shift)
+    e = Math.min(180, e - shift)                                // 잔여 돌출은 클램프
+  }
+  return [w, s, e, n]
+}
+function bboxFC([w, s, e, n]) {
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] },
+      properties: {},
+    }],
+  }
+}
 const CARTO_DARK = [
   'https://a.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
   'https://b.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
@@ -63,6 +89,9 @@ export default function MapView({
   loading = false,
   fallbackCenters = null,   // {collectionId: [lon,lat]} — 좌표 없는 Item 의 project fallback
   regionLabels = [],        // [{id, title, center}] — ◎ 프로젝트명 라벨
+  drawMode = false,         // 영역 그리기 모드 — 드래그로 bbox 를 그린다
+  onDrawComplete = null,    // (bbox|null) => void — 완료 시 [w,s,e,n], 취소(Esc/클릭)면 null
+  drawnBbox = null,         // 적용 중인 그린 영역 [w,s,e,n] — 지도에 표시
 }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
@@ -95,6 +124,7 @@ export default function MapView({
   }, [items])
   const itemsByIdRef = useRef(itemsById); itemsByIdRef.current = itemsById
   const fallbackCentersRef = useRef(fallbackCenters); fallbackCentersRef.current = fallbackCenters
+  const drawCbRef = useRef(onDrawComplete); drawCbRef.current = onDrawComplete
 
   // footprint 폴리곤 — "어디까지"의 범위 표현 (마커 아래 캔버스 레이어)
   const footprintFC = useMemo(() => getItemFootprints(items, selectedId), [items, selectedId])
@@ -289,6 +319,16 @@ export default function MapView({
           'line-opacity': ['case', ['get', 'sel'], 1, 0.75],
         },
       })
+      // 영역 그리기 박스 — 드래그 프리뷰와 적용된 영역 표시 공용
+      map.addSource('drawbox', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: 'drawbox-fill', type: 'fill', source: 'drawbox',
+        paint: { 'fill-color': '#3B82F6', 'fill-opacity': 0.07 },
+      })
+      map.addLayer({
+        id: 'drawbox-line', type: 'line', source: 'drawbox',
+        paint: { 'line-color': '#3B82F6', 'line-width': 1.6, 'line-dasharray': [5, 3] },
+      })
       map.addSource(SRC, {
         type: 'geojson',
         data: featureCollection,
@@ -320,6 +360,70 @@ export default function MapView({
     map.getSource(SRC).setData(featureCollection)
     // 'sourcedata'/'render' 가 클러스터 재계산 완료 후 마커를 동기화 (여기서 즉시 호출하면 stale tiles 조회).
   }, [featureCollection, mapLoaded])
+
+  // 적용된 그린 영역 표시 (드로잉 중이 아닐 때 — 드로잉 중에는 프리뷰가 소스를 사용)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !map.getSource('drawbox') || drawMode) return
+    map.getSource('drawbox').setData(drawnBbox ? bboxFC(drawnBbox) : { type: 'FeatureCollection', features: [] })
+  }, [drawnBbox, mapLoaded, drawMode])
+
+  // 영역 그리기 모드 — 드래그로 bbox, Esc/제자리 클릭은 취소
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !drawMode) return
+    const canvas = map.getCanvas()
+    canvas.style.cursor = 'crosshair'
+    map.dragPan.disable()
+    map.doubleClickZoom.disable()
+    map.getCanvasContainer().classList.add('map-drawing')   // 마커 클릭이 드로잉을 가로채지 않게
+    let start = null
+    let startPt = null
+    let last = null
+    let lastPt = null
+
+    const onDown = (e) => { start = e.lngLat; startPt = e.point; last = e.lngLat; lastPt = e.point; e.preventDefault() }
+    const onMove = (e) => {
+      if (!start) return
+      last = e.lngLat
+      lastPt = e.point
+      map.getSource('drawbox')?.setData(bboxFC(cornersToBbox(start, e.lngLat)))
+    }
+    const finish = (bbox) => {
+      start = null; startPt = null; last = null; lastPt = null
+      drawCbRef.current?.(bbox)
+    }
+    const settle = (end, endPt) => {
+      if (!start || !end) return
+      // 드래그 없는 클릭은 취소 — 임계는 화면 픽셀 기준 (지리 도 단위면 줌에 따라 1px 떨림도 적용돼버린다)
+      const degenerate = !endPt || !startPt
+        || (Math.abs(endPt.x - startPt.x) < 5 && Math.abs(endPt.y - startPt.y) < 5)
+      finish(degenerate ? null : cornersToBbox(start, end))
+    }
+    const onUp = (e) => settle(e.lngLat, e.point)
+    // 범례/컨트롤 등 지도 크롬 위에서 마우스를 놓으면 canvas 가 mouseup 을 못 받는다 —
+    // window 레벨에서 마지막 드래그 지점으로 마감해 드로잉이 걸린 채 남지 않게 한다.
+    const onWinUp = () => { if (start) settle(last, lastPt) }
+    const onKey = (ev) => { if (ev.key === 'Escape') finish(null) }
+    map.on('mousedown', onDown)
+    map.on('mousemove', onMove)
+    map.on('mouseup', onUp)
+    window.addEventListener('mouseup', onWinUp)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      map.off('mousedown', onDown)
+      map.off('mousemove', onMove)
+      map.off('mouseup', onUp)
+      window.removeEventListener('mouseup', onWinUp)
+      window.removeEventListener('keydown', onKey)
+      if (!map._removed) {
+        canvas.style.cursor = ''
+        map.dragPan.enable()
+        map.doubleClickZoom.enable()
+        map.getCanvasContainer().classList.remove('map-drawing')
+      }
+    }
+  }, [drawMode, mapLoaded])
 
   // footprint 갱신
   useEffect(() => {

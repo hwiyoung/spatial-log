@@ -2,6 +2,7 @@ import { mockCollections } from './fixtures/mockCollections.js'
 import { mockItems } from './fixtures/mockItems.js'
 import { getMockRelationsForItem } from './fixtures/mockRelations.js'
 import { getDisplayLabel, getOriginalFilename } from '../features/items/getDisplayLabel.js'
+import { getItemMapPosition } from '../features/explorer-map/getItemMapPosition.js'
 import { getItemStatus } from '../features/items/getItemStatus.js'
 import { getProjectContext } from '../features/items/getProjectContext.js'
 
@@ -77,13 +78,30 @@ export const mockExplorerDataSource = {
     return { data: { collections: clone(mockCollections) } }
   },
 
-  async search({ keyword = '', categories = [], collectionId = null, status = 'all' } = {}) {
+  async search({ keyword = '', categories = [], collectionId = null, status = 'all', datetimeRange = null, bbox = null } = {}) {
     await sleep(MOCK_SEARCH_DELAY_MS)
+    // 실서버 /search 의 datetime·bbox 파라미터와 같은 의미의 mock 필터
+    const inTime = (item) => {
+      if (!datetimeRange) return true
+      const dt = item.properties?.datetime || item.properties?.start_datetime
+      if (!dt) return false
+      const [from, to] = datetimeRange
+      return (!from || dt >= from) && (!to || dt <= to)
+    }
+    const inBbox = (item) => {
+      if (!bbox) return true
+      const pos = getItemMapPosition(item)
+      if (!pos || pos.source === 'fallback') return false   // pgSTAC bbox 는 geometry 만 매칭 — fallback 위치 제외
+      const [lon, lat] = pos.position
+      return lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]
+    }
     const filtered = mockItems
       .filter(item => !collectionId || item.collection === collectionId)
       .filter(item => categories.length === 0 || categories.includes(item.properties?.data_category))
       .filter(item => status === 'all' || getItemStatus(item) === status)
       .filter(item => matchesKeyword(item, keyword))
+      .filter(inTime)
+      .filter(inBbox)
       .map(decorateItem)
 
     return {

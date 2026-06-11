@@ -26,7 +26,21 @@ import MapView from '../components/MapView'
 import Explorer3dGisBeta from '../features/explorer-3d/Explorer3dGisBeta.jsx'
 import '../styles/explorer.css'
 
-const EMPTY_FILTERS = { kw: '', status: [], cat: [], project: 'all', bboxOnly: false }
+const EMPTY_FILTERS = { kw: '', status: [], cat: [], project: 'all', bboxOnly: false, timeFrom: '', timeTo: '', drawnBbox: null }
+
+// 'YYYY-MM' 월 입력 → STAC datetime interval ("start/end", 개방 구간은 "..")
+function monthRangeToInterval(timeFrom, timeTo) {
+  if (!timeFrom && !timeTo) return null
+  // 키보드 직접 입력은 min/max 를 우회한다 — 역전 구간은 서버 400 → 조용한 0건이 되므로 정규화
+  if (timeFrom && timeTo && timeFrom > timeTo) [timeFrom, timeTo] = [timeTo, timeFrom]
+  const startOf = (m) => `${m}-01T00:00:00Z`
+  const endOf = (m) => {
+    const [y, mo] = m.split('-').map(Number)
+    const last = new Date(Date.UTC(y, mo, 0)).getUTCDate()   // 해당 월 말일
+    return `${m}-${String(last).padStart(2, '0')}T23:59:59Z`
+  }
+  return `${timeFrom ? startOf(timeFrom) : '..'}/${timeTo ? endOf(timeTo) : '..'}`
+}
 
 export default function Explorer() {
   const mockMode = useMemo(() => isMockExplorerMode(), [])
@@ -48,6 +62,16 @@ export default function Explorer() {
   const [ratio, setRatio] = useState(0.62)
   const [sort, setSort] = useState('recent')
   const [showRel, setShowRel] = useState(true)
+  const [drawMode, setDrawMode] = useState(false)
+
+  // 영역 그리기 완료/취소 — bbox 가 오면 서버 검색 파라미터로 (Esc/클릭만 하면 null = 취소)
+  const handleDrawComplete = useCallback((bbox) => {
+    setDrawMode(false)
+    if (bbox) setFilters(f => ({ ...f, drawnBbox: bbox }))
+  }, [])
+
+  // 3D 모드에는 드로잉이 없다 — 모드 전환 시 드로잉 상태가 사이드바에 걸려 남지 않게
+  useEffect(() => { if (mode !== '2d') setDrawMode(false) }, [mode])
 
   // ── Collection 목록 ──
   useEffect(() => {
@@ -55,21 +79,29 @@ export default function Explorer() {
     api.then(res => setCollections(res.data?.collections || [])).catch(() => setCollections([]))
   }, [mockMode])
 
-  // ── 키워드+프로젝트 범위 검색 (debounced). 상태/카테고리는 클라이언트 필터. ──
+  // ── 범위 검색 (debounced): 키워드·시간·그린 영역은 서버(/search) 파라미터로 범위 자체를 좁히고,
+  //    상태·카테고리·프로젝트·뷰포트는 클라이언트 필터(즉시 토글 + facet 일관성). ──
   useEffect(() => {
     const timer = setTimeout(() => doSearch(), 300)
     return () => clearTimeout(timer)
-  }, [filters.kw, mockMode])
+  }, [filters.kw, filters.timeFrom, filters.timeTo, filters.drawnBbox, mockMode])
 
   const doSearch = useCallback(async () => {
     setLoading(true)
     try {
+      const interval = monthRangeToInterval(filters.timeFrom, filters.timeTo)
       if (mockMode) {
-        const res = await mockExplorerDataSource.search({ keyword: filters.kw, categories: [], collectionId: null, status: 'all' })
+        const res = await mockExplorerDataSource.search({
+          keyword: filters.kw, categories: [], collectionId: null, status: 'all',
+          datetimeRange: interval ? interval.split('/').map(v => (v === '..' ? null : v)) : null,
+          bbox: filters.drawnBbox,
+        })
         setScopeItems(res.data?.features || [])
         return
       }
       const params = { limit: 200 }
+      if (interval) params.datetime = interval
+      if (filters.drawnBbox) params.bbox = filters.drawnBbox
       const kw = filters.kw.trim()
       if (kw) {
         // pgstac 는 free-text q 를 지원하지 않으므로 CQL2 like 필터로 키워드를 환원
@@ -86,7 +118,7 @@ export default function Explorer() {
     } finally {
       setLoading(false)
     }
-  }, [filters.kw, mockMode])
+  }, [filters.kw, filters.timeFrom, filters.timeTo, filters.drawnBbox, mockMode])
 
   // 좌표 없는 Item 의 project fallback 위치 + region 라벨 (Collection extent → Item 유도).
   // 키워드 검색으로 결과가 좁혀져도 앵커가 사라지거나 점프하지 않게 세션 동안 sticky (선착 키 유지).
@@ -209,7 +241,10 @@ export default function Explorer() {
 
   return (
     <div className="exp">
-      <FilterSidebar filters={filters} setF={setFilters} facet={facet} collections={collections} />
+      <FilterSidebar
+        filters={filters} setF={setFilters} facet={facet} collections={collections}
+        onStartDraw={() => setDrawMode(d => !d)} drawActive={drawMode}
+      />
 
       <div className="center">
         <div className="center-head">
@@ -244,10 +279,13 @@ export default function Explorer() {
                 relationOverlayEnabled={showRel}
                 relationOverlayModel={relationOverlayModel}
                 onBoundsChange={setMapBounds}
-                fitToItems={!filters.bboxOnly}
+                fitToItems={!filters.bboxOnly && !filters.drawnBbox}
                 loading={loading}
                 fallbackCenters={fallbackCenters}
                 regionLabels={regionLabels}
+                drawMode={drawMode}
+                onDrawComplete={handleDrawComplete}
+                drawnBbox={filters.drawnBbox}
               />
             ) : (
               <Explorer3dGisBeta

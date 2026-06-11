@@ -30,3 +30,6 @@
   background: rgba(34,22,10,.95); border: 1px solid color-mix(in srgb, var(--orange) 45%, transparent);
   color: #fbbf85; font-size: 11px; padding: 7px 11px; border-radius: 8px; z-index: 2;
 }
+
+/* 영역 그리기 중 — HTML 마커가 드래그 시작을 가로채지 않게 */
+.map-drawing .maplibregl-marker { pointer-events: none; }

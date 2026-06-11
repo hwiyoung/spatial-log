@@ -6,7 +6,7 @@ import CategoryGlyph from '../viewer/CategoryGlyph'
 import { getCategoryInfo } from '../../constants'
 import { STATUS_META, STATUS_ORDER, CAT_ORDER } from '../../features/explorer/explorerMeta'
 
-export default function FilterSidebar({ filters, setF, facet, collections = [] }) {
+export default function FilterSidebar({ filters, setF, facet, collections = [], onStartDraw, drawActive = false }) {
   const toggle = (key, val) => {
     const set = new Set(filters[key])
     set.has(val) ? set.delete(val) : set.add(val)
@@ -82,13 +82,23 @@ export default function FilterSidebar({ filters, setF, facet, collections = [] }
       </div>
 
       <div className="side-sec">
-        <div className="side-h">Time <span className="side-hint">취득일</span></div>
+        <div className="side-h">Time <span className="side-hint">취득일 · 서버 검색</span></div>
         <div className="time-row">
-          <div className="time-i">{facet.timeMin || '—'}</div>
+          <input
+            className="time-i" type="month" value={filters.timeFrom}
+            max={filters.timeTo || undefined} title={'결과 범위: ' + (facet.timeMin || '—')}
+            onChange={e => setF({ ...filters, timeFrom: e.target.value })}
+          />
           <span className="time-sep">→</span>
-          <div className="time-i">{facet.timeMax || '—'}</div>
+          <input
+            className="time-i" type="month" value={filters.timeTo}
+            min={filters.timeFrom || undefined} title={'결과 범위: ' + (facet.timeMax || '—')}
+            onChange={e => setF({ ...filters, timeTo: e.target.value })}
+          />
         </div>
-        <div className="time-track"><span className="time-fill" /></div>
+        {(filters.timeFrom || filters.timeTo) && (
+          <button className="time-clear" onClick={() => setF({ ...filters, timeFrom: '', timeTo: '' })}>× 시간 필터 지우기</button>
+        )}
       </div>
 
       <div className="side-sec">
@@ -96,7 +106,21 @@ export default function FilterSidebar({ filters, setF, facet, collections = [] }
         <label className={'spat-tog' + (filters.bboxOnly ? ' on' : '')} onClick={() => setF({ ...filters, bboxOnly: !filters.bboxOnly })}>
           <span className="chk-box">{filters.bboxOnly && <i />}</span> 현재 지도 범위 안만
         </label>
-        <button className="spat-draw" disabled title="영역 그리기는 추후 연결">▢ 영역 그리기</button>
+        {filters.drawnBbox ? (
+          <div className="spat-chip">
+            ▢ 영역 적용됨
+            <span className="mono">{filters.drawnBbox.map(v => v.toFixed(3)).join(', ')}</span>
+            <button onClick={() => setF({ ...filters, drawnBbox: null })} title="영역 필터 해제" aria-label="영역 필터 해제">×</button>
+          </div>
+        ) : (
+          <button
+            className={'spat-draw' + (drawActive ? ' active' : '')}
+            onClick={onStartDraw}
+            title="지도에서 드래그로 영역을 그리면 그 안의 결과만 검색합니다"
+          >
+            {drawActive ? '지도에서 드래그… (Esc 취소)' : '▢ 영역 그리기'}
+          </button>
+        )}
       </div>
 
       <div className="side-foot">지도 · 목록 · Context Panel 이 동일한 결과를 공유합니다</div>
