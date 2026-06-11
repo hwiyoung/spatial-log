@@ -134,7 +134,7 @@ export default function TaskSection({ task }) {
             <button type="button" className="btn danger" onClick={() => cancelTask(task.id)}>취소</button>
           )}
           {(task.status === 'failed' || task.status === 'analyzed') && (
-            <button type="button" className="btn ghost" onClick={() => (task.status === 'analyzed' ? cancelTask(task.id) : removeTask(task.id))}>
+            <button type="button" className="btn ghost" onClick={() => (task.status === 'registered' ? removeTask(task.id) : cancelTask(task.id))}>
               {task.status === 'analyzed' ? '작업 취소' : '닫기'}
             </button>
           )}

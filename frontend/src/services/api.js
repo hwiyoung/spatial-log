@@ -17,10 +17,15 @@ export const uploadApi = {
   register: (manifest) => samsApi.post('/upload/register', manifest),
   getSession: (sessionId) => samsApi.get(`/upload/sessions/${sessionId}`),
   cancelSession: (sessionId) => samsApi.delete(`/upload/sessions/${sessionId}`),
-  getPresignedUrl: (params) => samsApi.get('/upload/presigned-url', { params }),
+  getPresignedUrl: (params, config = {}) => samsApi.get('/upload/presigned-url', { params, ...config }),
   getManifestTemplate: (collectionId) => samsApi.get(`/upload/manifest-template/${collectionId}`, { responseType: 'blob' }),
   importManifest: (formData) => samsApi.post('/upload/manifest-import', formData),
-  uploadComplete: (uploadId) => samsApi.post('/upload/upload-complete', { upload_id: uploadId }),
+  uploadComplete: (body, config) => samsApi.post('/upload/upload-complete', body, config),
+  // presigned PUT — MinIO 직행이므로 samsApi 인스턴스(baseURL/인터셉터) 를 쓰지 않는다
+  putPresigned: (url, file, config = {}) => axios.put(url, file, {
+    headers: { 'Content-Type': 'application/octet-stream' },
+    ...config,
+  }),
 }
 
 // ── Collections ──

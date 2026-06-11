@@ -90,7 +90,12 @@ export default function Upload() {
 function readEntry(entry) {
   return new Promise((resolve) => {
     if (entry.isFile) {
-      entry.file(f => resolve([f]), () => resolve([]))
+      entry.file(f => {
+        // 서브디렉토리 경로 보존 — 같은 이름의 파일이 다른 폴더에 있을 때 충돌 방지
+        // (File.webkitRelativePath 는 디렉토리 input 전용이라 드롭에서는 비어 있다)
+        try { f._relPath = (entry.fullPath || '').replace(/^\//, '') || f.name } catch { /* read-only 면 무시 */ }
+        resolve([f])
+      }, () => resolve([]))
     } else if (entry.isDirectory) {
       const reader = entry.createReader()
       const allFiles = []

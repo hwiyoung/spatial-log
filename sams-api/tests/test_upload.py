@@ -350,3 +350,55 @@ class TestRegisterAcceptedLinks:
         body = resp.json()
         assert body["registered"] == 1
         assert mock_update.call_count == 0   # 타겟 미등록 → 링크 생성 없음
+
+
+class TestPresignedFlow:
+    """대용량 직접 업로드 — presigned URL 발급 / 완료 통지 검증."""
+
+    @patch("sams.routers.upload.generate_put_url")
+    def test_presigned_url_issued(self, mock_url):
+        mock_url.return_value = "http://minio.example/put?sig=x"
+        resp = client.get("/api/upload/presigned-url", params={"filename": "scan.las", "session_id": "abcdef123456"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["staging_key"] == "_staging/abcdef123456/scan.las"
+        assert body["url"].startswith("http")
+        assert body["session_id"] == "abcdef123456"
+
+    def test_presigned_url_rejects_traversal(self):
+        for bad in ["../etc/passwd", "/abs/path.las", "a/../../b.las"]:
+            resp = client.get("/api/upload/presigned-url", params={"filename": bad, "session_id": "abcdef123456"})
+            assert resp.status_code == 400, bad
+
+    def test_upload_complete_rejects_foreign_staging_key(self):
+        """다른 세션의 staging_key 를 가리키면 400 — 세션 경계 강제."""
+        resp = client.post("/api/upload/upload-complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/othersession/scan.las",
+            "filename": "scan.las",
+        })
+        assert resp.status_code == 400
+
+    @patch("sams.routers.upload.object_size")
+    def test_upload_complete_missing_object_404(self, mock_size):
+        mock_size.return_value = None
+        resp = client.post("/api/upload/upload-complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "filename": "scan.las",
+        })
+        assert resp.status_code == 404
+
+    @patch("sams.routers.upload.download_object")
+    @patch("sams.routers.upload.object_size")
+    def test_upload_complete_downloads_to_session(self, mock_size, mock_dl):
+        mock_size.return_value = 123456789
+        mock_dl.return_value = None
+        resp = client.post("/api/upload/upload-complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "filename": "scan.las",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["size"] == 123456789
+        assert mock_dl.called

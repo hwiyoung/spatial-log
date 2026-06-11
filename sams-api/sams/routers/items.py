@@ -36,6 +36,12 @@ def _strip_system_links(item: dict) -> dict:
     return item
 
 
+def pgstac_update_item_sync(collection_id: str, item_id: str, item: dict) -> None:
+    """동기 컨텍스트(Celery worker 등)용 pgSTAC Item 갱신 — _pgstac_update_item 과 동일 로직."""
+    _strip_system_links(item)
+    _pgstac_delete_insert(collection_id, item_id, item)
+
+
 async def _pgstac_update_item(collection_id: str, item_id: str, item: dict) -> None:
     """pgSTAC에 직접 Item을 갱신한다 (삭제 후 재삽입).
 
@@ -44,7 +50,11 @@ async def _pgstac_update_item(collection_id: str, item_id: str, item: dict) -> N
     저장 전 stac-api가 붙인 시스템 링크를 정리하여 중복을 방지한다.
     """
     _strip_system_links(item)
+    _pgstac_delete_insert(collection_id, item_id, item)
 
+
+def _pgstac_delete_insert(collection_id: str, item_id: str, item: dict) -> None:
+    """파티션 DELETE + create_item 을 한 트랜잭션으로 수행하는 공용 코어."""
     conn = psycopg2.connect(settings.DATABASE_URL)
     try:
         cur = conn.cursor()
@@ -668,6 +678,23 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
         raise HTTPException(status_code=404, detail=f"대상 프로젝트를 찾을 수 없습니다: {req.target_collection_id}")
 
     category = item.get("properties", {}).get("data_category", "unknown")
+
+    # 2-2. 역방향 링크 정리 — 상대 Item 들의 dangling 링크 제거.
+    #      삭제가 확정된 뒤 수행해 실패 시에도 "살아있는 Item 의 비대칭 링크"가 남지 않는다.
+    for link in item.get("links", []):
+        rel = link.get("rel")
+        reverse = _REVERSE_REL.get(rel)
+        if not reverse:
+            continue   # 사용자 관계가 아닌 링크 (self/parent 등)
+        href = link.get("href", "")
+        target_id = href.rstrip("/").split("/")[-1] if href else None
+        if not target_id or target_id == item_id:
+            continue
+        target_col = _extract_collection_from_href(href, collection_id)
+        try:
+            await _remove_reverse_link(target_col, target_id, item_id, reverse)
+        except Exception:
+            logger.warning("역방향 링크 정리 실패 (계속): %s → %s", item_id, target_id)
 
     # 3. S3 파일 이동 (copy + delete)
     moved_assets = {}

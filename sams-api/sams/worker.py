@@ -33,21 +33,40 @@ def generate_thumbnail_task(
     self,
     collection_id: str,
     item_id: str,
-    file_path: str,
+    source_s3_key: str,
     data_category: str,
+    filename: str,
 ):
     """썸네일을 생성하고 S3에 업로드한 뒤 STAC Item의 thumbnail Asset을 업데이트한다.
+
+    register 가 등록 응답을 기다리지 않도록 대용량 파일에서 디스패치된다.
+    등록 세션 임시 파일은 이미 정리됐을 수 있으므로 원본을 S3 최종 경로에서 내려받는다.
 
     Args:
         collection_id: Collection ID.
         item_id: STAC Item ID.
-        file_path: S3에서 다운로드한 로컬 파일 경로, 또는 원본 임시 파일 경로.
+        source_s3_key: 원본 데이터의 S3 키 (최종 경로).
         data_category: 데이터 유형.
+        filename: 원본 파일명 (확장자 기반 썸네일 생성에 필요).
     """
+    import tempfile
+
     from sams.pipeline.thumbnail import generate_thumbnail
-    from sams.services.s3 import upload_file, build_asset_href
+    from sams.services.s3 import upload_file, build_asset_href, download_object
 
     logger.info("썸네일 생성 시작: %s (%s)", item_id, data_category)
+
+    # 0) 원본 S3 다운로드 (확장자 보존 — 생성기가 확장자로 분기)
+    suffix = Path(filename).suffix or ""
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp.close()
+    file_path = tmp.name
+    try:
+        download_object(source_s3_key, file_path)
+    except Exception as exc:
+        os.unlink(file_path)
+        logger.warning("원본 S3 다운로드 실패 — 재시도: %s (%s)", item_id, exc)
+        raise self.retry(exc=exc)
 
     # 1) 썸네일 생성
     thumb_path = generate_thumbnail(file_path, data_category)
@@ -56,9 +75,8 @@ def generate_thumbnail_task(
         return {"status": "skipped", "item_id": item_id}
 
     try:
-        # 2) S3 업로드
-        original_name = Path(file_path).stem
-        thumb_filename = f"{original_name}_thumb.png"
+        # 2) S3 업로드 (register 동기 경로와 같은 네이밍)
+        thumb_filename = f"thumbnail_{Path(filename).stem}.png"
 
         s3_key = upload_file(
             thumb_path,
@@ -74,6 +92,11 @@ def generate_thumbnail_task(
             build_asset_href(collection_id, data_category, item_id, thumb_filename),
         )
 
+        # 디스패치가 등록 완료보다 먼저 실행될 수 있다 (register 가 썸네일 단계에서
+        # 디스패치한 뒤 STAC 등록을 진행) — Item 이 아직 없으면 재시도로 흡수한다.
+        if not updated:
+            raise self.retry(exc=RuntimeError(f"Item 갱신 실패(미등록일 수 있음): {item_id}"), countdown=5)
+
         logger.info("썸네일 완료: %s → %s", item_id, s3_key)
         # Item 갱신이 실제로 성공했을 때만 이력 기록 — 일어나지 않은 일을 기록하지 않는다
         if updated:
@@ -82,6 +105,10 @@ def generate_thumbnail_task(
         return {"status": "completed", "item_id": item_id, "s3_key": s3_key}
 
     except Exception as exc:
+        # 계획된 재시도(Retry)는 그대로 통과 — 광역 핸들러가 다시 retry 하면 이중 enqueue 된다
+        from celery.exceptions import Retry
+        if isinstance(exc, Retry):
+            raise
         logger.exception("썸네일 S3 업로드/Item 업데이트 실패: %s", item_id)
         raise self.retry(exc=exc)
 
@@ -89,6 +116,8 @@ def generate_thumbnail_task(
         # 임시 파일 정리
         if thumb_path and os.path.exists(thumb_path):
             os.unlink(thumb_path)
+        if os.path.exists(file_path):
+            os.unlink(file_path)
 
 
 def _update_item_thumbnail(collection_id: str, item_id: str, href: str) -> bool:
@@ -117,13 +146,12 @@ def _update_item_thumbnail(collection_id: str, item_id: str, href: str) -> bool:
     }
     item["assets"] = assets
 
-    # Item 업데이트
-    resp = httpx.put(
-        f"{settings.STAC_API_URL}/collections/{collection_id}/items/{item_id}",
-        json=item,
-        timeout=10.0,
-    )
-    if resp.status_code >= 400:
-        logger.error("Item 썸네일 업데이트 실패: %s (HTTP %s)", item_id, resp.status_code)
+    # Item 업데이트 — stac-fastapi Transaction 확장이 꺼져 있어 PUT 은 405.
+    # API 와 동일한 pgSTAC 직접 갱신(원자적 DELETE+create)을 사용한다.
+    try:
+        from sams.routers.items import pgstac_update_item_sync
+        pgstac_update_item_sync(collection_id, item_id, item)
+        return True
+    except Exception:
+        logger.exception("Item 썸네일 업데이트 실패 (pgSTAC): %s", item_id)
         return False
-    return True

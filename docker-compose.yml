@@ -56,6 +56,8 @@ services:
       DATABASE_URL: postgresql://sams:${DB_PASSWORD:-sams_dev_2024}@db:5432/samsdb
       STAC_API_URL: http://stac-api:8080
       S3_ENDPOINT: http://minio:9000
+      # 브라우저 직접 업로드(presigned PUT)용 — 호스트에서 접근 가능한 MinIO 주소
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:19000}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       S3_BUCKET: sams-archive

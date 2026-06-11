@@ -15,6 +15,9 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect } f
 import { uploadApi } from '../services/api'
 import { getSuggestions, resolveAcceptance } from '../features/upload/getSuggestionView'
 
+// 설계서 §4.2 — 이 크기 이상은 presigned URL 로 브라우저가 MinIO 에 직접 업로드
+const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024
+
 const UploadTasksContext = createContext(null)
 const STORAGE_KEY = 'sams_upload_tasks'
 
@@ -119,6 +122,7 @@ export function UploadTasksProvider({ children }) {
       rowEdits: {},        // {idx: {data_category?, description?, datetime?}} — 검토 단계 사용자 수정
       excludedRows: [],    // 등록에서 제외한 manifest 인덱스
       linkOverrides: {},   // {suggestionKey: bool} — 관계 제안 기본값에 대한 사용자 토글
+      stagingKeys: {},     // {파일명: staging_key} — presigned 대용량 (등록 시 서버측 복사)
       error: null,
       startedAt: Date.now(),
       uploadProgress: 0,
@@ -132,17 +136,47 @@ export function UploadTasksProvider({ children }) {
 
     ;(async () => {
       try {
+        // 대용량은 presigned 로 MinIO 직행 (API multipart 를 거치지 않음 — 설계서 §4.2),
+        // 소용량은 기존 multipart. 같은 세션이라 서버에서 한 배치로 분석된다.
+        const largeFiles = files.filter(f => f.size >= LARGE_FILE_THRESHOLD)
+        const smallFiles = files.filter(f => f.size < LARGE_FILE_THRESHOLD)
+        const stagingKeys = {}
+        // 진행률은 배치 전체 바이트 기준 누적 — 파일마다 0→100 반복으로 보이지 않게
+        const totalBytes = files.reduce((sum, f) => sum + f.size, 0) || 1
+        let doneBytes = 0
+        // 폴더 업로드의 서브디렉토리 경로 보존 — basename 충돌(같은 이름 다른 폴더) 방지.
+        // manifest 의 file_path(세션 디렉토리 상대경로)와 같은 키가 되어 stagingKeys 매칭이 일치한다.
+        const relName = (f) => f.webkitRelativePath || f._relPath || f.name
+
+        for (const f of largeFiles) {
+          const name = relName(f)
+          const { data: pres } = await uploadApi.getPresignedUrl(
+            { filename: name, session_id: sessionId }, { signal: controller.signal })
+          await uploadApi.putPresigned(pres.url, f, {
+            signal: controller.signal,
+            onUploadProgress: (e) => {
+              updateTask(taskId, { uploadProgress: Math.min(99, Math.round(((doneBytes + e.loaded) / totalBytes) * 100)) })
+            },
+          })
+          await uploadApi.uploadComplete(
+            { session_id: sessionId, staging_key: pres.staging_key, filename: name },
+            { signal: controller.signal })
+          doneBytes += f.size
+          stagingKeys[name] = pres.staging_key
+          // 새로고침 복구 시에도 register 가 staging 복사를 쓸 수 있게 즉시 영속
+          updateTask(taskId, { stagingKeys: { ...stagingKeys } })
+        }
+
         const formData = new FormData()
-        for (const f of files) formData.append('files', f)
+        for (const f of smallFiles) formData.append('files', f, relName(f))
         formData.append('collection_id', collectionId || '')
         formData.append('session_id', sessionId)
 
         const res = await uploadApi.analyze(formData, {
           signal: controller.signal,
           onUploadProgress: (e) => {
-            if (e.total) {
-              const pct = Math.round((e.loaded / e.total) * 100)
-              updateTask(taskId, { uploadProgress: pct })
+            if (e.total && smallFiles.length) {
+              updateTask(taskId, { uploadProgress: Math.min(100, Math.round(((doneBytes + e.loaded) / totalBytes) * 100)) })
             }
           },
         })
@@ -153,6 +187,7 @@ export function UploadTasksProvider({ children }) {
           manifest: res.data,
           sessionId: res.data?.session_id || sessionId,
           uploadProgress: null,
+          stagingKeys,
         }
         updateTask(taskId, analyzedTask)
 
@@ -203,6 +238,7 @@ export function UploadTasksProvider({ children }) {
           _filename: item.file_path,
           _bundled_files: item.bundled_files || [],
           _manifest_idx: idx,
+          ...(task.stagingKeys?.[item.file_path] ? { _staging_key: task.stagingKeys[item.file_path] } : {}),
           ...(acceptedBySource[idx] ? { _accepted_links: acceptedBySource[idx] } : {}),
         }
         // 검토 단계의 사용자 수정(카테고리 교정·표시 이름·취득일)이 자동 추출값을 덮어쓴다
