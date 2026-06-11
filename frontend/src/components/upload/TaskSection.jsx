@@ -8,6 +8,7 @@ import { useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useUploadTasks } from '../../contexts/UploadTasksContext'
 import { getManifestRowView } from '../../features/upload/getManifestRowView'
+import { getSuggestions, resolveAcceptance } from '../../features/upload/getSuggestionView'
 import { PREVIEW_META, tint } from '../../features/explorer/explorerMeta'
 import SingleCard from './SingleCard'
 import BulkTable from './BulkTable'
@@ -86,7 +87,7 @@ function DoneView({ task, onRemove }) {
 }
 
 export default function TaskSection({ task }) {
-  const { registerTask, cancelTask, removeTask, updateLocationOverride, updateRowEdit, toggleRowExclude } = useUploadTasks()
+  const { registerTask, cancelTask, removeTask, updateLocationOverride, updateRowEdit, toggleRowExclude, toggleLinkAccept } = useUploadTasks()
 
   const rows = useMemo(() => {
     const manifest = task.manifest?.manifest || []
@@ -97,6 +98,15 @@ export default function TaskSection({ task }) {
       excluded: excluded.has(idx),
     }))
   }, [task.manifest, task.rowEdits, task.locationOverrides, task.excludedRows])
+
+  // 관계 자동 제안 + 수락 상태 (기본값 규칙 ⊕ 사용자 토글) — 등록 payload 와 같은 함수 사용
+  const suggestions = useMemo(() => getSuggestions(task.manifest), [task.manifest])
+  const acceptance = useMemo(() => resolveAcceptance(suggestions, task.linkOverrides || {}), [suggestions, task.linkOverrides])
+  const excludedSet = useMemo(() => new Set(task.excludedRows || []), [task.excludedRows])
+  const acceptedCount = useMemo(
+    () => suggestions.filter(s => acceptance[s.key] && !excludedSet.has(s.sourceIdx) && !excludedSet.has(s.targetIdx)).length,
+    [suggestions, acceptance, excludedSet],
+  )
 
   const includedCount = rows.filter(r => !r.excluded).length
   const inReview = task.status === 'analyzed' || task.status === 'registering'
@@ -160,13 +170,22 @@ export default function TaskSection({ task }) {
           >
             {task.type === 'bulk'
               ? <BulkTable rows={rows} onEdit={onEdit} onExclude={onExclude} onLocation={onLocation} />
-              : rows.map(row => <SingleCard key={row.idx} row={row} onEdit={onEdit} onExclude={onExclude} onLocation={onLocation} />)}
+              : rows.map(row => (
+                <SingleCard
+                  key={row.idx} row={row} onEdit={onEdit} onExclude={onExclude} onLocation={onLocation}
+                  suggestions={suggestions.filter(s => s.sourceIdx === row.idx)}
+                  acceptance={acceptance}
+                  excludedSet={excludedSet}
+                  onToggleLink={(key, val) => toggleLinkAccept(task.id, key, val)}
+                />
+              ))}
           </div>
 
           <div className="actbar">
             <div className="summary">
               <b>{includedCount}건</b>이 <b style={{ color: 'var(--draft)' }}>Draft</b>로 등록됩니다
               {rows.length !== includedCount && ` · ${rows.length - includedCount}건 제외`}
+              {acceptedCount > 0 && <> · 관계 <b style={{ color: 'var(--blue)' }}>{acceptedCount}건</b> 함께 연결</>}
             </div>
             <div className="right">
               <button

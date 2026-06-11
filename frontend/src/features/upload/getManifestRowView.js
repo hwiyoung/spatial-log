@@ -58,7 +58,8 @@ export function getManifestRowView(item, idx, { edits = {}, location = null, exc
 
   // 사용자가 검토 단계에서 채운 필드(표시 이름·취득일 등)는 누락 목록에서 제외
   const missing = (item.required_empty || []).filter(k => !edits[k])
-  const links = item.suggested_links || []
+  // target_idx 가 없는(구버전 manifest) 제안은 수락/등록이 불가능하므로 칩 개수에서도 제외
+  const links = (item.suggested_links || []).filter(l => l.target_idx != null && l.target_idx >= 0)
 
   // 카테고리를 직접 교정했으면 자동 판별 신뢰도 경고는 무의미 — '직접 지정'으로 표시
   const manualCat = Boolean(edits.data_category)

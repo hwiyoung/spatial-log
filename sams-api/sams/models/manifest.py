@@ -21,7 +21,8 @@ class MetadataValue(BaseModel):
 class SuggestedLinkItem(BaseModel):
     """관계 제안 하나."""
     rel: str                # derived_from, related, describedby
-    target_file: str        # 대상 파일 경로
+    target_file: str        # 대상 파일 경로 (표시용)
+    target_idx: int = -1    # 배치(manifest) 내 대상 인덱스 — register 의 _accepted_links 해석에 사용
     confidence: float       # 0.0 ~ 1.0
     reason: str             # 제안 이유
 

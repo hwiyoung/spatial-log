@@ -98,6 +98,7 @@ def analyze(
             items[s.source_idx].suggested_links.append(SuggestedLinkItem(
                 rel=s.rel_type,
                 target_file=target_file,
+                target_idx=s.target_idx,
                 confidence=s.confidence,
                 reason=s.reason,
             ))

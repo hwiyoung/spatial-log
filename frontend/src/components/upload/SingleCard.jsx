@@ -14,7 +14,7 @@ import { Flag, PvDot, SP_LABEL } from './uploadBits'
 
 const CAT_ORDER = ['pointcloud', '3d_model', '3d_tiles', 'orthoimage', 'image', 'panorama', 'video', 'document']
 
-export default function SingleCard({ row, onEdit, onExclude, onLocation }) {
+export default function SingleCard({ row, onEdit, onExclude, onLocation, suggestions = [], acceptance = {}, excludedSet, onToggleLink }) {
   const [showPicker, setShowPicker] = useState(false)
   const pv = PREVIEW_META[row.preview.s] || PREVIEW_META.missing
 
@@ -99,15 +99,26 @@ export default function SingleCard({ row, onEdit, onExclude, onLocation }) {
           {row.missing.length > 0 && (
             <div className="reason">누락 필드는 등록을 막지 않습니다 — Draft로 수용 후 보완 화면에서 채울 수 있습니다.</div>
           )}
-          {row.links.length > 0 && (
+          {suggestions.length > 0 && (
             <div style={{ marginTop: 10 }}>
-              <div className="fc-sub">관계 자동 제안</div>
-              {row.links.map((l, i) => (
-                <div className="linkrow" key={i}>
-                  <span className="lr">{l.rel}</span>
-                  <span>→ {(l.target_file || '').split('/').pop()}</span>
-                </div>
-              ))}
+              <div className="fc-sub">관계 자동 제안 <span style={{ textTransform: 'none', letterSpacing: 0 }}>· 체크된 것만 등록 시 연결</span></div>
+              {suggestions.map(s => {
+                const targetExcluded = excludedSet?.has(s.targetIdx)
+                return (
+                  <label className={'linkrow sug' + (targetExcluded ? ' off' : '')} key={s.key} title={s.reason}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(acceptance[s.key]) && !targetExcluded}
+                      disabled={targetExcluded}
+                      onChange={e => onToggleLink(s.key, e.target.checked)}
+                    />
+                    <span className="lr">{s.rel}</span>
+                    <span className="sug-tgt">→ {s.targetFile}</span>
+                    <span className="sug-conf">{Math.round(s.confidence * 100)}%</span>
+                    {targetExcluded && <span className="sug-note">대상 제외됨</span>}
+                  </label>
+                )
+              })}
             </div>
           )}
         </div>

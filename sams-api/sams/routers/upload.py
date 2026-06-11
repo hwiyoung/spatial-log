@@ -316,6 +316,10 @@ async def upload_register(req: RegisterRequest):
     registered = 0
     item_ids: list[str] = []
     errors: list[str] = []
+    # 수락된 관계 제안 해석용 — 배치 내 링크 대상의 ID 는 지금 이 루프에서 생성되므로
+    # manifest 인덱스 → 생성된 item_id 매핑을 만들고, 전 항목 등록 후 링크를 일괄 생성한다.
+    registered_by_midx: dict[int, str] = {}
+    pending_links: list[tuple[int, list[dict]]] = []   # (source_midx, accepted_links)
 
     for idx, item_data in enumerate(req.items):
         try:
@@ -479,6 +483,16 @@ async def upload_register(req: RegisterRequest):
             registered += 1
             item_ids.append(item_id)
 
+            # 클라이언트 제공 인덱스는 검증 후 사용 — 비정수면 루프 인덱스로 폴백, 중복은 선착순.
+            # (등록 성공 후의 예외가 except 의 S3 롤백으로 흘러 "등록은 됐는데 파일만 삭제"가 되는 것 방지)
+            midx = item_data.get("_manifest_idx", idx)
+            if not isinstance(midx, int) or isinstance(midx, bool):
+                midx = idx
+            registered_by_midx.setdefault(midx, item_id)
+            accepted = item_data.get("_accepted_links")
+            if isinstance(accepted, list) and accepted:
+                pending_links.append((midx, accepted))
+
             history.record_event(
                 req.collection_id, item_id, "register",
                 f"{req.status.capitalize()}로 등록 · 자동 분류 → {category}",
@@ -514,6 +528,16 @@ async def upload_register(req: RegisterRequest):
                 except Exception:
                     logger.warning("S3 롤백 실패: %s", item_id)
 
+    # 수락된 관계 제안 → STAC links 생성 (양방향). 링크 실패가 등록을 되돌리지는 않는다 —
+    # 등록은 이미 커밋됐으므로 어떤 예외도 errors 로만 강등한다 (500 이면 프론트가 재시도 → 중복 등록 위험).
+    if pending_links:
+        try:
+            link_errors = await _create_accepted_links(req.collection_id, registered_by_midx, pending_links)
+            errors.extend(link_errors)
+        except Exception as e:
+            logger.exception("관계 링크 일괄 생성 실패")
+            errors.append(f"관계 링크 생성 실패: {e}")
+
     # 등록 완료 후 세션 정리
     if req.session_id:
         _cleanup_session(req.session_id)
@@ -523,6 +547,82 @@ async def upload_register(req: RegisterRequest):
         item_ids=item_ids,
         errors=errors,
     )
+
+
+# 업로드 제안 수락으로 만들 수 있는 관계 — prev/next 등은 보완/Detail 에서 별도 authoring
+_ALLOWED_SUGGEST_RELS = {"derived_from", "related", "describedby"}
+
+
+async def _create_accepted_links(
+    collection_id: str,
+    registered_by_midx: dict[int, str],
+    pending_links: list[tuple[int, list[dict]]],
+) -> list[str]:
+    """수락된 제안(_accepted_links, manifest 인덱스 기반)을 실제 STAC links 로 해석·생성한다.
+
+    배치 내 링크 대상의 item_id 는 등록 시점에 생성되므로 인덱스→ID 매핑으로 해석한다.
+    Detail 의 관계 추가와 동일하게 역방향 링크도 함께 만든다(_REVERSE_REL 재사용).
+    실패는 오류 목록으로 반환만 하고 등록 자체는 유지한다 (graceful degradation).
+    """
+    from sams.routers.items import _REVERSE_REL, _pgstac_update_item
+    from sams.services import stac
+
+    # 항목별로 추가할 링크·이력 이벤트를 모아 항목당 1회만 조회/갱신
+    additions: dict[str, dict] = {}   # item_id -> {"links": [...], "events": [(rel, target_id)]}
+
+    def _add(item_id: str, rel: str, target_id: str) -> None:
+        entry = additions.setdefault(item_id, {"links": [], "events": []})
+        entry["links"].append({"rel": rel, "href": f"./{target_id}", "type": "application/geo+json"})
+        entry["events"].append((rel, target_id))
+
+    for source_midx, accepted in pending_links:
+        source_id = registered_by_midx.get(source_midx)
+        if not source_id:
+            continue
+        seen: set[tuple[str, str]] = set()
+        for link in accepted:
+            if not isinstance(link, dict):
+                continue
+            rel = link.get("rel")
+            target_idx = link.get("target_idx")
+            if not isinstance(target_idx, int) or isinstance(target_idx, bool):
+                continue
+            target_id = registered_by_midx.get(target_idx)
+            if rel not in _ALLOWED_SUGGEST_RELS or not target_id or target_id == source_id:
+                continue
+            if (rel, target_id) in seen:
+                continue
+            seen.add((rel, target_id))
+            _add(source_id, rel, target_id)
+            reverse = _REVERSE_REL.get(rel)
+            if reverse:
+                _add(target_id, reverse, source_id)
+
+    link_errors: list[str] = []
+    for item_id, entry in additions.items():
+        try:
+            item = await stac.get_item(collection_id, item_id)
+            if item is None:
+                link_errors.append(f"관계 링크 생성 실패: {item_id} 조회 불가")
+                continue
+            existing = item.get("links", [])
+            have = {(l.get("rel"), l.get("href")) for l in existing}
+            new_links = [l for l in entry["links"] if (l["rel"], l["href"]) not in have]
+            if not new_links:
+                continue
+            item["links"] = existing + new_links
+            await _pgstac_update_item(collection_id, item_id, item)
+            for rel, target_id in entry["events"]:
+                history.record_event(
+                    collection_id, item_id, "relation",
+                    f"관계 추가(업로드 제안 수락): {rel} → {target_id}",
+                    {"rel": rel, "target": target_id}, actor="시스템",
+                )
+        except Exception as e:
+            logger.exception("관계 링크 생성 실패: %s", item_id)
+            link_errors.append(f"관계 링크 생성 실패({item_id}): {e}")
+
+    return link_errors
 
 
 def _get_db_connection():

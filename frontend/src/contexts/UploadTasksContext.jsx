@@ -13,6 +13,7 @@
  */
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { uploadApi } from '../services/api'
+import { getSuggestions, resolveAcceptance } from '../features/upload/getSuggestionView'
 
 const UploadTasksContext = createContext(null)
 const STORAGE_KEY = 'sams_upload_tasks'
@@ -117,6 +118,7 @@ export function UploadTasksProvider({ children }) {
       locationOverrides: {},
       rowEdits: {},        // {idx: {data_category?, description?, datetime?}} — 검토 단계 사용자 수정
       excludedRows: [],    // 등록에서 제외한 manifest 인덱스
+      linkOverrides: {},   // {suggestionKey: bool} — 관계 제안 기본값에 대한 사용자 토글
       error: null,
       startedAt: Date.now(),
       uploadProgress: 0,
@@ -182,6 +184,16 @@ export function UploadTasksProvider({ children }) {
     try {
       const collectionId = task.collectionId || `upload-${Date.now()}`
       const excluded = new Set(task.excludedRows || [])
+
+      // 수락된 관계 제안 — 양 끝이 모두 등록 대상일 때만 보낸다 (인덱스는 manifest 기준)
+      const suggestions = getSuggestions(task.manifest)
+      const acceptance = resolveAcceptance(suggestions, task.linkOverrides || {})
+      const acceptedBySource = {}
+      suggestions.forEach(s => {
+        if (!acceptance[s.key] || excluded.has(s.sourceIdx) || excluded.has(s.targetIdx)) return
+        ;(acceptedBySource[s.sourceIdx] = acceptedBySource[s.sourceIdx] || []).push({ target_idx: s.targetIdx, rel: s.rel })
+      })
+
       const items = task.manifest.manifest.map((item, idx) => {
         if (excluded.has(idx)) return null
         const base = {
@@ -190,6 +202,8 @@ export function UploadTasksProvider({ children }) {
           ...flattenExtracted(item.inherited),
           _filename: item.file_path,
           _bundled_files: item.bundled_files || [],
+          _manifest_idx: idx,
+          ...(acceptedBySource[idx] ? { _accepted_links: acceptedBySource[idx] } : {}),
         }
         // 검토 단계의 사용자 수정(카테고리 교정·표시 이름·취득일)이 자동 추출값을 덮어쓴다
         const edits = task.rowEdits?.[idx]
@@ -282,6 +296,14 @@ export function UploadTasksProvider({ children }) {
     }))
   }, [])
 
+  // 관계 제안 수락/무시 토글 (기본값은 규칙으로 계산 — override 만 저장)
+  const toggleLinkAccept = useCallback((taskId, suggestionKey, nextValue) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      return { ...t, linkOverrides: { ...(t.linkOverrides || {}), [suggestionKey]: nextValue } }
+    }))
+  }, [])
+
   // 행 제외/복원 토글 — 제외된 행은 등록에서 빠진다
   const toggleRowExclude = useCallback((taskId, idx) => {
     setTasks(prev => prev.map(t => {
@@ -302,6 +324,7 @@ export function UploadTasksProvider({ children }) {
     updateLocationOverride,
     updateRowEdit,
     toggleRowExclude,
+    toggleLinkAccept,
   }
 
   return (

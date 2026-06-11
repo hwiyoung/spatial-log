@@ -275,3 +275,78 @@ class TestUploadRegister:
         assert body["registered"] == 1  # 두 번째만 성공
         assert len(body["errors"]) == 1
         assert "STAC" in body["errors"][0] or "등록 실패" in body["errors"][0]
+
+
+class TestRegisterAcceptedLinks:
+    """수락된 관계 제안(_accepted_links, manifest 인덱스) → 양방향 STAC links 생성."""
+
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
+    @patch("sams.services.stac.get_item", new_callable=AsyncMock)
+    @patch("sams.routers.upload._register_stac_item", new_callable=AsyncMock)
+    def test_accepted_links_created_bidirectionally(self, mock_register, mock_get, mock_update):
+        mock_register.return_value = None
+        # 링크 생성 단계에서 조회되는 Item — 등록 직후라 links 비어 있음
+        mock_get.side_effect = lambda col, iid: {
+            "type": "Feature", "id": iid, "collection": col,
+            "properties": {}, "links": [], "assets": {},
+        }
+
+        req = {
+            "collection_id": "test-project",
+            "items": [
+                {
+                    "data_category": "image",
+                    "_manifest_idx": 0,
+                    # related 은 유효, prev 는 업로드 제안 허용 목록 밖 → 무시
+                    "_accepted_links": [
+                        {"target_idx": 1, "rel": "related"},
+                        {"target_idx": 1, "rel": "prev"},
+                        {"target_idx": 99, "rel": "related"},   # 미등록 인덱스 → 무시
+                    ],
+                },
+                {"data_category": "document", "_manifest_idx": 1},
+            ],
+            "status": "draft",
+        }
+
+        resp = client.post("/api/upload/register", json=req)
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["registered"] == 2
+        id0, id1 = body["item_ids"]
+
+        # 소스·타겟 각각 1회씩 링크 갱신
+        assert mock_update.call_count == 2
+        updated = {call.args[1]: call.args[2] for call in mock_update.call_args_list}
+        assert set(updated.keys()) == {id0, id1}
+        src_links = updated[id0]["links"]
+        tgt_links = updated[id1]["links"]
+        assert {"rel": "related", "href": f"./{id1}", "type": "application/geo+json"} in src_links
+        assert {"rel": "related", "href": f"./{id0}", "type": "application/geo+json"} in tgt_links
+        # prev(허용 외)·idx 99(미등록) 는 만들어지지 않음
+        assert all(l["rel"] == "related" for l in src_links)
+
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
+    @patch("sams.services.stac.get_item", new_callable=AsyncMock)
+    @patch("sams.routers.upload._register_stac_item", new_callable=AsyncMock)
+    def test_excluded_target_not_linked(self, mock_register, mock_get, mock_update):
+        """대상 항목이 등록 실패하면 해당 링크는 건너뛴다 (등록은 유지)."""
+        mock_register.side_effect = [None, RuntimeError("등록 실패")]
+        mock_get.side_effect = lambda col, iid: {
+            "type": "Feature", "id": iid, "collection": col,
+            "properties": {}, "links": [], "assets": {},
+        }
+
+        req = {
+            "collection_id": "test-project",
+            "items": [
+                {"data_category": "image", "_manifest_idx": 0,
+                 "_accepted_links": [{"target_idx": 1, "rel": "related"}]},
+                {"data_category": "document", "_manifest_idx": 1},
+            ],
+        }
+
+        resp = client.post("/api/upload/register", json=req)
+        body = resp.json()
+        assert body["registered"] == 1
+        assert mock_update.call_count == 0   # 타겟 미등록 → 링크 생성 없음
