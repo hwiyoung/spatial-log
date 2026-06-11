@@ -368,6 +368,14 @@ export const mockItems = [
     status: 'unknown',
     datetime: '2024-04-06T05:15:00Z',
     bbox: [129.3310, 35.7898, 129.3335, 35.7914],
+    // SRT 텔레메트리가 만드는 촬영 경로(LineString) — 지도에서 track 실선으로 표시 (설계서 12.2)
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [129.3312, 35.7899], [129.3318, 35.7902], [129.3322, 35.7907],
+        [129.3328, 35.7909], [129.3331, 35.7912], [129.3334, 35.7913],
+      ],
+    },
     size: 2576980377,
     assetTitle: '현장 점검 MOV',
     missingRequiredFields: ['video:duration', 'video:codec'],

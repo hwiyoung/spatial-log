@@ -264,16 +264,29 @@ export default function MapView({
       map.addSource('footprints', { type: 'geojson', data: footprintFCRef.current })
       map.addLayer({
         id: 'footprints-fill', type: 'fill', source: 'footprints',
+        filter: ['==', ['geometry-type'], 'Polygon'],
         paint: { 'fill-color': statusColor, 'fill-opacity': ['case', ['get', 'sel'], 0.14, 0.06] },
       })
       map.addLayer({
         id: 'footprints-line', type: 'line', source: 'footprints',
+        filter: ['==', ['geometry-type'], 'Polygon'],
         layout: { 'line-cap': 'round' },
         paint: {
           'line-color': statusColor,
           'line-width': ['case', ['get', 'sel'], 2.2, 1.4],
           'line-opacity': ['case', ['get', 'sel'], 1, 0.55],
           'line-dasharray': [4, 3],
+        },
+      })
+      // 비행/이동 경로(track) — 실선, footprint 점선과 구분 (설계서 12.2 flight path)
+      map.addLayer({
+        id: 'footprints-track', type: 'line', source: 'footprints',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': statusColor,
+          'line-width': ['case', ['get', 'sel'], 2.6, 1.8],
+          'line-opacity': ['case', ['get', 'sel'], 1, 0.75],
         },
       })
       map.addSource(SRC, {

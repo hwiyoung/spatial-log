@@ -29,6 +29,17 @@ function isUsablePolygon(geometry) {
   )
 }
 
+// 비행/이동 경로 (SRT 텔레메트리 → LineString) — 설계서 12.2 flight path
+function isUsableLine(geometry) {
+  if (!geometry) return false
+  if (geometry.type !== 'LineString' && geometry.type !== 'MultiLineString') return false
+  const lines = geometry.type === 'LineString' ? [geometry.coordinates] : geometry.coordinates
+  if (!Array.isArray(lines) || lines.length === 0) return false
+  return lines.every(line =>
+    Array.isArray(line) && line.length >= 2 && line.every(c => Array.isArray(c) && isValidLngLat(c[0], c[1]))
+  )
+}
+
 function passesExtent(dw, dh) {
   return (dw > MIN_EXTENT_DEG || dh > MIN_EXTENT_DEG) && dw <= MAX_EXTENT_DEG && dh <= MAX_EXTENT_DEG
 }
@@ -37,10 +48,14 @@ export function getItemFootprints(items = [], selectedId = null) {
   const features = []
   items.forEach(item => {
     let geometry = null
-    if (isUsablePolygon(item?.geometry)) {
+    let kind = 'footprint'
+    if (isUsablePolygon(item?.geometry) || isUsableLine(item?.geometry)) {
       // 전체 지오메트리 bounds 기준 — MultiPolygon 첫 링만 보면 extent 를 오판한다
       const [w, s, e, n] = getGeometryBounds(item.geometry) || [0, 0, 0, 0]
-      if (passesExtent(e - w, n - s)) geometry = item.geometry
+      if (passesExtent(e - w, n - s)) {
+        geometry = item.geometry
+        kind = (item.geometry.type === 'LineString' || item.geometry.type === 'MultiLineString') ? 'track' : 'footprint'
+      }
     }
     if (!geometry) {
       const b = getBboxBounds(item?.bbox)
@@ -50,7 +65,7 @@ export function getItemFootprints(items = [], selectedId = null) {
     features.push({
       type: 'Feature',
       geometry,
-      properties: { id: item.id, status: getItemStatus(item), sel: item.id === selectedId },
+      properties: { id: item.id, status: getItemStatus(item), sel: item.id === selectedId, kind },
     })
   })
   return { type: 'FeatureCollection', features }
