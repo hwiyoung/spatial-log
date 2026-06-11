@@ -13,6 +13,9 @@ import { useRef, useEffect, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import { getItemsBounds } from '../features/explorer-map/getItemsBounds.js'
 import { getItemMapPosition } from '../features/explorer-map/getItemMapPosition.js'
+import { getItemFootprints } from '../features/explorer-map/getItemFootprints.js'
+import { STATUS_HEX } from '../features/detail/statusHex.js'
+import '../styles/map.css'
 import { getItemStatus } from '../features/items/getItemStatus.js'
 import { normalizePreviewStatus } from '../features/items/getItemPreviewSummary.js'
 import { categoryGlyphSvg, STATUS_VAR, PREVIEW_VAR } from '../features/explorer-map/categoryGlyphSvg.js'
@@ -58,6 +61,8 @@ export default function MapView({
   onBoundsChange,
   fitToItems = true,
   loading = false,
+  fallbackCenters = null,   // {collectionId: [lon,lat]} — 좌표 없는 Item 의 project fallback
+  regionLabels = [],        // [{id, title, center}] — ◎ 프로젝트명 라벨
 }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
@@ -89,11 +94,16 @@ export default function MapView({
     const m = new Map(); (items || []).forEach(i => m.set(i.id, i)); return m
   }, [items])
   const itemsByIdRef = useRef(itemsById); itemsByIdRef.current = itemsById
+  const fallbackCentersRef = useRef(fallbackCenters); fallbackCentersRef.current = fallbackCenters
+
+  // footprint 폴리곤 — "어디까지"의 범위 표현 (마커 아래 캔버스 레이어)
+  const footprintFC = useMemo(() => getItemFootprints(items, selectedId), [items, selectedId])
+  const footprintFCRef = useRef(footprintFC); footprintFCRef.current = footprintFC
 
   const featureCollection = useMemo(() => ({
     type: 'FeatureCollection',
     features: (items || []).filter(it => !focusIds.has(it.id)).map(it => {
-      const pos = getItemMapPosition(it)
+      const pos = getItemMapPosition(it, fallbackCenters)
       if (!pos) return null
       return {
         type: 'Feature',
@@ -107,7 +117,7 @@ export default function MapView({
         },
       }
     }).filter(Boolean),
-  }), [items, focusIds])
+  }), [items, focusIds, fallbackCenters])
 
   // ── 지도 초기화 + 클러스터 source + 마커 동기화 ──
   useEffect(() => {
@@ -116,6 +126,8 @@ export default function MapView({
       container: containerRef.current,
       style: {
         version: 8,
+        // glyphs 미설정 시 symbol 레이어(관계 라벨)가 검증 단계에서 거부된다
+        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
         sources: { carto: { type: 'raster', tiles: CARTO_DARK, tileSize: 256, attribution: '© OpenStreetMap © CARTO' } },
         layers: [{ id: 'carto', type: 'raster', source: 'carto', minzoom: 0, maxzoom: 19 }],
       },
@@ -227,7 +239,7 @@ export default function MapView({
       if (relEnabledRef.current) relatedIdsRef.current.forEach(id => focus.add(id))
       focus.forEach(id => {
         const it = itemsByIdRef.current.get(id); if (!it) return
-        const pos = getItemMapPosition(it); if (!pos) return
+        const pos = getItemMapPosition(it, fallbackCentersRef.current); if (!pos) return
         upsertPoint('f' + id, {
           id,
           cat: it.properties?.data_category || 'unknown',
@@ -245,6 +257,25 @@ export default function MapView({
     updateMarkersRef.current = updateMarkers
 
     map.on('load', () => {
+      // footprint 레이어 — 상태색 점선 외곽 + 옅은 채움 (디자인 .footprint)
+      const statusColor = ['match', ['get', 'status'],
+        'draft', STATUS_HEX.draft, 'published', STATUS_HEX.published,
+        'archived', STATUS_HEX.archived, STATUS_HEX.unknown]
+      map.addSource('footprints', { type: 'geojson', data: footprintFCRef.current })
+      map.addLayer({
+        id: 'footprints-fill', type: 'fill', source: 'footprints',
+        paint: { 'fill-color': statusColor, 'fill-opacity': ['case', ['get', 'sel'], 0.14, 0.06] },
+      })
+      map.addLayer({
+        id: 'footprints-line', type: 'line', source: 'footprints',
+        layout: { 'line-cap': 'round' },
+        paint: {
+          'line-color': statusColor,
+          'line-width': ['case', ['get', 'sel'], 2.2, 1.4],
+          'line-opacity': ['case', ['get', 'sel'], 1, 0.55],
+          'line-dasharray': [4, 3],
+        },
+      })
       map.addSource(SRC, {
         type: 'geojson',
         data: featureCollection,
@@ -277,6 +308,30 @@ export default function MapView({
     // 'sourcedata'/'render' 가 클러스터 재계산 완료 후 마커를 동기화 (여기서 즉시 호출하면 stale tiles 조회).
   }, [featureCollection, mapLoaded])
 
+  // footprint 갱신
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !map.getSource('footprints')) return
+    map.getSource('footprints').setData(footprintFC)
+  }, [footprintFC, mapLoaded])
+
+  // 프로젝트 region 라벨 (HTML 마커 — 맵 스타일 glyphs 의존 없이 한글 표시)
+  const regionMarkersRef = useRef([])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    regionMarkersRef.current.forEach(m => m.remove())
+    regionMarkersRef.current = (regionLabels || []).map(l => {
+      const el = document.createElement('div')
+      el.className = 'region-label'
+      el.textContent = '◎ ' + l.title
+      const m = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(l.center)
+      m.addTo(map)
+      return m
+    })
+    return () => { regionMarkersRef.current.forEach(m => m.remove()); regionMarkersRef.current = [] }
+  }, [regionLabels, mapLoaded])
+
   // 선택/관계/hover 상태 변하면 마커 재스타일
   useEffect(() => {
     if (mapLoaded) updateMarkersRef.current?.()
@@ -286,7 +341,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded || !fitToItems) return
-    const bounds = getItemsBounds(items)
+    const bounds = getItemsBounds(items, fallbackCentersRef.current)
     if (!bounds) { hasFitRef.current = false; return }
     const [w, s, e, n] = bounds
     if (w === e && s === n) {
@@ -302,7 +357,7 @@ export default function MapView({
     const map = mapRef.current
     if (!map || !mapLoaded || !selectedId) return
     const item = itemsByIdRef.current.get(selectedId)
-    const pos = item && getItemMapPosition(item)
+    const pos = item && getItemMapPosition(item, fallbackCentersRef.current)
     if (!pos) return
     if (!map.getBounds().contains(pos.position)) {
       map.easeTo({ center: pos.position, zoom: map.getZoom(), duration: 500 })
@@ -336,7 +391,17 @@ export default function MapView({
         </div>
       </div>
 
-      {loading && <div className="map-overlay"><div className="spinner" /><span>지도 데이터 불러오는 중…</span></div>}
+      {/* 결과 밖/누락 관계 경고 — 선이 그려질 수 없는 대상의 존재를 지도 위에서 알린다 (디자인 map-warnbar) */}
+      {relationOverlayEnabled && (relationOverlayModel?.missingTargets?.length || 0) > 0 && (
+        <div className="map-warnbar">
+          ⚠ 관계 대상 {relationOverlayModel.missingTargets.length}건이 현재 결과 밖이거나 없음
+          {' — '}
+          {relationOverlayModel.missingTargets.slice(0, 2).map(r => `${r.rel}: ${r.title}`).join(' · ')}
+          {relationOverlayModel.missingTargets.length > 2 && ' 외'}
+        </div>
+      )}
+
+      {loading && <div className="map-overlay"><div className="map-spinner" /><span>지도 데이터 불러오는 중…</span></div>}
     </div>
   )
 }

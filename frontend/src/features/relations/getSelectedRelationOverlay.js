@@ -59,6 +59,7 @@ function emptyOverlay(selectedItemId) {
 }
 
 export function getSelectedRelationOverlay({
+  fallbackCenters = null,
   selectedItem,
   visibleItems = [],
   relationRecords = [],
@@ -67,7 +68,7 @@ export function getSelectedRelationOverlay({
   if (!selectedItemId) return emptyOverlay(null)
 
   const selectedVisibleItem = getItemById(visibleItems, selectedItemId) || selectedItem
-  const selectedPosition = getItemMapPosition(selectedVisibleItem)
+  const selectedPosition = getItemMapPosition(selectedVisibleItem, fallbackCenters)
   const candidateRelations = relationRecords.length > 0
     ? relationRecords.filter(relation => relationMatchesSelectedItem(relation, selectedItemId))
     : relationsFromLinks(selectedItem)
@@ -91,8 +92,8 @@ export function getSelectedRelationOverlay({
     const targetItem = relation.targetId === selectedItemId
       ? selectedVisibleItem
       : getItemById(visibleItems, relation.targetId)
-    const sourceMap = getItemMapPosition(sourceItem)
-    const targetMap = getItemMapPosition(targetItem)
+    const sourceMap = getItemMapPosition(sourceItem, fallbackCenters)
+    const targetMap = getItemMapPosition(targetItem, fallbackCenters)
 
     if (resolved.isVisible && sourceMap?.position && targetMap?.position && selectedPosition?.position) {
       relatedItemIds.add(resolved.relatedItemId)

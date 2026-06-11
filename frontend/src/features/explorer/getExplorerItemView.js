@@ -9,9 +9,9 @@ import { getItemStatus } from '../items/getItemStatus.js'
 import { getProjectContext } from '../items/getProjectContext.js'
 import { normalizePreviewStatus } from '../items/getItemPreviewSummary.js'
 
-export function getExplorerItemView(item, collections = []) {
+export function getExplorerItemView(item, collections = [], fallbackCenters = null) {
   const props = item?.properties || {}
-  const pos = getItemMapPosition(item)
+  const pos = getItemMapPosition(item, fallbackCenters)
   const project = getProjectContext(item, collections)
   return {
     id: item?.id || null,

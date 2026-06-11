@@ -1,7 +1,7 @@
 import { itemsToMapMarkers } from './itemsToMapMarkers.js'
 
-export function getItemsBounds(items) {
-  const markers = itemsToMapMarkers(items)
+export function getItemsBounds(items, fallbackCenters = null) {
+  const markers = itemsToMapMarkers(items, fallbackCenters)
   if (markers.length === 0) return null
 
   return markers.reduce((bounds, marker) => {

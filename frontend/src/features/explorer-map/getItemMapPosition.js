@@ -49,7 +49,11 @@ export function getBoundsCenter(bounds) {
   return isValidLngLat(center[0], center[1]) ? center : null
 }
 
-export function getItemMapPosition(item) {
+/**
+ * 위치 우선순위 (설계서 12.1): geometry center → bbox center → project fallback → 없음.
+ * fallbackCenters: {collectionId: [lon,lat]} — 실데이터에서 좌표 없는 Item 의 프로젝트 위치.
+ */
+export function getItemMapPosition(item, fallbackCenters = null) {
   const geometryBounds = getGeometryBounds(item?.geometry)
   const geometryCenter = getBoundsCenter(geometryBounds)
   if (geometryCenter) {
@@ -62,11 +66,21 @@ export function getItemMapPosition(item) {
     return { position: bboxCenter, source: 'bbox', bounds: bboxBounds }
   }
 
-  const fallbackCenter = item?.properties?.['mock:fallback_center']
-  if (Array.isArray(fallbackCenter) && fallbackCenter.length >= 2) {
-    const [lng, lat] = fallbackCenter.map(Number)
+  const mockFallback = item?.properties?.['mock:fallback_center']
+  if (Array.isArray(mockFallback) && mockFallback.length >= 2) {
+    const [lng, lat] = mockFallback.map(Number)
     if (isValidLngLat(lng, lat)) {
       return { position: [lng, lat], source: 'fallback', bounds: [lng, lat, lng, lat] }
+    }
+  }
+
+  // 실데이터 project fallback — 좌표 없는 Item 을 소속 Collection 위치로 (설계서 12.1 3단계)
+  const projCenter = fallbackCenters?.[item?.collection]
+  if (Array.isArray(projCenter) && isValidLngLat(projCenter[0], projCenter[1])) {
+    return {
+      position: [projCenter[0], projCenter[1]],
+      source: 'fallback',
+      bounds: [projCenter[0], projCenter[1], projCenter[0], projCenter[1]],
     }
   }
 

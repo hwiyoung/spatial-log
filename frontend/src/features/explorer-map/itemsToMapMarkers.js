@@ -1,9 +1,9 @@
 import { getItemMapPosition } from './getItemMapPosition.js'
 
-export function itemsToMapMarkers(items) {
+export function itemsToMapMarkers(items, fallbackCenters = null) {
   return (items || [])
     .map(item => {
-      const mapPosition = getItemMapPosition(item)
+      const mapPosition = getItemMapPosition(item, fallbackCenters)
       if (!mapPosition) return null
       return {
         id: item.id,

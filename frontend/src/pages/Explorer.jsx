@@ -17,6 +17,7 @@ import { getSelectedRelationOverlay } from '../features/relations/getSelectedRel
 import { getItemStatus } from '../features/items/getItemStatus.js'
 import { getDisplayLabel } from '../features/items/getDisplayLabel.js'
 import { getItemMapPosition } from '../features/explorer-map/getItemMapPosition.js'
+import { getCollectionCenters } from '../features/explorer-map/getCollectionCenters.js'
 import { getExplorerItemView, EXPLORER_SORTS } from '../features/explorer/getExplorerItemView.js'
 import FilterSidebar from '../components/explorer/FilterSidebar'
 import ResultList from '../components/explorer/ResultList'
@@ -87,14 +88,28 @@ export default function Explorer() {
     }
   }, [filters.kw, mockMode])
 
+  // 좌표 없는 Item 의 project fallback 위치 + region 라벨 (Collection extent → Item 유도).
+  // 키워드 검색으로 결과가 좁혀져도 앵커가 사라지거나 점프하지 않게 세션 동안 sticky (선착 키 유지).
+  const centersRef = useRef({})
+  const fallbackCenters = useMemo(() => {
+    const next = getCollectionCenters(collections, scopeItems)
+    centersRef.current = { ...next, ...centersRef.current }
+    return centersRef.current
+  }, [collections, scopeItems])
+  const regionLabels = useMemo(() => (
+    collections
+      .filter(c => fallbackCenters[c.id] && c.id !== 'unassigned-inbox')
+      .map(c => ({ id: c.id, title: c.title || c.id, center: fallbackCenters[c.id] }))
+  ), [collections, fallbackCenters])
+
   // ── facet 카운트 (status/cat: 프로젝트 범위 기준 · project: 전체 범위 기준) ──
   const inBounds = useCallback((item) => {
     if (!mapBounds) return true
-    const pos = getItemMapPosition(item)
+    const pos = getItemMapPosition(item, fallbackCenters)
     if (!pos) return false
     const [lon, lat] = pos.position
     return lon >= mapBounds.minLon && lon <= mapBounds.maxLon && lat >= mapBounds.minLat && lat <= mapBounds.maxLat
-  }, [mapBounds])
+  }, [mapBounds, fallbackCenters])
 
   const byProject = useMemo(() => (
     filters.project === 'all' ? scopeItems : scopeItems.filter(i => i.collection === filters.project)
@@ -134,15 +149,15 @@ export default function Explorer() {
 
   // 정렬된 결과 view (목록용)
   const sortedViews = useMemo(() => (
-    filteredItems.map(i => getExplorerItemView(i, collections)).sort(EXPLORER_SORTS[sort] || EXPLORER_SORTS.recent)
-  ), [filteredItems, collections, sort])
+    filteredItems.map(i => getExplorerItemView(i, collections, fallbackCenters)).sort(EXPLORER_SORTS[sort] || EXPLORER_SORTS.recent)
+  ), [filteredItems, collections, sort, fallbackCenters])
 
   const relationRecords = useMemo(() => (mockMode ? mockRelations : []), [mockMode])
   const relationOverlayModel = useMemo(() => getSelectedRelationOverlay({
-    selectedItem, visibleItems: filteredItems, relationRecords,
-  }), [selectedItem, filteredItems, relationRecords])
+    selectedItem, visibleItems: filteredItems, relationRecords, fallbackCenters,
+  }), [selectedItem, filteredItems, relationRecords, fallbackCenters])
 
-  const selectedView = useMemo(() => (selectedItem ? getExplorerItemView(selectedItem, collections) : null), [selectedItem, collections])
+  const selectedView = useMemo(() => (selectedItem ? getExplorerItemView(selectedItem, collections, fallbackCenters) : null), [selectedItem, collections, fallbackCenters])
   const outOfResult = Boolean(selectedItem) && !visibleIds.has(selectedItem.id)
 
   // ── selection / navigation ──
@@ -231,6 +246,8 @@ export default function Explorer() {
                 onBoundsChange={setMapBounds}
                 fitToItems={!filters.bboxOnly}
                 loading={loading}
+                fallbackCenters={fallbackCenters}
+                regionLabels={regionLabels}
               />
             ) : (
               <Explorer3dGisBeta

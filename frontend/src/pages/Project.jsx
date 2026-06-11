@@ -16,6 +16,7 @@ import { collectionApi, searchApi, itemApi } from '../services/api'
 import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import { getExplorerItemView } from '../features/explorer/getExplorerItemView.js'
 import { getProjectStats, getCollectionFacts } from '../features/project/getProjectStats.js'
+import { getCollectionCenters } from '../features/explorer-map/getCollectionCenters.js'
 import ProjectList from '../components/project/ProjectList'
 import OverviewTab from '../components/project/OverviewTab'
 import { DraftTab, ItemsTab, LineageTab } from '../components/project/ProjectItemTabs'
@@ -134,7 +135,12 @@ export default function Project() {
   const isInbox = selectedId === 'unassigned-inbox'
   const facts = useMemo(() => (selectedCol ? getCollectionFacts(selectedCol) : null), [selectedCol])
   const stats = useMemo(() => getProjectStats(items, dashboard), [items, dashboard])
-  const views = useMemo(() => items.map(i => getExplorerItemView(i, collections)), [items, collections])
+  const fallbackCenters = useMemo(() => getCollectionCenters(collections, items), [collections, items])
+  const views = useMemo(() => items.map(i => getExplorerItemView(i, collections, fallbackCenters)), [items, collections, fallbackCenters])
+  const regionLabels = useMemo(() => {
+    const c = fallbackCenters[selectedId]
+    return c && selectedCol ? [{ id: selectedId, title: selectedCol.title || selectedId, center: c }] : []
+  }, [fallbackCenters, selectedId, selectedCol])
 
   // ── navigation (mock 쿼리 보존) ──
   const goDetail = (v) => navigate({ pathname: `/detail/${v.collection}/${v.id}`, search: location.search })
@@ -301,6 +307,8 @@ export default function Project() {
                         onSelectItem={setMapSel}
                         fitToItems
                         loading={itemsLoading}
+                        fallbackCenters={fallbackCenters}
+                        regionLabels={regionLabels}
                       />
                     </div>
                   )}

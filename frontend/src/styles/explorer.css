@@ -100,19 +100,6 @@
 .exp .divider.h::after { height: 3px; width: 30px; top: .5px; left: 50%; transform: translateX(-50%); }
 
 /* ---------- map overlays (React-rendered over MapLibre) ---------- */
-.exp .map-modetag { position: absolute; top: 12px; left: 12px; font-size: 11px; font-family: var(--font-mono); color: var(--t2); background: rgba(16,22,30,.8); border: 1px solid var(--line); padding: 4px 9px; border-radius: 7px; z-index: 2; pointer-events: none; }
-.exp .map-legend { position: absolute; right: 12px; bottom: 26px; background: rgba(16,22,30,.92); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; z-index: 2; backdrop-filter: blur(3px); }
-.exp .ml-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-.exp .ml-row + .ml-row { margin-top: 5px; padding-top: 6px; border-top: 1px solid var(--line2); }
-.exp .ml-h { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--t3); width: 78px; flex: none; }
-.exp .ml-cat { color: #AEB7C4; display: inline-flex; }
-.exp .ml-st { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--t2); }
-.exp .ml-st i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid; }
-.exp .map-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(12,17,23,.72); z-index: 3; color: var(--t2); font-size: 13px; pointer-events: none; }
-.exp .map-overlay.soft { background: rgba(12,17,23,.35); }
-.exp .map-overlay small { font-size: 11px; color: var(--t3); }
-.exp .spinner { width: 26px; height: 26px; border: 3px solid #2a3340; border-top-color: var(--blue); border-radius: 50%; animation: exp-spin .8s linear infinite; }
-@keyframes exp-spin { to { transform: rotate(360deg); } }
 
 /* ---------- result list ---------- */
 .exp .rl { flex: 1; display: flex; flex-direction: column; min-height: 0; }
