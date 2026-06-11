@@ -43,6 +43,7 @@ export default function ContextPanel({
   onOpenDetail,
   onOpenViewer,
   onOpenCompletion,
+  onOpenProject,
 }) {
   if (!view) {
     return (
@@ -151,7 +152,7 @@ export default function ContextPanel({
           {view.status === 'draft'
             ? <button className="af" onClick={onOpenCompletion} title="누락 필드를 채워 Published 후보로">보완하기</button>
             : <button className="af" onClick={onOpenDetail} title="전체 메타데이터는 Detail 에서">Metadata</button>}
-          <button className="af" disabled title="Project 화면 연결 예정">Project</button>
+          <button className="af" onClick={onOpenProject} title="이 Item 의 프로젝트 대시보드로">Project</button>
         </div>
       </div>
     </div>

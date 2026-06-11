@@ -2,11 +2,33 @@
  * OverviewTab — 현황: 4 KPI + 예상 산출물 대비 등록 + 프로젝트 정보.
  * `design-reference/project/Project.html` 의 Overview 포팅 — 실 dashboard/Item 통계.
  */
+import { useState } from 'react'
 import CategoryGlyph from '../viewer/CategoryGlyph'
 import { getCategoryInfo } from '../../constants'
 import { StatusMix } from './StatusBadge'
+import DeliverablesEditor from './DeliverablesEditor'
 
-export default function OverviewTab({ stats, facts }) {
+export default function OverviewTab({ stats, facts, onSaveDeliverables }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState([])
+  const [saving, setSaving] = useState(false)
+
+  const startEdit = () => {
+    // 현재 expected 목록을 시드로 — expected 가 없는(등록만 된) 유형은 제외
+    setDraft(stats.deliverables.filter(d => d.expected > 0).map(d => ({
+      category: d.cat, count: d.expected, description: d.description || '',
+    })))
+    setEditing(true)
+  }
+  const saveEdit = async () => {
+    setSaving(true)
+    try {
+      await onSaveDeliverables(draft.filter(d => d.category && d.count > 0))
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
   const { regTotal, expTotal, deliverables, missing, missingCount, draftCount, statusCounts } = stats
   const comp = expTotal ? Math.min(100, Math.round((regTotal / expTotal) * 100)) : null
 
@@ -33,10 +55,24 @@ export default function OverviewTab({ stats, facts }) {
         <div className="panel-h">
           <h3>예상 산출물 대비 등록</h3>
           <span className="hint">expected_deliverables vs registered</span>
-          {missingCount > 0 && <span className="miss-tag">누락 {missingCount}건 · {missing.length}개 유형</span>}
+          {!editing && onSaveDeliverables && (
+            <button type="button" className="ph-editbtn" onClick={startEdit} title="예상 산출물 편집">✎ 편집</button>
+          )}
+          {missingCount > 0 && !editing && <span className="miss-tag">누락 {missingCount}건 · {missing.length}개 유형</span>}
         </div>
+        {editing ? (
+          <div>
+            <DeliverablesEditor value={draft} onChange={setDraft} />
+            <div className="de-acts">
+              <button type="button" className="btn-primary" style={{ padding: '8px 16px' }} disabled={saving} onClick={saveEdit}>
+                {saving ? '저장 중…' : '저장'}
+              </button>
+              <button type="button" className="btn-ghost" style={{ padding: '8px 16px' }} onClick={() => setEditing(false)}>취소</button>
+            </div>
+          </div>
+        ) : (
         <div className="deliv">
-          {deliverables.length === 0 && <div className="proj-empty">등록된 산출물이 없습니다</div>}
+          {deliverables.length === 0 && <div className="proj-empty">등록된 산출물이 없습니다 — ✎ 편집으로 예상 산출물을 정의하세요</div>}
           {deliverables.map(d => {
             const full = d.expected === 0 || d.registered >= d.expected
             const pct = d.expected ? Math.min(100, Math.round((d.registered / d.expected) * 100)) : 100
@@ -51,6 +87,7 @@ export default function OverviewTab({ stats, facts }) {
             )
           })}
         </div>
+        )}
       </div>
 
       <div className="panel">

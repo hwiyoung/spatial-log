@@ -169,6 +169,16 @@ export default function Project() {
     }
   }
 
+  const handleSaveDeliverables = async (deliverables) => {
+    try {
+      await collectionApi.update(selectedId, { expected_deliverables: deliverables })
+      await Promise.all([loadSelected(), loadCollections()])   // KPI + 사이드바 미니바 갱신
+    } catch (err) {
+      alert('예상 산출물 저장 실패: ' + (err.response?.data?.detail || err.message))
+      throw err
+    }
+  }
+
   const handleAssign = async (v, targetColId) => {
     if (isMock) {
       alert('데모 세션 — 이동은 실데이터 모드에서 가능합니다.')
@@ -282,7 +292,7 @@ export default function Project() {
                 />
               ) : (
                 <>
-                  {tab === '현황' && <OverviewTab stats={stats} facts={facts} />}
+                  {tab === '현황' && <OverviewTab stats={stats} facts={facts} onSaveDeliverables={isMock ? undefined : handleSaveDeliverables} />}
                   {tab === '공간' && (
                     <div className="spatial-tab">
                       <MapView

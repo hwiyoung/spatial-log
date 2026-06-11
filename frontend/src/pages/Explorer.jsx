@@ -159,6 +159,12 @@ export default function Explorer() {
   const goCompletion = useCallback((item) => {
     if (item?.collection && item?.id) navigate({ pathname: `/complete/${item.collection}/${item.id}`, search: location.search }, { state: { from: 'explorer' } })
   }, [navigate, location.search])
+  const goProject = useCallback((item) => {
+    if (!item?.collection) return
+    const search = new URLSearchParams(location.search)
+    search.set('col', item.collection)   // Project 페이지가 ?col= 로 해당 프로젝트를 선택한다
+    navigate({ pathname: '/project', search: search.toString() })
+  }, [navigate, location.search])
 
   // ── divider drag (stack=세로 / split=가로) ──
   const bodyRef = useRef(null)
@@ -266,6 +272,7 @@ export default function Explorer() {
           onOpenDetail={() => goDetail(selectedItem)}
           onOpenViewer={() => goViewer(selectedItem)}
           onOpenCompletion={() => goCompletion(selectedItem)}
+          onOpenProject={() => goProject(selectedItem)}
         />
       </div>
     </div>
