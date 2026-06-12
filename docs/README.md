@@ -19,7 +19,7 @@
 
 ## Active ADRs
 
-- `docs/adr/ADR-3d-gis-map-grounded-renderer.md` — 현재 3D Beta의 map-grounded 방향.
+- `docs/adr/ADR-3d-gis-map-grounded-renderer.md` — v1 Core 3D Spatial Relationship View의 map-grounded 방향.
 - `docs/adr/ADR-preview-asset-delivery-policy.md` — preview delivery의 deferred backend 결정.
 
 ## Archive

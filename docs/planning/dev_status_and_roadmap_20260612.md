@@ -7,12 +7,13 @@
 
 ## 0. 한눈에
 
-> **백엔드 엔진(자동 채움 + STAC + 업로드/관계/이력)은 거의 완성·검증 상태.** 미완은 코어 기능이 아니라
-> ① 운영 전환, ② 변경경로(mutation) 안전망, ③ 실데이터로 차별성 증명, ④ 검색보조 API, ⑤ 3D·헤비뷰어 합의다.
-> 즉 *"기능을 더 만드는" 단계가 아니라 "실제로 올려 쓰고, 안 깨지게 하고, 차별성을 증명하는" 단계*다.
+> **백엔드 엔진(자동 채움 + STAC + 업로드/관계/이력)은 거의 완성·검증 상태.** 남은 핵심은
+> ① 운영 전환, ② 변경경로(mutation) 안전망, ③ 실데이터로 차별성 증명, ④ 검색보조 API, ⑤ Core 3D Spatial Relationship View의 실데이터 안정화다.
+> 즉 *"기능을 무작정 더 만드는" 단계가 아니라 "실제로 올려 쓰고, 안 깨지게 하고, 3D 공간 관계 이해까지 v1 경험으로 안정화하는" 단계*다.
 
 - 백엔드 테스트: 컨테이너 내부 **186 passed / 3 skipped** 그린 (CLAUDE.md의 "174 passed"는 옛 기재 — 현재 실측 186, skip 3건은 실제 LAS/GeoTIFF/Video 파일 부재 integration).
 - 핵심 가치(안전한 보관+검색)·차별성(자동 채움)의 백엔드 엔진은 완성도 높음.
+- 3D는 v1 핵심 기능이다. 단, v1의 3D 핵심은 Potree/Cesium 같은 heavy asset viewer가 아니라 산출물의 위치·유형·상태·관계를 이해하는 map-grounded 3D 관계 뷰다.
 
 ---
 
@@ -50,11 +51,12 @@
 - `components/MapView.jsx`(524줄): 실 MapLibre GL — CARTO dark + 네이티브 클러스터 + footprint + flight-path LineString + 드래그 bbox 영역 그리기. Explorer/Project 공용.
 - MetadataCompletion(Draft→Published 게이트, 백엔드 `_check_required_for_publish`와 정렬), Detail(메타/관계/시계열 authoring + 양방향 REVERSE_REL), Project(5탭 + Unassigned 배정 + 생성 모달), Upload(단건/벌크 폴더 재귀, ≥100MB presigned 직행, 백그라운드 분석 + localStorage 복구) 전부 실동작.
 
-### ④ 공간 / 3D — 2D 완성, 3D는 Beta 3중 병렬 ⚠️
+### ④ 공간 / 3D — 2D 완성, Core 3D는 실데이터 안정화 필요 ⚠️
 - **2D 지도는 프로덕션 수준** (flight_path·footprint·coverage·fallback 4종 공간근거 시각화).
-- **3D Explorer는 `Explorer3dGisBeta` 아래 렌더러 3개가 모두 라이브**: `map-grounded`(기본, MapLibre+three, 521줄) · `three`(순수 three.js, 654줄) · `pseudo`(CSS 폴백). 합산 ~1,800줄 병렬 유지 부담. 셋 다 "자산 배치 시각화" 수준 Beta(헤비 뷰어 아님).
-- 의사결정 합의: Explorer 기본 2D, 3D는 선택형 Beta, **전역 Relationship Graph는 폐기(superseded)**, 관계는 선택 Item 1-depth 오버레이로 격하.
-- **단, Explorer 전역 관계 overlay는 mock fixtures 의존** — 실데이터 모드에선 전역 관계선이 안 보임(선택 Item 관계만 실동작).
+- **3D Explorer는 `Explorer3dGisBeta` 아래 렌더러 3개가 모두 라이브**: `map-grounded`(기본, MapLibre+three, 521줄) · `three`(순수 three.js, 654줄) · `pseudo`(CSS 폴백). 합산 ~1,800줄 병렬 유지 부담. v1 핵심으로 남길 방향은 map-grounded 3D 관계 뷰이며, 헤비 뷰어는 아님.
+- 의사결정 합의: 3D는 v1 핵심 기능이다. 다만 v1 핵심은 산출물 간 공간 관계를 보여주는 3D Spatial Relationship View이고, production pointcloud/3D Tiles/model viewer는 Phase 2다. 안정화 전까지 2D map/list가 초기 기본 진입점일 수 있다.
+- **전역 Relationship Graph는 폐기(superseded)**. 관계는 선택 Item 1-depth 오버레이로 다루되, 2D와 3D 모두에서 실 STAC links/getRelated 기반으로 보여야 한다.
+- **현재 갭**: Explorer 전역 관계 overlay는 mock fixtures 의존 — 실데이터 모드에선 전역 관계선이 안 보임(선택 Item 관계만 실동작). v1 목표는 전역 그래프 재도입이 아니라 선택 Item 관계를 3D 공간에서 실데이터로 안정화하는 것이다.
 
 ### ⑤ ViewerShell — chrome·preview 계약은 실동작, 카테고리 표면은 목업 ⚠️
 - preview 4상태 계약(available/pending/missing/failed)·원본 다운로드·메타 strip은 실 데이터.
@@ -78,21 +80,23 @@
 | files.py | Presigned URL 리다이렉트 | S3 1MB 청크 직접 프록시 | diverged |
 | panorama 썸네일 | equirect→flat 변환 | 단순 image 리사이즈 | diverged |
 | 3d_tiles 썸네일 | 8종 전부 지원 | 미지원(1종 공백) | partial |
-| Explorer 관계 overlay | 선택 Item 1-depth 실 STAC links | 전역은 mock-only | partial |
-| 3D 렌더러 | map-grounded 채택 방향 | 3종 병렬 라이브 | diverged |
+| Explorer 관계 overlay | 선택 Item 1-depth 실 STAC links를 2D/3D에서 표시 | 전역은 mock-only | partial |
+| 3D 렌더러 | Core 3D Spatial Relationship View는 map-grounded 단일 방향 | 3종 병렬 라이브 | diverged |
 | 변경경로 테스트 | 회귀 방지 | 0건 | missing |
 | 프론트 테스트 | E2E 8개(문서 기재) | 러너·테스트 0건 | diverged |
 | 운영 구성 | 사내 운영(인증/TLS/CORS 화이트리스트) | 전부 dev 전용 | missing |
-| 시스템 비전 | (원본) 보관+검색·자동채움 1순위·4페이지 | (20260607) 3D GIS로 확장·mock-first 회귀 — **문서 간 시간순 모순** | diverged |
+| 시스템 비전 | 보관+검색·자동채움 + 3D 공간 관계 이해 | v1 3D 핵심 범위를 관계 뷰로 재정의, 헤비 뷰어는 Phase 2 | clarified |
 
 ---
 
 ## 3. 향후 개발 계획
 
-> 우선순위 기준: **핵심 가치(안전한 보관+검색)와 차별성(자동 채움)을 직접 강화/보호하는 것이 먼저.** 새 기능보다 "출시 가능·안 깨짐·차별성 증명"이 앞선다.
+> 우선순위 기준: **핵심 가치(안전한 보관+검색), 차별성(자동 채움), 3D 공간 관계 이해를 직접 강화/보호하는 것이 먼저.** 새 기능보다 "출시 가능·안 깨짐·실데이터로 증명"이 앞선다.
 
-### 🚦 P0-게이트 (코드 아님 — 의사결정): v1 비전 합의
-원본(보관+검색·자동채움 1순위·4페이지)과 20260607 현재버전(3D GIS 확장·mock-first)이 갈라져 있다. **3D를 v1 "핵심"으로 볼지 "Beta 부가"로 볼지** 먼저 합의해야 아래 P1(3D 단일화) 강도가 정해진다. 착수 전 1줄 결정 필요.
+### 🚦 P0-게이트 결정: 3D는 v1 핵심 기능
+SAMS v1은 단순 보관·검색 시스템이 아니라, 공간 산출물 간 관계를 3D로 이해하는 시스템이어야 한다. 다만 여기서 말하는 3D 핵심은 production pointcloud/3D Tiles/model/heavy viewer가 아니라, map-grounded **3D Spatial Relationship View**다.
+
+따라서 v1 범위에는 3D 관계 뷰의 실데이터 연결과 렌더러 단일화가 포함된다. Heavy viewer, 변환 파이프라인, 외부 공유형 쇼케이스는 Phase 2로 둔다.
 
 ### P0 — v1 출시 차단 항목
 
@@ -116,21 +120,27 @@
 
 > **①→② 순서**: 배포 하드닝(①)을 먼저 — 파일럿은 실제로 올라간 시스템에서 해야 의미가 있고, ①의 보안 차단은 사람이 만지기 전에 닫혀야 함.
 
+**③ Core 3D Spatial Relationship View 최소 안정화** (M)
+*왜: 3D는 v1 핵심 기능이다. 단, v1에서 필요한 것은 헤비 뷰어가 아니라 산출물 간 위치·상태·유형·관계를 3D로 이해하는 안정적인 화면이다.*
+- map-grounded 렌더러 단일 채택, `three`/`pseudo`는 fallback/archive 강등(~1,800줄 부채 정리)
+- 선택 Item 1-depth 관계선을 실 STAC links/getRelated로 연결
+- `derived_from`, `related`, `describedby`, `describes`, `prev`, `next` 관계별 스타일링
+- category/status/project/site label이 3D에서도 식별 가능해야 함
+- mock-only 전역 관계 overlay를 제품 동작에서 제거하고, missing relation target은 경고/count로 표시
+- pan/zoom/pitch/bearing + 선택/관계선 표시를 30초 이상 사람 visual QA로 검증
+
 ### P1 — 안전망 + 차별성 마무리
 
-**③ inherit 최빈값 + `/api/search` 자동완성·패싯** (M)
+**④ inherit 최빈값 + `/api/search` 자동완성·패싯** (M)
 차별성(타이핑 절감) + 검색 강화. inherit 최빈값(spec §5) 추가, `/api/search` 라우터 신설(autocomplete/facets/field-values), 프론트 dead 선언을 실제 검색바·facet count에 연결. manifest-template/import는 쓸지 결정 후 구현 또는 dead 선언 제거.
 
-**④ 변경경로 회귀 테스트 보강** (M)
+**⑤ 변경경로 회귀 테스트 보강** (M)
 *안전한 보관 직격.* items mutation 6종 + collections update/delete + worker/files/history + **timeline prev/next 체인**(고복잡·미테스트) 통합 테스트. conftest를 **격리 테스트 DB**로 전환(CI 재현성).
 
-**⑤ 3D 렌더러 단일화 + 관계 overlay 실데이터** (M)
-map-grounded 단일 채택, three/pseudo는 fallback/archive 강등(~1,800줄 부채 정리). **Explorer 관계 overlay를 선택 Item 1-depth만 실 STAC links(getRelated)로** 연결(전역 그래프 재도입 아님 — 폐기 결정 유지). 30초+ 사람 visual QA 게이트.
-
-### P1.5 — 별도 트랙 (3D Beta 고도화, 헤비뷰어와 구분)
+### P1.5 — 별도 트랙 (3D 관계 뷰 고도화, 헤비뷰어와 구분)
 
 **⑥ Phase 7E: coverage/boundary/LOD**
-결정로그가 "map-grounded 위 다음 투트랙"으로 본 항목. 헤비 뷰어(P2)와 성격이 다르므로 분리. 단, 실데이터/운영/안전망(P0·P1) 이후.
+결정로그가 "map-grounded 위 다음 투트랙"으로 본 항목. v1 핵심 3D 관계 뷰의 고도화이며, 헤비 뷰어(P2)와 성격이 다르므로 분리. 단, 실데이터/운영/안전망(P0·P1) 이후.
 
 ### P2 — 완성도 + 명시적 Phase 2 유보
 
@@ -150,7 +160,7 @@ map-grounded 단일 채택, three/pseudo는 fallback/archive 강등(~1,800줄 �
 1. **데이터 유실(핵심가치 직격)** — move/delete/properties + collections delete가 pgSTAC DELETE+create와 양방향 링크 정리를 수반하는데 mutation 테스트 0건. 한 번의 회귀로 보관 데이터 소실 가능.
 2. **보안** — test 라우터 상시 노출(인증 없이 임의 업로드), CORS `*`+credentials, 인증·TLS 없음, MinIO 콘솔 노출, 평문 크리덴셜.
 3. **차별성 미증명** — 자동채움 엔진은 완성됐으나 실파일 추출률·CRS 성공률·대용량 안정성 미실측.
-4. **비전 분기** — 원본 vs 20260607 현재버전이 갈라짐 + 4월 실데이터 계획 vs 6월 mock-first 흐름의 시간순 모순 → v1 기준 합의 필요. 과거 문서 원문은 정리했고, 근거 요약은 `docs/archive/historical_decisions_summary.md`에 남긴다.
+4. **3D 범위 혼동** — Core 3D Spatial Relationship View와 heavy asset viewer가 섞이면 v1 범위가 다시 불어난다. v1은 관계 뷰, Phase 2는 production viewer/변환/외부 공유로 분리 유지 필요.
 5. **기술부채** — 3D 렌더러 3중 병렬(~1,800줄), `services/stac.py` dead 래퍼, wired-but-broken 프론트 선언(searchApi/manifest).
 6. **런타임 위생** — compose 2벌 동시 가동, conftest dev DB 공유.
 
@@ -158,7 +168,7 @@ map-grounded 단일 채택, three/pseudo는 fallback/archive 강등(~1,800줄 �
 
 ## 5. 권장 다음 액션
 
-`P0-게이트(v1 비전 합의)` → `① 운영 하드닝` → `② 실데이터 파일럿` 순으로 착수.
+`P0-게이트 결정 반영(3D는 v1 핵심 관계 뷰)` → `① 운영 하드닝` → `② 실데이터 파일럿` → `③ Core 3D Spatial Relationship View 최소 안정화` 순으로 착수.
 
 ### 참조 문서
 - `docs/system_structure_design.md` (원본 구조 설계서) / `design-reference/project/uploads/SAMS_시스템_구조_설계서_현재버전_20260607.md` (현재버전)

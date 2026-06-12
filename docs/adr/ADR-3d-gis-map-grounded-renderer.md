@@ -4,7 +4,7 @@ Date: 2026-06-05
 
 ## Status
 
-Accepted for Phase 7D spike.
+Accepted for v1 Core 3D Spatial Relationship View. Originated as the Phase 7D spike decision.
 
 ## Context
 
@@ -17,7 +17,9 @@ The remaining product gap is GIS grounding:
 - asset objects do not feel anchored to real geography.
 - pan/zoom/pitch are not MapLibre map interactions.
 
-Phase 7D checks whether Three.js asset objects can be rendered as georeferenced objects above a MapLibre background map.
+Phase 7D checked whether Three.js asset objects can be rendered as georeferenced objects above a MapLibre background map.
+
+As of the 2026-06-12 roadmap clarification, 3D is a v1 core capability when it means spatial relationship understanding: visible assets, selected Item, 1-depth relations, relation type, category, status, and project/site context in a map-grounded 3D view. Production point cloud, 3D Tiles, model, panorama, PDF, and video viewers remain separate heavy viewer work.
 
 ## Option A. MapLibre Custom Layer + Three.js
 
@@ -74,15 +76,15 @@ Cesium is excluded from this phase.
 
 ## Decision
 
-Phase 7D implements a MapLibre custom layer + Three.js grounding spike.
+The v1 Core 3D Spatial Relationship View uses MapLibre custom layer + Three.js grounding.
 
-The 3D GIS Beta renderer modes become:
+The 3D renderer modes during stabilization are:
 
 - Map-grounded 3D
 - True 3D constellation
 - Pseudo fallback
 
-Default 3D Beta mode for Phase 7D is Map-grounded 3D. Explorer default remains 2D map/list.
+The target v1 3D mode is Map-grounded 3D. Explorer may keep 2D map/list as the initial default while the 3D relation view is hardened, but 3D relationship understanding is a core product capability rather than a decorative showcase.
 
 ## Dependency Impact
 
@@ -103,7 +105,7 @@ If the MapLibre custom layer fails:
 - keep pseudo fallback available.
 - keep selected Item, relation overlay state, and Context Panel owned by Explorer.
 
-## Not In Phase 7D
+## Not In V1 Core 3D Relationship View
 
 - production renderer migration.
 - deck.gl implementation.

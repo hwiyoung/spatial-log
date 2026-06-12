@@ -12,7 +12,7 @@ This summary replaces the old archive source files that were removed to keep `do
 ## Planning History
 
 - The April implementation plan was real-data oriented and focused on practical UI/UX and upload improvements.
-- The June phase plan shifted into mock-first Explorer validation. That was useful for UI exploration, but the current roadmap treats this as a source of drift: v1 needs operating hardening and real-data proof before more showcase work.
+- The June phase plan shifted into mock-first Explorer validation. That was useful for UI exploration, but the current roadmap treats this as a source of drift: v1 needs operating hardening, real-data proof, and Core 3D Spatial Relationship View stabilization before more showcase work.
 - The short `meeting_change_phase_traceability.md` was superseded by the 2026-06-05 traceability update. That detailed update was later summarized into this file and the current roadmap.
 
 ## Explorer And Relationship Graph
@@ -36,6 +36,7 @@ This summary replaces the old archive source files that were removed to keep `do
 - Phase 7D moved toward MapLibre custom layer plus Three.js, giving the active map-grounded direction.
 - Phase 7D-S stabilized the map-grounded renderer enough to make coverage/boundary/LOD the next optional 3D work.
 - Superseded ADRs/design specs for pseudo-3D, designed beta, and standalone true-3D were removed because the active ADR is now `docs/adr/ADR-3d-gis-map-grounded-renderer.md`.
+- The 2026-06-12 roadmap clarification reclassified 3D relationship understanding as a v1 core capability. The deferred Phase 2 scope is production heavy viewers and conversion pipelines, not the map-grounded relationship view itself.
 
 ## Preview And Viewer History
 

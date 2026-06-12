@@ -2,14 +2,15 @@
 
 This document is the compact source for Explorer, preview/viewer, mock-mode, and manual UI check contracts.
 
-Current product priority comes from `docs/planning/dev_status_and_roadmap_20260612.md`: operational hardening, real-data upload proof, mutation safety, search support, and 3D renderer simplification come before more mock-first feature expansion.
+Current product priority comes from `docs/planning/dev_status_and_roadmap_20260612.md`: operational hardening, real-data upload proof, mutation safety, search support, and Core 3D Spatial Relationship View hardening come before more mock-first feature expansion or heavy viewer work.
 
 ## Explorer Role
 
 Explorer is a spatial asset discovery surface.
 
 - Default surface: 2D map, filters, list, selected item context.
-- 3D GIS remains optional Beta and must not become the route/query/default view.
+- 3D Spatial Relationship View is a core Explorer capability.
+- 3D may remain manually selectable during stabilization, and 2D map/list may remain the initial default until 3D is hardened.
 - Global Relationship Graph must not become the Explorer default.
 - Detail is the better home for richer item-centered relation graph behavior.
 
@@ -41,7 +42,7 @@ The panel is not a full metadata edit form and should not introduce backend sche
 
 ## Relation Overlay
 
-Explorer relation UI is selected item scoped.
+Explorer relation UI is selected item scoped in both 2D and 3D views.
 
 - Show only the selected item 1-depth relations.
 - Draw lines only when both endpoints are in the current visible result set and have usable map positions.
@@ -92,18 +93,22 @@ Rules:
 - Unsupported MIME, broken URL, missing URL, auth/signed URL, and CORS/canvas issues should be diagnosable in the shell.
 - Production preview delivery remains a backend decision covered by `docs/adr/ADR-preview-asset-delivery-policy.md`.
 
-## 3D GIS Beta
+## Core 3D Spatial Relationship View
 
 Active 3D direction is map-grounded: MapLibre custom layer plus Three.js, covered by `docs/adr/ADR-3d-gis-map-grounded-renderer.md`.
 
+The product role of 3D is core, not decorative. Its v1 purpose is to help users understand where spatial assets are and how selected assets relate to nearby or visible assets. This is distinct from production point cloud, 3D Tiles, model, panorama, PDF, or video viewers.
+
 Contract:
 
-- 2D map/list remains default.
-- 3D Beta uses the same visible items, selected item, context panel, and selected relation overlay model.
+- 2D map/list may remain the initial default while 3D is stabilized.
+- 3D uses the same visible items, selected item, context panel, and selected relation overlay model.
 - Map-grounded mode should anchor objects to real map coordinates.
+- Selected item 1-depth relation lines are part of the core 3D contract.
+- Relation type, item category, item status, and project/site context should remain legible in 3D.
 - No new heavy renderer dependency without a new ADR.
 - No production point cloud, 3D Tiles, or model viewer inside the Explorer overview.
-- Coverage/boundary/LOD is a later optional 3D Beta hardening track and should follow P0/P1 work.
+- Coverage/boundary/LOD is a later 3D hardening track and should follow real-data relation validation.
 
 ## Mock Mode
 
@@ -137,7 +142,7 @@ Core checks:
 - Missing relation targets are reported without fake markers.
 - Preview shells clearly separate available, pending, missing, and failed states.
 - Image/ortho previews expose source diagnostics when loading fails.
-- 3D GIS Beta is manually selectable and returning to 2D preserves selection/context.
+- Core 3D Spatial Relationship View is manually selectable during stabilization and returning to 2D preserves selection/context.
 - Map-grounded 3D can pan/zoom/pitch/bearing for at least 30 seconds without obvious flicker, blank canvas, or broken selection.
 
 P0/P1 hardening checks:
