@@ -11,7 +11,7 @@ Explorer remains a spatial asset discovery screen: filters, 2D map, list, select
 ## Why It Is Not Suitable As Explorer Main
 
 1. The Explorer role is search and discovery.
-   - `docs/input/sams-system-structure-design.md` defines Explorer as the home/search screen with filter panel, 2D map, and result list.
+   - `docs/system_structure_design.md` defines Explorer as the home/search screen with filter panel, 2D map, and result list.
    - The same design places relation graph behavior in Detail, centered on the selected Item.
 
 2. The meeting problem was broader than graph navigation.

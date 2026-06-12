@@ -16,11 +16,13 @@
 
 | 문서 | 경로 | 읽어야 할 때 |
 |------|------|-------------|
+| 문서 인덱스 | `docs/README.md` | 현재 기준 문서와 archive 문서 구분이 필요할 때 |
+| 개발 현황/로드맵 | `docs/planning/dev_status_and_roadmap_20260612.md` | 현재 구현 상태, 갭, P0/P1/P2 우선순위를 확인할 때 |
 | 시스템 아키텍처 | `docs/system_architecture.md` | 프로젝트 구조, docker-compose, API 설계, 스토리지 전략 |
 | 자동 채움 파이프라인 | `docs/autofill_pipeline_spec.md` | 파이프라인 구현 시. 유형별 추출 코드, 라이브러리, 실패 처리 |
 | 메타데이터 설계서 | `docs/stac_metadata_design_v4.md` | STAC Item/Collection 필드 정의. 유형별 필드, 필수/선택, 입력 구역(A/B/C). xlsx를 마크다운으로 변환한 것. |
 | 시스템 구조 설계서 | `docs/system_structure_design.md` | 4페이지 구조, 역할, 요구사항, Phase 계획 |
-| 사용 시나리오 | `docs/system_use_scenarios.md` | 사용자 동선, AS-IS vs TO-BE |
+| 프론트엔드 계약 | `docs/frontend_contracts.md` | Explorer, preview/viewer, mock mode, manual UI check 기준 |
 
 ## 기술 스택
 
@@ -80,7 +82,7 @@
 
 ### Phase E: 사용자 관점
 
-15. **사용자 흐름 검증**: 실제 사용자가 이 기능을 사용하는 흐름에서 어색함이나 막히는 지점이 없는지 확인한다. `docs/system_use_scenarios.md`의 시나리오와 대조한다.
+15. **사용자 흐름 검증**: 실제 사용자가 이 기능을 사용하는 흐름에서 어색함이나 막히는 지점이 없는지 확인한다. `docs/system_structure_design.md`와 `docs/frontend_contracts.md`의 화면/계약 기준과 대조한다.
 
 16. **연쇄 검토**: 검증 과정에서 발견된 문제가 있다면, 그 문제와 관련된 다른 부분들을 모두 찾아서 같은 패턴의 문제가 없는지 확인한다. 하나의 버그가 발견되면, 같은 종류의 버그가 다른 곳에도 있을 가능성이 높다.
 
@@ -176,7 +178,7 @@ Claude Code:
 - ✅ Detail: 전체 페이지(4탭: 메타데이터/파일/연관관계/시계열 + 편집모드)
 - ✅ Project: Collection 목록 + 4탭(현황/공간/Draft/전체) + 생성 모달
 - ✅ Upload: 벌크(3-step) + 단건 탭
-- ✅ 통합 테스트: E2E 시나리오 8개 (전체 174 passed)
+- 테스트 현황은 `docs/planning/dev_status_and_roadmap_20260612.md`를 기준으로 확인한다. 이 문서의 이전 "E2E 8개 / 174 passed" 기재는 오래된 상태다.
 - 참조: `docs/system_structure_design.md` 섹션 3
 
 ## 핵심 규칙

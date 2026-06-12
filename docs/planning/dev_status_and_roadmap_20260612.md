@@ -150,7 +150,7 @@ map-grounded 단일 채택, three/pseudo는 fallback/archive 강등(~1,800줄 �
 1. **데이터 유실(핵심가치 직격)** — move/delete/properties + collections delete가 pgSTAC DELETE+create와 양방향 링크 정리를 수반하는데 mutation 테스트 0건. 한 번의 회귀로 보관 데이터 소실 가능.
 2. **보안** — test 라우터 상시 노출(인증 없이 임의 업로드), CORS `*`+credentials, 인증·TLS 없음, MinIO 콘솔 노출, 평문 크리덴셜.
 3. **차별성 미증명** — 자동채움 엔진은 완성됐으나 실파일 추출률·CRS 성공률·대용량 안정성 미실측.
-4. **비전 분기** — 원본 vs 20260607 현재버전이 갈라짐 + implementation_plan_v2(4월 실데이터) vs 6월 mock-first 시간순 모순 → v1 기준 합의 필요.
+4. **비전 분기** — 원본 vs 20260607 현재버전이 갈라짐 + 4월 실데이터 계획 vs 6월 mock-first 흐름의 시간순 모순 → v1 기준 합의 필요. 과거 문서 원문은 정리했고, 근거 요약은 `docs/archive/historical_decisions_summary.md`에 남긴다.
 5. **기술부채** — 3D 렌더러 3중 병렬(~1,800줄), `services/stac.py` dead 래퍼, wired-but-broken 프론트 선언(searchApi/manifest).
 6. **런타임 위생** — compose 2벌 동시 가동, conftest dev DB 공유.
 
@@ -164,5 +164,5 @@ map-grounded 단일 채택, three/pseudo는 fallback/archive 강등(~1,800줄 �
 - `docs/system_structure_design.md` (원본 구조 설계서) / `design-reference/project/uploads/SAMS_시스템_구조_설계서_현재버전_20260607.md` (현재버전)
 - `docs/autofill_pipeline_spec.md` (자동 채움 §5 최빈값)
 - `docs/system_architecture.md` (§3.2 검색보조, §4.4 파일 서빙, §6 보안)
-- `docs/planning/meeting_change_phase_traceability_20260605.md` (최신 회의 결정), `docs/planning/relationship_graph_superseded_decision.md` (전역 그래프 폐기)
+- `docs/frontend_contracts.md` (Explorer/preview/mock/manual UI 계약), `docs/planning/relationship_graph_superseded_decision.md` (전역 그래프 폐기)
 - `docs/adr/ADR-3d-gis-map-grounded-renderer.md`, `docs/adr/ADR-preview-asset-delivery-policy.md`
