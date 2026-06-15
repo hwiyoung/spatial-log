@@ -10,6 +10,11 @@
 .ml-cat { color: #AEB7C4; display: inline-flex; }
 .ml-st { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--t2); }
 .ml-st i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid; }
+.ml-relrow { align-items: flex-start; flex-wrap: wrap; max-width: 330px; }
+.ml-rel { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--t3); font-family: var(--font-mono); opacity: .72; }
+.ml-rel.on { color: var(--t1); opacity: 1; }
+.ml-rel i { width: 18px; height: 0; border-top: 2px solid var(--blue); border-radius: 2px; }
+.ml-note { color: var(--t3); font-size: 10px; line-height: 1.35; }
 .map-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(12,17,23,.72); z-index: 3; color: var(--t2); font-size: 13px; pointer-events: none; }
 .map-overlay.soft { background: rgba(12,17,23,.35); }
 .map-overlay small { font-size: 11px; color: var(--t3); }

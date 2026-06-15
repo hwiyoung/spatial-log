@@ -16,7 +16,13 @@ function relationKey(relation, selectedItemId) {
   ].join('|')
 }
 
-function parseTarget(href) {
+function parseTarget(href, fallbackCollectionId = null) {
+  if (String(href || '').startsWith('./')) {
+    return {
+      collectionId: fallbackCollectionId,
+      itemId: String(href).replace(/^\.\//, '').split(/[?#]/)[0] || null,
+    }
+  }
   const parts = String(href || '').split('/').filter(Boolean)
   const collectionsIndex = parts.indexOf('collections')
   const itemsIndex = parts.indexOf('items')
@@ -31,7 +37,7 @@ function relationsFromLinks(item) {
   return (item?.links || [])
     .filter(link => SUPPORTED_RELATIONS.includes(link.rel))
     .map(link => {
-      const target = parseTarget(link.href)
+      const target = parseTarget(link.href, item.collection)
       return {
         sourceId: item.id,
         sourceCollectionId: item.collection,
@@ -120,7 +126,11 @@ export function getSelectedRelationOverlay({
       targetItemId: relation.targetId,
       relatedItemId: resolved.relatedItemId,
       title: relation.title || null,
-      reason: resolved.isVisible ? 'no_map_position' : 'outside_visible_results',
+      reason: relation.missingTarget
+        ? 'missing_target'
+        : resolved.isVisible
+          ? 'no_map_position'
+          : 'outside_visible_results',
     })
   })
 

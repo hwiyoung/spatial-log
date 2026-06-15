@@ -10,14 +10,18 @@ export function isValidLngLat(lng, lat) {
 
 export function getBboxCenter(bbox) {
   if (!Array.isArray(bbox) || bbox.length < 4) return null
-  const [w, s, e, n] = bbox.map(Number)
+  const [w, s, e, n] = bbox.length >= 6
+    ? [bbox[0], bbox[1], bbox[3], bbox[4]].map(Number)
+    : bbox.slice(0, 4).map(Number)
   if (!isValidLngLat(w, s) || !isValidLngLat(e, n)) return null
   return [(w + e) / 2, (s + n) / 2]
 }
 
 export function getBboxBounds(bbox) {
   if (!Array.isArray(bbox) || bbox.length < 4) return null
-  const [w, s, e, n] = bbox.map(Number)
+  const [w, s, e, n] = bbox.length >= 6
+    ? [bbox[0], bbox[1], bbox[3], bbox[4]].map(Number)
+    : bbox.slice(0, 4).map(Number)
   if (!isValidLngLat(w, s) || !isValidLngLat(e, n)) return null
   return [Math.min(w, e), Math.min(s, n), Math.max(w, e), Math.max(s, n)]
 }

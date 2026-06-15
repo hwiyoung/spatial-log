@@ -11,6 +11,8 @@
  */
 import { useRef, useEffect, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
+import { MapboxOverlay } from '@deck.gl/mapbox'
+import { ArcLayer, IconLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
 import { getItemsBounds } from '../features/explorer-map/getItemsBounds.js'
 import { getItemMapPosition } from '../features/explorer-map/getItemMapPosition.js'
 import { getItemFootprints } from '../features/explorer-map/getItemFootprints.js'
@@ -23,6 +25,8 @@ import { CAT_ORDER, STATUS_META, STATUS_ORDER } from '../features/explorer/explo
 import { getCategoryInfo } from '../constants'
 import CategoryGlyph from './viewer/CategoryGlyph'
 import RelationOverlayLayer from './RelationOverlayLayer'
+import { buildExplorerDeckScene } from '../features/explorer-deck/buildExplorerDeckScene.js'
+import { getRelationStyle, SUPPORTED_RELATIONS } from '../features/relations/relationStyles.js'
 
 const SRC = 'assets'
 
@@ -82,6 +86,7 @@ export default function MapView({
   selectedId,
   hoveredId,
   onSelectItem,
+  spatialMode = '2d',
   relationOverlayEnabled = false,
   relationOverlayModel = null,
   onBoundsChange,
@@ -95,7 +100,9 @@ export default function MapView({
 }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
+  const deckOverlayRef = useRef(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [deckHoveredId, setDeckHoveredId] = useState(null)
 
   const htmlMarkersRef = useRef({})        // key -> maplibregl.Marker (cached)
   const onScreenRef = useRef({})           // key -> marker currently added
@@ -107,6 +114,7 @@ export default function MapView({
   const onSelectRef = useRef(onSelectItem); onSelectRef.current = onSelectItem
   const selectedIdRef = useRef(selectedId); selectedIdRef.current = selectedId
   const hoveredIdRef = useRef(hoveredId); hoveredIdRef.current = hoveredId
+  const spatialModeRef = useRef(spatialMode); spatialModeRef.current = spatialMode
   const relEnabledRef = useRef(relationOverlayEnabled); relEnabledRef.current = relationOverlayEnabled
   const relatedIds = useMemo(() => new Set(relationOverlayModel?.relatedItemIds || []), [relationOverlayModel])
   const relatedIdsRef = useRef(relatedIds); relatedIdsRef.current = relatedIds
@@ -149,6 +157,110 @@ export default function MapView({
     }).filter(Boolean),
   }), [items, focusIds, fallbackCenters])
 
+  const deckScene = useMemo(() => buildExplorerDeckScene({
+    fallbackCenters,
+    hoveredId: deckHoveredId || hoveredId,
+    items,
+    relationOverlayEnabled,
+    relationOverlayModel,
+    selectedId,
+  }), [deckHoveredId, fallbackCenters, hoveredId, items, relationOverlayEnabled, relationOverlayModel, selectedId])
+  const deckCharacterSet = useMemo(() => {
+    const chars = new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789가나다라마바사아자차카타파하0123456789 .,·:_-()/[]')
+    deckScene.labelledNodes.forEach(node => {
+      String(node.label || '').split('').forEach(ch => chars.add(ch))
+    })
+    return [...chars]
+  }, [deckScene.labelledNodes])
+
+  const deckLayers = useMemo(() => {
+    if (spatialMode !== '3d') return []
+
+    const handleNodeClick = ({ object }) => {
+      if (!object?.item) return false
+      onSelectRef.current?.(object.item)
+      return true
+    }
+    const handleNodeHover = ({ object }) => {
+      const nextId = object?.itemId || null
+      setDeckHoveredId(prev => (prev === nextId ? prev : nextId))
+    }
+
+    return [
+      new ArcLayer({
+        id: 'explorer-deck-selected-relations',
+        data: deckScene.relations,
+        getSourcePosition: d => d.sourcePosition,
+        getTargetPosition: d => d.targetPosition,
+        getSourceColor: d => d.style.rgba || [96, 165, 250, 224],
+        getTargetColor: d => d.style.rgba || [96, 165, 250, 224],
+        getWidth: d => d.style.lineWidth,
+        getHeight: d => d.style.arcHeight,
+        getTilt: d => d.style.tilt || 0,
+        widthUnits: 'pixels',
+        pickable: true,
+        parameters: { depthTest: false },
+      }),
+      new ScatterplotLayer({
+        id: 'explorer-deck-node-halo',
+        data: deckScene.haloNodes,
+        getPosition: d => d.position,
+        getRadius: d => d.haloRadius,
+        radiusUnits: 'pixels',
+        stroked: false,
+        filled: true,
+        getFillColor: d => d.haloColor,
+        parameters: { depthTest: false },
+      }),
+      new ScatterplotLayer({
+        id: 'explorer-deck-node-bases',
+        data: deckScene.nodes,
+        getPosition: d => d.position,
+        getRadius: d => d.radius,
+        radiusUnits: 'pixels',
+        stroked: true,
+        filled: true,
+        lineWidthUnits: 'pixels',
+        getLineWidth: d => d.lineWidth,
+        getFillColor: d => d.fillColor,
+        getLineColor: d => d.lineColor,
+        pickable: true,
+        onClick: handleNodeClick,
+        onHover: handleNodeHover,
+        parameters: { depthTest: false },
+      }),
+      new IconLayer({
+        id: 'explorer-deck-category-glyphs',
+        data: deckScene.nodes,
+        getPosition: d => d.position,
+        getIcon: d => d.icon,
+        getSize: d => (d.isGhost ? 17 : d.isSelected ? 22 : 19),
+        getColor: d => d.iconColor,
+        sizeUnits: 'pixels',
+        billboard: true,
+        pickable: false,
+        parameters: { depthTest: false },
+      }),
+      new TextLayer({
+        id: 'explorer-deck-node-labels',
+        data: deckScene.labelledNodes,
+        getPosition: d => d.position,
+        getText: d => d.label,
+        getColor: d => d.textColor,
+        getSize: d => (d.isSelected ? 12 : 10.5),
+        sizeUnits: 'pixels',
+        getPixelOffset: d => [0, d.isGhost ? -28 : -30],
+        getTextAnchor: 'middle',
+        getAlignmentBaseline: 'bottom',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontWeight: 700,
+        characterSet: deckCharacterSet,
+        billboard: true,
+        parameters: { depthTest: false },
+      }),
+    ]
+  }, [deckCharacterSet, deckScene, spatialMode])
+
   // ── 지도 초기화 + 클러스터 source + 마커 동기화 ──
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -164,7 +276,9 @@ export default function MapView({
       center: [128.6, 35.9],
       zoom: 7,
     })
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
+    map.dragRotate.disable()
+    map.touchZoomRotate?.disableRotation?.()
 
     const emitBounds = () => {
       const b = map.getBounds()
@@ -232,7 +346,17 @@ export default function MapView({
       if (!onScreenRef.current[key]) m.addTo(map)
     }
 
+    const clearMarkers = () => {
+      for (const key in onScreenRef.current) onScreenRef.current[key].remove()
+      onScreenRef.current = {}
+      htmlMarkersRef.current = {}
+    }
+
     const updateMarkers = () => {
+      if (spatialModeRef.current === '3d') {
+        clearMarkers()
+        return
+      }
       // 소스가 (재)로딩 중이면 querySourceFeatures 가 비거나 부분 결과 → 마커가 깜빡임. 로드 완료 전엔 건너뛴다.
       if (!map.getSource(SRC) || !map.isSourceLoaded(SRC)) return
       const next = {}
@@ -350,8 +474,62 @@ export default function MapView({
     map.on('sourcedata', (e) => { if (e.sourceId === SRC && map.isSourceLoaded(SRC)) updateMarkers() })
     map.on('moveend', emitBounds)
     mapRef.current = map
-    return () => { map.remove(); mapRef.current = null; setMapLoaded(false); htmlMarkersRef.current = {}; onScreenRef.current = {} }
+    return () => {
+      deckOverlayRef.current?.finalize?.()
+      deckOverlayRef.current = null
+      map.remove()
+      mapRef.current = null
+      setMapLoaded(false)
+      htmlMarkersRef.current = {}
+      onScreenRef.current = {}
+    }
   }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || deckOverlayRef.current) return
+
+    const overlay = new MapboxOverlay({
+      interleaved: true,
+      layers: [],
+      getTooltip: ({ object }) => {
+        if (!object?.label) return null
+        if (object.isGhost) return `missing relation target: ${object.label}`
+        if (object.rel) return object.label
+        return `${object.label}\n${object.statusInfo?.label || object.status || ''}`
+      },
+    })
+    map.addControl(overlay)
+    deckOverlayRef.current = overlay
+  }, [mapLoaded])
+
+  useEffect(() => {
+    const overlay = deckOverlayRef.current
+    if (!overlay || !mapLoaded) return
+    overlay.setProps({
+      layers: spatialMode === '3d' ? deckLayers : [],
+    })
+  }, [deckLayers, mapLoaded, spatialMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+
+    const is3d = spatialMode === '3d'
+    if (is3d) {
+      map.dragRotate.enable()
+      map.touchZoomRotate?.enableRotation?.()
+      map.easeTo({ pitch: 50, bearing: -24, duration: 420 })
+      updateMarkersRef.current?.()
+      return
+    }
+
+    map.dragRotate.disable()
+    map.touchZoomRotate?.disableRotation?.()
+    setDeckHoveredId(null)
+    map.easeTo({ pitch: 0, bearing: 0, duration: 420 })
+    updateMarkersRef.current?.()
+  }, [mapLoaded, spatialMode])
 
   // source 데이터 갱신
   useEffect(() => {
@@ -461,25 +639,50 @@ export default function MapView({
     const bounds = getItemsBounds(items, fallbackCentersRef.current)
     if (!bounds) { hasFitRef.current = false; return }
     const [w, s, e, n] = bounds
+    const camera = spatialMode === '3d'
+      ? { pitch: 50, bearing: -24 }
+      : { pitch: 0, bearing: 0 }
     if (w === e && s === n) {
-      map.flyTo({ center: [w, s], zoom: 14, duration: hasFitRef.current ? 350 : 0 })
+      map.flyTo({ center: [w, s], zoom: 14, duration: hasFitRef.current ? 350 : 0, ...camera })
     } else {
-      map.fitBounds([[w, s], [e, n]], { padding: 80, duration: hasFitRef.current ? 350 : 0, maxZoom: 15 })
+      map.fitBounds([[w, s], [e, n]], { padding: 80, duration: hasFitRef.current ? 350 : 0, maxZoom: 15, ...camera })
     }
     hasFitRef.current = true
-  }, [items, mapLoaded, fitToItems])
+  }, [items, mapLoaded, fitToItems, spatialMode])
 
   // 선택 시 줌은 바꾸지 않는다(기획). 단, 선택 item 이 현재 화면 밖이면 줌 유지한 채 중심만 이동해 보이게 한다.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded || !selectedId) return
+    if (spatialMode === '3d') return
     const item = itemsByIdRef.current.get(selectedId)
     const pos = item && getItemMapPosition(item, fallbackCentersRef.current)
     if (!pos) return
     if (!map.getBounds().contains(pos.position)) {
       map.easeTo({ center: pos.position, zoom: map.getZoom(), duration: 500 })
     }
-  }, [selectedId, mapLoaded])
+  }, [selectedId, mapLoaded, spatialMode])
+
+  // 3D 관계뷰에서는 선택 Item 의 1-depth endpoint 범위를 중심으로 카메라를 맞춘다.
+  // 2D의 "선택 시 줌 고정" 규칙은 유지하고, 3D에서만 relation arc 가 실제로 보이게 하는 포커스 동작이다.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || spatialMode !== '3d' || !selectedId || !relationOverlayEnabled) return
+    const coords = []
+    ;(relationOverlayModel?.visibleRelations || []).forEach(relation => {
+      if (relation.sourcePosition) coords.push(relation.sourcePosition)
+      if (relation.targetPosition) coords.push(relation.targetPosition)
+    })
+    if (coords.length < 2) return
+    const bounds = coords.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(coords[0], coords[0]))
+    map.fitBounds(bounds, {
+      padding: 130,
+      maxZoom: 14.5,
+      duration: 520,
+      pitch: 50,
+      bearing: map.getBearing() || -24,
+    })
+  }, [mapLoaded, relationOverlayEnabled, relationOverlayModel, selectedId, spatialMode])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -488,11 +691,13 @@ export default function MapView({
       <RelationOverlayLayer
         map={mapRef.current}
         mapLoaded={mapLoaded}
-        enabled={relationOverlayEnabled}
+        enabled={spatialMode !== '3d' && relationOverlayEnabled}
         overlayModel={relationOverlayModel}
       />
 
-      <div className="map-modetag">2D map · CARTO dark</div>
+      <div className="map-modetag">
+        {spatialMode === '3d' ? '3D relations · deck.gl + CARTO dark' : '2D map · CARTO dark'}
+      </div>
 
       <div className="map-legend">
         <div className="ml-row">
@@ -506,12 +711,33 @@ export default function MapView({
             return <span key={k} className="ml-st"><i style={{ background: v.color, borderColor: v.color, borderStyle: v.dashed ? 'dashed' : 'solid' }} />{v.label}</span>
           })}
         </div>
+        {spatialMode === '3d' && relationOverlayEnabled && (
+          <div className="ml-row ml-relrow">
+            <span className="ml-h">relation · blue</span>
+            {SUPPORTED_RELATIONS.map(rel => {
+              const style = getRelationStyle(rel)
+              return (
+                <span key={rel} className={'ml-rel' + (deckScene.activeRels.has(rel) ? ' on' : '')} title={`${style.label} · arc height ${style.arcHeight}`}>
+                  <i style={{ borderTopColor: style.color, borderTopWidth: Math.max(2, style.lineWidth) }} />
+                  {rel}
+                </span>
+              )
+            })}
+          </div>
+        )}
+        {spatialMode === '3d' && (
+          <div className="ml-row">
+            <span className="ml-h">height · z</span>
+            <span className="ml-note">bbox/elevation 우선 · 없으면 category base height</span>
+          </div>
+        )}
       </div>
 
       {/* 결과 밖/누락 관계 경고 — 선이 그려질 수 없는 대상의 존재를 지도 위에서 알린다 (디자인 map-warnbar) */}
       {relationOverlayEnabled && (relationOverlayModel?.missingTargets?.length || 0) > 0 && (
         <div className="map-warnbar">
           ⚠ 관계 대상 {relationOverlayModel.missingTargets.length}건이 현재 결과 밖이거나 없음
+          {spatialMode === '3d' && ' · ghost marker 표시'}
           {' — '}
           {relationOverlayModel.missingTargets.slice(0, 2).map(r => `${r.rel}: ${r.title}`).join(' · ')}
           {relationOverlayModel.missingTargets.length > 2 && ' 외'}

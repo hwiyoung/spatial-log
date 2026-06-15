@@ -95,7 +95,8 @@ Rules:
 
 ## Core 3D Spatial Relationship View
 
-Active 3D direction is map-grounded: MapLibre custom layer plus Three.js, covered by `docs/adr/ADR-3d-gis-map-grounded-renderer.md`.
+Active 3D direction is map-grounded: the existing CARTO dark MapLibre scene with deck.gl
+`MapboxOverlay({ interleaved: true })`, covered by `docs/adr/ADR-3d-relationship-deckgl.md`.
 
 The product role of 3D is core, not decorative. Its v1 purpose is to help users understand where spatial assets are and how selected assets relate to nearby or visible assets. This is distinct from production point cloud, 3D Tiles, model, panorama, PDF, or video viewers.
 
@@ -103,10 +104,13 @@ Contract:
 
 - 2D map/list may remain the initial default while 3D is stabilized.
 - 3D uses the same visible items, selected item, context panel, and selected relation overlay model.
-- Map-grounded mode should anchor objects to real map coordinates.
+- Map-grounded mode should anchor objects to real map coordinates using Item geometry or bbox
+  centroids, with elevation or category base height as visual Z.
 - Selected item 1-depth relation lines are part of the core 3D contract.
 - Relation type, item category, item status, and project/site context should remain legible in 3D.
-- No new heavy renderer dependency without a new ADR.
+- Category glyph shape carries category. Marker color and border carry status. Relation lines stay
+  in a single blue family and vary by relation type through tone, width, and arc height.
+- Three.js and pseudo-3D Explorer renderers are archived, not active runtime fallback renderers.
 - No production point cloud, 3D Tiles, or model viewer inside the Explorer overview.
 - Coverage/boundary/LOD is a later 3D hardening track and should follow real-data relation validation.
 

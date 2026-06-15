@@ -10,7 +10,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { searchApi, collectionApi } from '../services/api'
+import { searchApi, collectionApi, itemApi } from '../services/api'
 import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import { mockRelations } from '../mocks/fixtures/mockRelations.js'
 import { getSelectedRelationOverlay } from '../features/relations/getSelectedRelationOverlay.js'
@@ -23,7 +23,6 @@ import FilterSidebar from '../components/explorer/FilterSidebar'
 import ResultList from '../components/explorer/ResultList'
 import ContextPanel from '../components/explorer/ContextPanel'
 import MapView from '../components/MapView'
-import Explorer3dGisBeta from '../features/explorer-3d/Explorer3dGisBeta.jsx'
 import '../styles/explorer.css'
 
 const EMPTY_FILTERS = { kw: '', status: [], cat: [], project: 'all', bboxOnly: false, timeFrom: '', timeTo: '', drawnBbox: null }
@@ -53,6 +52,7 @@ export default function Explorer() {
   const [loading, setLoading] = useState(false)
 
   const [selectedItem, setSelectedItem] = useState(null)
+  const [selectedRelationRecords, setSelectedRelationRecords] = useState([])
   const [hoveredId, setHoveredId] = useState(null)
   const [mapBounds, setMapBounds] = useState(null)
 
@@ -72,6 +72,33 @@ export default function Explorer() {
 
   // 3D 모드에는 드로잉이 없다 — 모드 전환 시 드로잉 상태가 사이드바에 걸려 남지 않게
   useEffect(() => { if (mode !== '2d') setDrawMode(false) }, [mode])
+
+  useEffect(() => {
+    let alive = true
+    setSelectedRelationRecords([])
+    if (mockMode || !selectedItem?.id || !selectedItem?.collection) return () => { alive = false }
+
+    itemApi.getRelated(`${selectedItem.collection}/${selectedItem.id}`)
+      .then(res => {
+        if (!alive) return
+        const records = (res.data?.related || []).map((relation, index) => ({
+          sourceId: selectedItem.id,
+          sourceCollectionId: selectedItem.collection,
+          rel: relation.rel,
+          targetId: relation.target_id || relation.targetId,
+          targetCollectionId: relation.target_collection_id || relation.targetCollectionId || selectedItem.collection,
+          title: relation.title || relation.description || relation.target_id || relation.href || `relation ${index + 1}`,
+          href: relation.href,
+          missingTarget: relation.missing === true,
+        }))
+        setSelectedRelationRecords(records)
+      })
+      .catch(() => {
+        if (alive) setSelectedRelationRecords([])
+      })
+
+    return () => { alive = false }
+  }, [mockMode, selectedItem?.collection, selectedItem?.id])
 
   // ── Collection 목록 ──
   useEffect(() => {
@@ -184,7 +211,9 @@ export default function Explorer() {
     filteredItems.map(i => getExplorerItemView(i, collections, fallbackCenters)).sort(EXPLORER_SORTS[sort] || EXPLORER_SORTS.recent)
   ), [filteredItems, collections, sort, fallbackCenters])
 
-  const relationRecords = useMemo(() => (mockMode ? mockRelations : []), [mockMode])
+  const relationRecords = useMemo(() => (
+    mockMode ? mockRelations : selectedRelationRecords
+  ), [mockMode, selectedRelationRecords])
   const relationOverlayModel = useMemo(() => getSelectedRelationOverlay({
     selectedItem, visibleItems: filteredItems, relationRecords, fallbackCenters,
   }), [selectedItem, filteredItems, relationRecords, fallbackCenters])
@@ -270,35 +299,23 @@ export default function Explorer() {
 
         <div className={'center-body ' + arrange} ref={bodyRef}>
           <div className="pane-map" style={mapFlex}>
-            {mode === '2d' ? (
-              <MapView
-                items={filteredItems}
-                selectedId={selectedItem?.id}
-                hoveredId={hoveredId}
-                onSelectItem={setSelectedItem}
-                relationOverlayEnabled={showRel}
-                relationOverlayModel={relationOverlayModel}
-                onBoundsChange={setMapBounds}
-                fitToItems={!filters.bboxOnly && !filters.drawnBbox}
-                loading={loading}
-                fallbackCenters={fallbackCenters}
-                regionLabels={regionLabels}
-                drawMode={drawMode}
-                onDrawComplete={handleDrawComplete}
-                drawnBbox={filters.drawnBbox}
-              />
-            ) : (
-              <Explorer3dGisBeta
-                items={filteredItems}
-                collections={collections}
-                selectedId={selectedItem?.id}
-                onSelectItem={setSelectedItem}
-                relationOverlayEnabled={showRel}
-                relationOverlayModel={relationOverlayModel}
-                relationRecords={relationRecords}
-                mockMode={mockMode}
-              />
-            )}
+            <MapView
+              items={filteredItems}
+              selectedId={selectedItem?.id}
+              hoveredId={hoveredId}
+              onSelectItem={setSelectedItem}
+              spatialMode={mode}
+              relationOverlayEnabled={showRel}
+              relationOverlayModel={relationOverlayModel}
+              onBoundsChange={setMapBounds}
+              fitToItems={!filters.bboxOnly && !filters.drawnBbox}
+              loading={loading}
+              fallbackCenters={fallbackCenters}
+              regionLabels={regionLabels}
+              drawMode={drawMode}
+              onDrawComplete={handleDrawComplete}
+              drawnBbox={filters.drawnBbox}
+            />
           </div>
           <div className={'divider ' + (arrange === 'split' ? 'v' : 'h') + (dragging ? ' drag' : '')} onMouseDown={startDrag} />
           <div className="pane-list">
