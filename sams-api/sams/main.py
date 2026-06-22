@@ -16,6 +16,8 @@ STAC 표준 엔드포인트는 stac-fastapi (port 8080)가 별도 처리.
 참조: docs/system_architecture.md 섹션 3
 """
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -25,17 +27,27 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# CORS — 운영에서는 SAMS_CORS_ORIGINS(쉼표 구분)로 허용 도메인을 명시한다.
+# 미설정 시 로컬 개발(localhost 임의 포트)만 허용. 와일드카드(*)+credentials 조합은 브라우저가 거부하므로 금지.
+_cors_origins = os.getenv("SAMS_CORS_ORIGINS", "").strip()
+if _cors_origins:
+    _cors_kwargs = {"allow_origins": [o.strip() for o in _cors_origins.split(",") if o.strip()]}
+else:
+    _cors_kwargs = {"allow_origin_regex": r"https?://(localhost|127\.0\.0\.1)(:\d+)?"}
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Phase 1: 사내 전용이므로 전체 허용
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    **_cors_kwargs,
 )
 
-# 개발용 테스트 라우터 (운영 배포 시 제거)
-from sams.routers.test import router as test_router
-app.include_router(test_router, prefix="/api", tags=["test"])
+# 개발용 테스트 라우터 — 기본 비활성(인증 없이 임의 업로드가 가능하므로 외부/운영 노출 금지).
+# 내부 개발에서만 SAMS_ENABLE_TEST_ROUTER=1 로 활성화한다.
+if os.getenv("SAMS_ENABLE_TEST_ROUTER", "").lower() in ("1", "true", "yes"):
+    from sams.routers.test import router as test_router
+    app.include_router(test_router, prefix="/api", tags=["test"])
 
 # 라우터 등록
 from sams.routers.upload import router as upload_router
