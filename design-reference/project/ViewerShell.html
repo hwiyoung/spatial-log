@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAMS · ViewerShell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F1419; --panel:#161C24; --card:#1E2630; --line:#2B333F; --line2:#222932;
+    --t1:#E8ECF1; --t2:#98A2B3; --t3:#5B6573;
+    --blue:#3B82F6; --orange:#F97316;
+    --draft:#FBBF24; --pub:#34D399; --arch:#64748B; --unk:#6B7280;
+    --av:#34D399; --pend:#FBBF24; --miss:#5B6573; --fail:#F87171;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; height:100%;}
+  body{background:var(--bg); color:var(--t1); font-family:'IBM Plex Sans',system-ui,sans-serif; font-size:13px; -webkit-font-smoothing:antialiased; overflow:hidden; word-break:keep-all;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  select{font-family:inherit; font-size:12px; color:var(--t1); background:#121821; border:1px solid var(--line); border-radius:7px; padding:6px 9px;}
+  select:focus{outline:none; border-color:var(--blue);}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#2C3540; border-radius:6px; border:2px solid var(--bg);}
+
+  .app{display:flex; flex-direction:column; height:100vh;}
+
+  /* ===== top chrome (constant across categories/states) ===== */
+  .chrome{height:56px; flex:none; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 16px; z-index:20;}
+  .back{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:500; color:var(--t2); background:#121821; border:1px solid var(--line); border-radius:8px; padding:8px 13px; text-decoration:none;}
+  .back:hover{border-color:#3a4655; color:var(--t1);}
+  .ch-id{display:flex; align-items:center; gap:11px; min-width:0;}
+  .ch-glyph{width:38px; height:38px; flex:none; border-radius:9px; background:var(--card); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:#C7D0DC;}
+  .ch-txt{min-width:0;}
+  .ch-name{font-size:15px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:340px;}
+  .ch-sub{font-size:11px; color:var(--t3); font-family:'IBM Plex Mono',monospace; margin-top:1px;}
+  .badge{font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:6px; border:1px solid; white-space:nowrap;}
+  .ch-right{margin-left:auto; display:flex; align-items:center; gap:10px;}
+  .asset-sw{display:flex; align-items:center; gap:7px; background:#121821; border:1px solid var(--line); border-radius:8px; padding:4px 4px 4px 11px;}
+  .asset-sw .lbl{font-size:10px; color:var(--t3); text-transform:uppercase; letter-spacing:.4px;}
+  .dl{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; color:#cfe0ff; background:rgba(59,130,246,.14); border:1px solid rgba(59,130,246,.4); border-radius:8px; padding:8px 13px; white-space:nowrap;}
+  .dl:hover{background:rgba(59,130,246,.22);}
+  .pv-badge{display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; padding:5px 11px; border-radius:7px; border:1px solid;}
+  .pv-badge i{width:9px; height:9px; border-radius:50%;}
+
+  /* ===== body ===== */
+  .body{flex:1; display:flex; min-height:0;}
+
+  /* demo rail */
+  .rail{width:212px; flex:none; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:10px 0 20px;}
+  .rail-h{font-size:9.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--t3); font-weight:600; padding:8px 14px 4px;}
+  .rail-h.demo{color:#7FB1E8;}
+  .rail-note{font-size:10.5px; color:var(--t3); padding:2px 14px 10px; line-height:1.5;}
+  .rrow{display:flex; align-items:center; gap:9px; margin:0 7px 3px; padding:9px 10px; border-radius:9px; cursor:pointer; border:1px solid transparent;}
+  .rrow:hover{background:var(--card);}
+  .rrow.on{background:#1b2735; border-color:rgba(59,130,246,.4);}
+  .rrow .rg{flex:none; color:#AEB7C4; width:18px; display:flex; justify-content:center;}
+  .rrow .rt{flex:1; min-width:0; padding-right:2px;}
+  .rrow .rt .rn{font-size:11.5px; font-weight:500; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rrow .rt .rc{font-size:10px; color:var(--t3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .rrow .rd{width:9px; height:9px; border-radius:50%; flex:none; margin-left:2px;}
+
+  /* viewer column */
+  .vcol{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .vstage{flex:1; position:relative; margin:14px; border-radius:14px; overflow:hidden; border:1px solid var(--line); background:#0c1016;}
+
+  /* state-sim (demo) control — blue/neutral, NOT orange */
+  .sim{position:absolute; top:12px; right:12px; z-index:18; display:flex; align-items:center; gap:7px; background:rgba(16,22,30,.92); border:1px solid var(--line); border-radius:9px; padding:5px 7px;}
+  .sim .sl{font-size:9.5px; color:#7FB1E8; text-transform:uppercase; letter-spacing:.4px; font-weight:600; white-space:nowrap;}
+  .sim .seg{display:flex; gap:2px;}
+  .sim .seg button{font-size:10.5px; font-weight:600; color:var(--t2); background:transparent; border:1px solid transparent; border-radius:6px; padding:4px 8px; display:flex; align-items:center; gap:5px; white-space:nowrap;}
+  .sim .seg button i{width:7px; height:7px; border-radius:50%;}
+  .sim .seg button.on{background:#212b36; border-color:#3a4655; color:var(--t1);}
+
+  .vmock-tag{position:absolute; left:12px; top:12px; z-index:16; font-size:10.5px; font-family:'IBM Plex Mono',monospace; color:var(--t2); background:rgba(16,22,30,.82); border:1px solid var(--line); padding:5px 10px; border-radius:7px; display:flex; align-items:center; gap:7px;}
+  .vmock-tag .mk{color:var(--t3); border-left:1px solid var(--line); padding-left:7px;}
+
+  /* ===== category surfaces (mockups, non-functional) ===== */
+  .surf{position:absolute; inset:0;}
+  .surf-ctls{position:absolute; z-index:14;}
+  .ctl-col{left:14px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:5px;}
+  .ctl-bottom{left:50%; bottom:16px; transform:translateX(-50%); display:flex; gap:6px; align-items:center;}
+  .ctl-tr{right:14px; top:64px; display:flex; flex-direction:column; gap:5px; align-items:flex-end;}
+  .cbtn{min-width:36px; height:36px; padding:0 9px; border-radius:8px; background:rgba(22,28,36,.92); border:1px solid var(--line); color:var(--t1); font-size:13px; display:flex; align-items:center; justify-content:center; gap:6px; cursor:default;}
+  .cbtn.lg{height:auto; padding:8px 11px; flex-direction:column; gap:4px; font-size:11px; color:var(--t2); white-space:nowrap;}
+  .cbtn .ci{font-size:15px;}
+  .cpill{font-size:11px; color:var(--t2); background:rgba(22,28,36,.92); border:1px solid var(--line); border-radius:20px; padding:7px 13px; display:flex; align-items:center; gap:9px; cursor:default; white-space:nowrap;}
+  .cslider{width:90px; height:4px; background:#3a4452; border-radius:3px; position:relative;}
+  .cslider i{position:absolute; top:50%; transform:translate(-50%,-50%); width:12px; height:12px; border-radius:50%; background:var(--blue);}
+  .navcube{position:absolute; right:16px; bottom:16px; width:54px; height:54px; z-index:14; opacity:.85;}
+  .navcube div{position:absolute; inset:0; border:1px solid #46525f; background:rgba(30,38,48,.6);}
+  .surf-watermark{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:rgba(120,135,152,.12); pointer-events:none;}
+
+  /* pointcloud */
+  .pc-stage{position:absolute; inset:0; background:radial-gradient(120% 90% at 50% 30%, #131c27 0%, #0a0e13 75%);}
+  .pc-dot{position:absolute; border-radius:50%; }
+
+  /* 3d_tiles */
+  .tiles-stage{position:absolute; inset:0; background:linear-gradient(180deg,#0e1620 0%, #0a0e13 100%); overflow:hidden;}
+  .tiles-grid{position:absolute; left:50%; top:54%; transform:translate(-50%,-50%) rotateX(58deg) rotateZ(45deg); transform-style:preserve-3d; display:grid; grid-template-columns:repeat(8,46px); grid-auto-rows:46px; gap:3px;}
+  .tiles-grid span{background:linear-gradient(135deg,rgba(59,130,246,.12),rgba(59,130,246,.03)); border:1px solid rgba(91,130,180,.35);}
+
+  /* ortho raster */
+  .ortho-stage{position:absolute; inset:0; background:
+     repeating-linear-gradient(90deg, transparent 0 38px, rgba(255,255,255,.02) 38px 39px),
+     repeating-linear-gradient(0deg, transparent 0 38px, rgba(255,255,255,.02) 38px 39px),
+     radial-gradient(60% 50% at 40% 45%, #2c3a30 0%, #1c2620 45%, #141b18 100%);}
+  .ortho-scale{position:absolute; left:16px; bottom:16px; z-index:14; display:flex; flex-direction:column; gap:3px; color:var(--t2); font-size:10px;}
+  .ortho-scale .bar{width:90px; height:6px; border:1px solid #56636f; border-top:0; display:flex;}
+  .ortho-scale .bar span{flex:1; border-left:1px solid #56636f;}
+  .ortho-scale .bar span:nth-child(odd){background:#56636f;}
+
+  /* image gallery */
+  .gal-stage{position:absolute; inset:0; display:flex; flex-direction:column; background:#0a0e13;}
+  .gal-main{flex:1; display:flex; align-items:center; justify-content:center; position:relative; margin:14px 14px 8px; border-radius:10px; overflow:hidden; background:linear-gradient(135deg,#243240,#161d26);}
+  .gal-main .ph{display:flex; flex-direction:column; align-items:center; gap:8px; color:rgba(150,165,182,.5);}
+  .gal-nav{position:absolute; top:50%; transform:translateY(-50%); width:38px; height:38px; border-radius:50%; background:rgba(12,16,22,.7); border:1px solid var(--line); color:var(--t1); display:flex; align-items:center; justify-content:center; font-size:16px;}
+  .gal-counter{position:absolute; top:12px; right:12px; font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--t2); background:rgba(12,16,22,.7); border:1px solid var(--line); padding:4px 9px; border-radius:6px;}
+  .gal-exif{position:absolute; left:12px; bottom:12px; display:flex; gap:6px;}
+  .gal-exif span{font-size:10px; font-family:'IBM Plex Mono',monospace; color:var(--t2); background:rgba(12,16,22,.7); border:1px solid var(--line); padding:3px 8px; border-radius:5px;}
+  .gal-strip{height:62px; flex:none; display:flex; gap:7px; padding:0 14px 12px; overflow-x:auto;}
+  .gal-thumb{width:76px; height:50px; flex:none; border-radius:6px; background:linear-gradient(135deg,#2a3744,#1a232d); border:1px solid var(--line);}
+  .gal-thumb.on{border-color:var(--blue); box-shadow:0 0 0 1px var(--blue);}
+
+  /* panorama */
+  .pano-stage{position:absolute; inset:0; overflow:hidden; background:#0a0e13;}
+  .pano-strip{position:absolute; inset:-8% -2%; background:
+     linear-gradient(180deg, #2e3c52 0%, #3b4b63 38%, #5a6b54 52%, #3c4636 70%, #232a20 100%);}
+  .pano-strip::after{content:''; position:absolute; inset:0; background:repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 2px, transparent 2px 60px);}
+  .pano-vignette{position:absolute; inset:0; background:radial-gradient(60% 60% at 50% 50%, transparent 40%, rgba(8,11,15,.72) 100%);}
+  .pano-cross{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:46px; height:46px; border:1.5px solid rgba(207,224,255,.6); border-radius:50%;}
+  .pano-cross::before,.pano-cross::after{content:''; position:absolute; background:rgba(207,224,255,.6);}
+  .pano-cross::before{left:50%; top:8px; bottom:8px; width:1px; transform:translateX(-50%);}
+  .pano-cross::after{top:50%; left:8px; right:8px; height:1px; transform:translateY(-50%);}
+  .pano-hint{position:absolute; left:50%; bottom:64px; transform:translateX(-50%); font-size:11px; color:var(--t2); background:rgba(12,16,22,.72); border:1px solid var(--line); padding:5px 12px; border-radius:20px; white-space:nowrap;}
+
+  /* video */
+  .vid-stage{position:absolute; inset:0; background:radial-gradient(80% 70% at 50% 42%, #1b2532 0%, #0a0e13 80%); display:flex; align-items:center; justify-content:center;}
+  .vid-play{width:74px; height:74px; border-radius:50%; background:rgba(59,130,246,.16); border:1.5px solid rgba(59,130,246,.5); display:flex; align-items:center; justify-content:center;}
+  .vid-play::after{content:''; border-style:solid; border-width:14px 0 14px 23px; border-color:transparent transparent transparent #cfe0ff; margin-left:5px;}
+  .vid-bar{position:absolute; left:16px; right:16px; bottom:16px; display:flex; align-items:center; gap:11px; color:var(--t2); font-size:11px; font-family:'IBM Plex Mono',monospace;}
+  .vid-track{flex:1; height:5px; border-radius:3px; background:#2a3340; position:relative;}
+  .vid-track i{position:absolute; left:0; top:0; bottom:0; width:34%; background:var(--blue); border-radius:3px;}
+  .vid-track i::after{content:''; position:absolute; right:-5px; top:50%; transform:translateY(-50%); width:11px; height:11px; border-radius:50%; background:#cfe0ff;}
+
+  /* document */
+  .doc-stage{position:absolute; inset:0; display:flex; background:#0a0e13;}
+  .doc-thumbs{width:96px; flex:none; border-right:1px solid var(--line); padding:14px 0; display:flex; flex-direction:column; align-items:center; gap:10px; overflow-y:auto; background:var(--panel);}
+  .doc-thumb{width:58px; height:78px; border-radius:3px; background:#e9edf2; border:1px solid var(--line); position:relative; opacity:.5;}
+  .doc-thumb.on{opacity:1; box-shadow:0 0 0 2px var(--blue);}
+  .doc-thumb span{position:absolute; bottom:-15px; left:50%; transform:translateX(-50%); font-size:9px; color:var(--t3);}
+  .doc-page-wrap{flex:1; display:flex; align-items:center; justify-content:center; padding:18px; overflow:auto;}
+  .doc-page{width:min(440px,80%); aspect-ratio:1/1.414; background:#f3f5f8; border-radius:3px; box-shadow:0 8px 30px -8px rgba(0,0,0,.6); padding:34px 36px;}
+  .doc-line{height:8px; border-radius:2px; background:#c7d0dc; margin-bottom:11px;}
+  .doc-line.title{height:13px; width:62%; background:#94a2b5; margin-bottom:20px;}
+  .doc-line.short{width:48%;}
+  .doc-toolbar{position:absolute; left:50%; bottom:14px; transform:translateX(-50%); display:flex; align-items:center; gap:8px; background:rgba(16,22,30,.92); border:1px solid var(--line); border-radius:9px; padding:6px 10px; z-index:14; color:var(--t2); font-size:12px;}
+  .doc-toolbar .pg{font-family:'IBM Plex Mono',monospace; color:var(--t1);}
+
+  /* model (orbit) */
+  .model-stage{position:absolute; inset:0; background:radial-gradient(70% 60% at 50% 45%, #1a2330 0%, #0a0e13 80%); display:flex; align-items:center; justify-content:center;}
+  .model-shape{width:170px; height:150px; background:linear-gradient(150deg,#3a4a5e 0%, #28323f 55%, #1c242e 100%); clip-path:polygon(50% 4%, 96% 30%, 96% 74%, 50% 96%, 4% 74%, 4% 30%); position:relative; box-shadow:inset 0 0 40px rgba(0,0,0,.5);}
+  .model-shape::after{content:''; position:absolute; inset:0; clip-path:inherit; background:linear-gradient(150deg, rgba(207,224,255,.10), transparent 50%);}
+
+  /* ===== state panels (pending / missing / failed) ===== */
+  .state-panel{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:30px; z-index:10;}
+  .sp-ico{width:74px; height:74px; border-radius:18px; display:flex; align-items:center; justify-content:center; font-size:34px; margin-bottom:20px; border:1.5px solid;}
+  .sp-title{font-size:19px; font-weight:600; margin-bottom:8px; white-space:nowrap;}
+  .sp-state{font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; padding:3px 10px; border-radius:6px; border:1px solid; margin-bottom:16px; display:inline-flex; align-items:center; gap:7px; white-space:nowrap;}
+  .sp-state i{width:8px; height:8px; border-radius:50%;}
+  .sp-desc{font-size:13px; color:var(--t2); max-width:440px; line-height:1.6; margin-bottom:8px;}
+  .sp-reason{font-size:12px; color:#f4b4b4; font-family:'IBM Plex Mono',monospace; background:rgba(248,113,113,.08); border:1px solid rgba(248,113,113,.3); border-radius:8px; padding:9px 14px; margin:6px 0 18px; max-width:460px;}
+  .sp-meta{font-size:11.5px; color:var(--t3); margin-bottom:20px; display:flex; gap:8px; align-items:center;}
+  .sp-actions{display:flex; gap:10px; flex-wrap:wrap; justify-content:center;}
+  .sp-btn{font-size:12.5px; font-weight:600; border-radius:9px; padding:10px 16px; border:1px solid; display:flex; align-items:center; gap:7px; cursor:pointer; text-decoration:none; white-space:nowrap;}
+  .sp-btn.primary{background:rgba(59,130,246,.16); border-color:rgba(59,130,246,.45); color:#cfe0ff;}
+  .sp-btn.retry{background:rgba(248,113,113,.12); border-color:rgba(248,113,113,.42); color:#f4b4b4;}
+  .sp-btn.ghost{background:#121821; border-color:var(--line); color:var(--t2);}
+  /* pending progress */
+  .sp-progress{width:280px; height:6px; border-radius:4px; background:var(--card); overflow:hidden; margin:4px 0 20px; position:relative;}
+  .sp-progress i{position:absolute; height:100%; width:46%; border-radius:4px; background:var(--pend); animation:slide 1.3s ease-in-out infinite;}
+  @keyframes slide{0%{left:-46%;}100%{left:100%;}}
+
+  /* ===== context strip ===== */
+  .cstrip{flex:none; height:46px; display:flex; align-items:center; gap:0; padding:0 8px 0 16px; margin:0 14px 14px; background:var(--panel); border:1px solid var(--line); border-radius:11px;}
+  .cs-scroll{display:flex; align-items:center; min-width:0; flex:1 1 auto; overflow-x:auto; overflow-y:hidden; scrollbar-width:none;}
+  .cs-scroll::-webkit-scrollbar{height:0;}
+  .cs-item{display:flex; align-items:center; gap:8px; padding:0 16px; border-right:1px solid var(--line2); height:22px; flex:none;}
+  .cs-item:first-child{padding-left:2px;}
+  .cs-k{font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); font-weight:600;}
+  .cs-v{font-size:12.5px; color:var(--t1); font-weight:500; white-space:nowrap;}
+  .cs-v.mono{font-family:'IBM Plex Mono',monospace;}
+  .cs-v.unassigned{color:var(--t3);}
+  .cs-more{flex:none; display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; color:#cfe0ff; text-decoration:none; padding:0 8px 0 14px; margin-left:4px; border-left:1px solid var(--line); white-space:nowrap;}
+  .cs-more:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="explorer/data.jsx"></script>
+
+<script type="text/babel">
+(function () {
+const { useState, useMemo } = React;
+const S = window.SAMS;
+
+/* ---- category glyph (SHAPE only) ---- */
+function CategoryGlyph({ cat, s = 16 }) {
+  const sw = 1.6, c = 'currentColor';
+  const common = { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: c, strokeWidth: sw, strokeLinejoin: 'round', strokeLinecap: 'round' };
+  switch ((S.CAT[cat] || {}).shape) {
+    case 'pointcloud': return (<svg {...common}>{[[7,7],[12,6],[17,8],[6,13],[12,12],[18,14],[9,18],[15,17]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1.05" fill={c} stroke="none"/>)}</svg>);
+    case 'model': return (<svg {...common}><path d="M12 4 L20 18 L4 18 Z"/><path d="M12 4 L12 18 M7 13 L17 13"/></svg>);
+    case 'tiles': return (<svg {...common}><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>);
+    case 'ortho': return (<svg {...common}><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 14 L10 9 L14 13 L20 8"/><path d="M4 18 L9 15 L13 18"/></svg>);
+    case 'image': return (<svg {...common}><rect x="4" y="6" width="16" height="12" rx="1.5"/><circle cx="9" cy="11" r="1.6"/><path d="M5 17 L11 12 L15 15 L19 11"/></svg>);
+    case 'pano': return (<svg {...common}><ellipse cx="12" cy="12" rx="9" ry="6"/><path d="M12 6 C8 9 8 15 12 18 M12 6 C16 9 16 15 12 18 M3.4 12 H20.6"/></svg>);
+    case 'video': return (<svg {...common}><rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M10 9.5 L14.5 12 L10 14.5 Z" fill={c} stroke="none"/></svg>);
+    case 'doc': return (<svg {...common}><path d="M7 3 H14 L18 7 V21 H7 Z"/><path d="M14 3 V7 H18 M9.5 12 H15.5 M9.5 15 H15.5 M9.5 18 H13"/></svg>);
+    default: return (<svg {...common}><circle cx="12" cy="12" r="8"/></svg>);
+  }
+}
+
+const PV = { available: { c: 'var(--av)', label: 'available' }, pending: { c: 'var(--pend)', label: 'pending' }, missing: { c: 'var(--miss)', label: 'missing' }, failed: { c: 'var(--fail)', label: 'failed' } };
+const VIEWER_LABEL = { pointcloud: '포인트클라우드 뷰어', '3d_model': '3D 모델 뷰어', '3d_tiles': '3D Tiles 뷰어', orthoimage: '2D 래스터 뷰어', image: '이미지 갤러리', panorama: '360° 파노라마 뷰어', video: '동영상 플레이어', document: '문서(PDF) 뷰어' };
+const ENGINE_HINT = { pointcloud: 'Potree-style', '3d_model': 'model-viewer', '3d_tiles': 'Cesium-style', orthoimage: 'tiled raster', image: 'slideshow', panorama: 'pannellum-style', video: 'HTML5 video', document: 'pdf.js' };
+
+/* ---- demo targets: one per category + a failed example, covering all 4 states ---- */
+const TARGETS = [
+  { id: 'bulguksa-pointcloud-dabotap', state: 'available' },
+  { id: 'seongsu-model-lobby-bim', state: 'pending', generating: '뷰어용 메시 변환 (glb → 스트리밍 타일)' },
+  { id: 'bulguksa-tiles-site-context', state: 'available', stateOverride: true },
+  { id: 'bulguksa-ortho-main-zone', state: 'missing', stateOverride: true, missingKind: 'tiff' },
+  { id: 'seongsu-image-facade-set', state: 'available' },
+  { id: 'bulguksa-panorama-main-hall', state: 'available' },
+  { id: 'seongsu-video-safety', state: 'available' },
+  { id: 'bulguksa-document-precision-report', state: 'available' },
+  { id: 'bulguksa-model-dabotap-photogrammetry', state: 'failed', failReason: 'Texture atlas was not generated.' },
+];
+
+/* per-item mock assets (원본 + 파생) */
+function assetsFor(it) {
+  const out = [{ key: 'original', label: '원본 · ' + it.file.split('.').pop().toUpperCase(), file: it.file, role: '원본 (무손실)' }];
+  const D = {
+    pointcloud: { label: '파생 · Potree 타일셋', role: '뷰어용 변환본' },
+    '3d_model': { label: '파생 · 스트리밍 메시', role: '뷰어용 변환본' },
+    '3d_tiles': { label: '파생 · b3dm 타일', role: '뷰어용 변환본' },
+    orthoimage: { label: '파생 · COG 타일', role: '뷰어용 변환본' },
+    image: { label: '파생 · 썸네일 세트', role: '갤러리용' },
+    panorama: { label: '파생 · 멀티해상 타일', role: '뷰어용 변환본' },
+    video: { label: '파생 · poster + HLS', role: '재생용 변환본' },
+    document: { label: '파생 · 페이지 렌더', role: '뷰어용 렌더' },
+  }[it.cat];
+  if (D) out.push({ key: 'derived', label: D.label, role: D.role });
+  return out;
+}
+
+/* ===== category surfaces (mockups, non-functional chrome) ===== */
+function PointcloudSurface() {
+  const dots = useMemo(() => {
+    const a = [];
+    for (let i = 0; i < 420; i++) {
+      const cx = 50 + (Math.random() - 0.5) * 46, cy = 52 + (Math.random() - 0.5) * 50;
+      const d = Math.hypot(cx - 50, (cy - 52) * 0.8);
+      const lum = Math.max(0.18, 1 - d / 42);
+      a.push({ x: cx, y: cy, s: 1.3 + Math.random() * 1.8, o: lum, hue: 196 + lum * 40 });
+    }
+    return a;
+  }, []);
+  return (
+    <div className="surf">
+      <div className="pc-stage">
+        {dots.map((d, i) => <span key={i} className="pc-dot" style={{ left: d.x + '%', top: d.y + '%', width: d.s, height: d.s, background: `hsl(${d.hue} 55% ${45 + d.o * 30}%)`, opacity: d.o }} />)}
+      </div>
+      <div className="surf-ctls ctl-col">
+        <div className="cbtn" title="회전">⟲</div><div className="cbtn" title="이동">✛</div>
+        <div className="cbtn" title="측정">⊿</div><div className="cbtn" title="단면/클리핑">▤</div>
+      </div>
+      <div className="surf-ctls ctl-bottom">
+        <div className="cpill">점 크기 <span className="cslider"><i style={{ left: '42%' }} /></span></div>
+        <div className="cpill">EDL 음영 <span style={{ color: 'var(--av)' }}>ON</span></div>
+        <div className="cpill">분류 색상</div>
+      </div>
+      <div className="navcube"><div /></div>
+    </div>
+  );
+}
+function TilesSurface() {
+  return (
+    <div className="surf">
+      <div className="tiles-stage"><div className="tiles-grid">{Array.from({ length: 64 }).map((_, i) => <span key={i} style={{ opacity: 0.4 + ((i * 7) % 9) / 14 }} />)}</div></div>
+      <div className="surf-ctls ctl-tr">
+        <div className="cbtn lg"><span className="ci">▦</span>tile 경계</div>
+        <div className="cbtn lg"><span className="ci">◳</span>LOD</div>
+        <div className="cbtn lg"><span className="ci">☀</span>지형 음영</div>
+      </div>
+      <div className="surf-ctls ctl-bottom">
+        <div className="cpill">geometric error <span className="mono" style={{ color: 'var(--t1)' }}>16 → 2</span></div>
+        <div className="cpill">tiles 로드됨 <span className="mono" style={{ color: 'var(--t1)' }}>3,412</span></div>
+      </div>
+    </div>
+  );
+}
+function ModelSurface() {
+  return (
+    <div className="surf">
+      <div className="model-stage"><div className="model-shape" /></div>
+      <div className="surf-ctls ctl-col"><div className="cbtn" title="궤도">⟲</div><div className="cbtn" title="이동">✛</div><div className="cbtn" title="줌">⊕</div></div>
+      <div className="surf-ctls ctl-bottom"><div className="cpill">와이어프레임</div><div className="cpill">재질 <span style={{ color: 'var(--t1)' }}>PBR</span></div><div className="cpill">조명</div><div className="cpill">bbox</div></div>
+      <div className="navcube"><div /></div>
+    </div>
+  );
+}
+function OrthoSurface() {
+  return (
+    <div className="surf">
+      <div className="ortho-stage" />
+      <div className="surf-ctls ctl-tr"><div className="cbtn" title="줌 +">＋</div><div className="cbtn" title="줌 −">－</div><div className="cbtn" title="전체">⤢</div></div>
+      <div className="surf-ctls ctl-bottom"><div className="cpill">불투명도 <span className="cslider"><i style={{ left: '80%' }} /></span></div><div className="cpill mono" style={{ color: 'var(--t2)' }}>129.3326, 35.7905</div></div>
+      <div className="ortho-scale"><span>0 ─ 20m</span><div className="bar"><span /><span /><span /><span /></div></div>
+    </div>
+  );
+}
+function GallerySurface() {
+  return (
+    <div className="surf">
+      <div className="gal-stage">
+        <div className="gal-main">
+          <div className="ph"><CategoryGlyph cat="image" s={40} /><span style={{ fontSize: 12 }}>대표 이미지 (목업)</span></div>
+          <div className="gal-nav" style={{ left: 14 }}>‹</div><div className="gal-nav" style={{ right: 14 }}>›</div>
+          <div className="gal-counter">07 / 42</div>
+          <div className="gal-exif"><span>ƒ/8.0</span><span>1/250s</span><span>ISO 100</span><span>Sony A7R IV</span></div>
+        </div>
+        <div className="gal-strip">{Array.from({ length: 12 }).map((_, i) => <div key={i} className={'gal-thumb' + (i === 6 ? ' on' : '')} />)}</div>
+      </div>
+    </div>
+  );
+}
+function PanoramaSurface() {
+  return (
+    <div className="surf">
+      <div className="pano-stage"><div className="pano-strip" /><div className="pano-vignette" /><div className="pano-cross" /><div className="pano-hint">드래그하여 시점 회전 · 스크롤로 확대</div></div>
+      <div className="surf-ctls ctl-tr"><div className="cbtn lg"><span className="ci">↻</span>자동회전</div><div className="cbtn lg"><span className="ci">⊕</span>FOV</div><div className="cbtn lg"><span className="ci">⌖</span>핫스팟</div></div>
+    </div>
+  );
+}
+function VideoSurface() {
+  return (
+    <div className="surf">
+      <div className="vid-stage"><div className="vid-play" /></div>
+      <div className="vid-bar"><span>03:11</span><span className="vid-track"><i /></span><span>12:22</span><span style={{ marginLeft: 4 }}>🔊</span><span>⛶</span></div>
+    </div>
+  );
+}
+function DocumentSurface() {
+  return (
+    <div className="surf">
+      <div className="doc-stage">
+        <div className="doc-thumbs">{[1, 2, 3].map(n => <div key={n} className={'doc-thumb' + (n === 1 ? ' on' : '')}><span>{n}</span></div>)}</div>
+        <div className="doc-page-wrap">
+          <div className="doc-page">
+            <div className="doc-line title" /><div className="doc-line" /><div className="doc-line" /><div className="doc-line short" />
+            <div className="doc-line" style={{ marginTop: 22 }} /><div className="doc-line" /><div className="doc-line short" />
+          </div>
+        </div>
+      </div>
+      <div className="doc-toolbar"><span>◀</span><span className="pg">1 / 3</span><span>▶</span><span style={{ color: 'var(--line)' }}>|</span><span>－</span><span className="pg">120%</span><span>＋</span></div>
+    </div>
+  );
+}
+const SURFACES = { pointcloud: PointcloudSurface, '3d_model': ModelSurface, '3d_tiles': TilesSurface, orthoimage: OrthoSurface, image: GallerySurface, panorama: PanoramaSurface, video: VideoSurface, document: DocumentSurface };
+
+/* ===== state panels ===== */
+function PendingPanel({ it, generating, onDownload }) {
+  return (
+    <div className="state-panel">
+      <div className="sp-ico" style={{ color: 'var(--pend)', borderColor: 'rgba(251,191,36,.4)', background: 'rgba(251,191,36,.08)' }}>◔</div>
+      <span className="sp-state" style={{ color: 'var(--pend)', borderColor: 'rgba(251,191,36,.4)', background: 'rgba(251,191,36,.08)' }}><i style={{ background: 'var(--pend)' }} />PENDING · 준비 중</span>
+      <div className="sp-title">미리보기 생성 중</div>
+      <div className="sp-desc"><b style={{ color: 'var(--t1)' }}>{generating || '뷰어용 변환'}</b> 작업이 진행 중입니다. 완료되면 이 자리에 뷰어가 표시됩니다. 에러가 아닙니다.</div>
+      <div className="sp-progress"><i /></div>
+      <div className="sp-meta">원본은 지금도 손실 없이 받을 수 있습니다 · 무손실 원칙</div>
+      <div className="sp-actions">
+        <button className="sp-btn primary" onClick={onDownload}>⤓ 원본 먼저 다운로드</button>
+        <button className="sp-btn ghost">변환 진행 상황</button>
+      </div>
+    </div>
+  );
+}
+function MissingPanel({ it, kind, onDownload }) {
+  const tiff = kind === 'tiff';
+  return (
+    <div className="state-panel">
+      <div className="sp-ico" style={{ color: 'var(--miss)', borderColor: '#3a4452', background: 'rgba(91,101,115,.1)' }}>⊘</div>
+      <span className="sp-state" style={{ color: 'var(--t2)', borderColor: '#3a4452', background: 'rgba(91,101,115,.1)' }}><i style={{ background: 'var(--miss)' }} />MISSING · 미리보기 없음</span>
+      <div className="sp-title">{tiff ? '브라우저에서 표시할 수 없는 형식' : '미리보기를 사용할 수 없음'}</div>
+      <div className="sp-desc">{tiff
+        ? <>원본 <span className="mono" style={{ color: 'var(--t1)' }}>GeoTIFF</span> 는 브라우저에서 직접 렌더링되지 않습니다. 이는 <b style={{ color: 'var(--t1)' }}>알려진 한계</b>이지 오류가 아닙니다 — 원본을 받아 GIS 도구에서 열거나, 타일 변환본이 준비되면 표시됩니다.</>
+        : <>이 자산에는 표시 가능한 미리보기가 없습니다. 원본을 다운로드해 외부 도구에서 확인하세요.</>}</div>
+      <div className="sp-meta">권장 도구 · QGIS · ArcGIS · GDAL</div>
+      <div className="sp-actions">
+        <button className="sp-btn primary" onClick={onDownload}>⤓ 원본 다운로드 (무손실)</button>
+        <button className="sp-btn ghost">외부 도구로 열기</button>
+      </div>
+    </div>
+  );
+}
+function FailedPanel({ it, reason, onDownload }) {
+  return (
+    <div className="state-panel">
+      <div className="sp-ico" style={{ color: 'var(--fail)', borderColor: 'rgba(248,113,113,.45)', background: 'rgba(248,113,113,.1)' }}>⚠</div>
+      <span className="sp-state" style={{ color: 'var(--fail)', borderColor: 'rgba(248,113,113,.45)', background: 'rgba(248,113,113,.1)' }}><i style={{ background: 'var(--fail)' }} />FAILED · 생성 실패</span>
+      <div className="sp-title">미리보기 생성에 실패했습니다</div>
+      <div className="sp-desc">뷰어용 변환을 <b style={{ color: 'var(--t1)' }}>시도했으나 오류로 중단</b>되었습니다. (미리보기가 애초에 없는 <span className="mono">missing</span> 과 다릅니다.) 사유는 아래에 기록됩니다.</div>
+      <div className="sp-reason">⚠ {reason || it.previewFail || 'Preview generation failed.'}</div>
+      <div className="sp-actions">
+        <button className="sp-btn retry">↻ 변환 재시도</button>
+        <button className="sp-btn primary" onClick={onDownload}>⤓ 원본 다운로드</button>
+        <a className="sp-btn ghost" href="Detail.html">전체 기록 → Detail</a>
+      </div>
+    </div>
+  );
+}
+
+/* ===== app ===== */
+function App() {
+  const [idx, setIdx] = useState(0);
+  const [overrides, setOverrides] = useState({});   // targetId -> state
+  const [assetKey, setAssetKey] = useState('original');
+
+  const target = TARGETS[idx];
+  const it = S.BY_ID[target.id];
+  const assets = useMemo(() => assetsFor(it), [it]);
+  const state = overrides[target.id] || target.state;
+  const col = S.collectionById(it.col);
+  const isUnassigned = it.col === 'unassigned-inbox';
+  const stB = S.STATUS[it.status];
+  const epsg = (it.extra && it.extra['proj:epsg']) ? ('EPSG:' + it.extra['proj:epsg']) : (col && col.epsg !== '—' ? col.epsg : null);
+  const spatial = it.src && it.src !== 'none';
+  const download = () => {};
+
+  const Surface = SURFACES[it.cat];
+  const setState = (s) => setOverrides(o => ({ ...o, [target.id]: s }));
+  const pick = (i) => { setIdx(i); setAssetKey('original'); };
+
+  return (
+    <div className="app">
+      {/* top chrome — constant */}
+      <div className="chrome">
+        <a className="back" href="Detail.html">← Detail로</a>
+        <div className="ch-id">
+          <div className="ch-glyph"><CategoryGlyph cat={it.cat} s={20} /></div>
+          <div className="ch-txt">
+            <div className="ch-name">{it.name}</div>
+            <div className="ch-sub">{S.CAT[it.cat].short} · {it.file}</div>
+          </div>
+          <span className="badge" style={{ color: stB.color, borderColor: stB.color + '66', background: stB.color + '14', borderStyle: stB.dashed ? 'dashed' : 'solid' }}>{stB.label}</span>
+        </div>
+        <div className="ch-right">
+          <span className="pv-badge" style={{ color: PV[state].c, borderColor: PV[state].c + '66', background: PV[state].c + '14' }}><i style={{ background: PV[state].c }} />{PV[state].label}</span>
+          <div className="asset-sw">
+            <span className="lbl">Asset</span>
+            <select value={assetKey} onChange={e => setAssetKey(e.target.value)}>
+              {assets.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+            </select>
+          </div>
+          <button className="dl" onClick={download} title="원본은 미리보기 상태와 무관하게 항상 다운로드 가능">⤓ 원본 다운로드</button>
+        </div>
+      </div>
+
+      <div className="body">
+        {/* demo rail */}
+        <div className="rail">
+          <div className="rail-h demo">데모 · 미리보기 대상</div>
+          <div className="rail-note">shell이 카테고리·상태에 따라 어떻게 적응하는지 — 상단 chrome은 그대로, 중앙만 바뀜.</div>
+          {TARGETS.map((t, i) => {
+            const ti = S.BY_ID[t.id]; const ts = overrides[t.id] || t.state;
+            return (
+              <div key={t.id} className={'rrow' + (i === idx ? ' on' : '')} onClick={() => pick(i)}>
+                <span className="rg"><CategoryGlyph cat={ti.cat} s={16} /></span>
+                <span className="rt"><span className="rn">{ti.name}</span><span className="rc">{S.CAT[ti.cat].short}</span></span>
+                <span className="rd" style={{ background: PV[ts].c }} title={PV[ts].label} />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* viewer column */}
+        <div className="vcol">
+          <div className="vstage">
+            <div className="vmock-tag"><CategoryGlyph cat={it.cat} s={13} /> {VIEWER_LABEL[it.cat]}<span className="mk">{ENGINE_HINT[it.cat]} · 목업 (비작동)</span></div>
+
+            {/* state-sim demo control — blue/neutral */}
+            <div className="sim">
+              <span className="sl">상태 데모</span>
+              <div className="seg">
+                {['available', 'pending', 'missing', 'failed'].map(s => (
+                  <button key={s} className={state === s ? 'on' : ''} onClick={() => setState(s)}><i style={{ background: PV[s].c }} />{s}</button>
+                ))}
+              </div>
+            </div>
+
+            {state === 'available' && Surface && <Surface />}
+            {state === 'pending' && <PendingPanel it={it} generating={target.generating} onDownload={download} />}
+            {state === 'missing' && <MissingPanel it={it} kind={target.missingKind} onDownload={download} />}
+            {state === 'failed' && <FailedPanel it={it} reason={target.failReason} onDownload={download} />}
+          </div>
+
+          {/* context strip (light — full record in Detail) */}
+          <div className="cstrip">
+            <div className="cs-scroll">
+              <div className="cs-item"><span className="cs-k">Category</span><span className="cs-v">{S.CAT[it.cat].ko}</span></div>
+              <div className="cs-item"><span className="cs-k">취득일</span><span className="cs-v mono">{it.dt}</span></div>
+              <div className="cs-item proj"><span className="cs-k">Project</span>{isUnassigned ? <span className="cs-v unassigned">미배정</span> : <span className="cs-v">{col.title}</span>}</div>
+              {spatial && epsg && <div className="cs-item" style={{ borderRight: 0 }}><span className="cs-k">EPSG</span><span className="cs-v mono">{epsg}</span></div>}
+            </div>
+            <a className="cs-more" href="Detail.html">전체 정보 → Detail</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>

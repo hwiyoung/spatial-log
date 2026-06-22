@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAMS · Metadata Completion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F1419; --panel:#161C24; --card:#1E2630; --line:#2B333F; --line2:#222932;
+    --t1:#E8ECF1; --t2:#98A2B3; --t3:#5B6573;
+    --blue:#3B82F6; --orange:#F97316;
+    --draft:#FBBF24; --pub:#34D399; --arch:#64748B; --unk:#6B7280; --auto:#7FB1E8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; height:100%;}
+  body{background:var(--bg); color:var(--t1); font-family:'IBM Plex Sans',system-ui,sans-serif; font-size:13px; -webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#2C3540; border-radius:6px; border:2px solid var(--bg);}
+
+  /* nav */
+  .nav{height:50px; position:sticky; top:0; z-index:30; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:0 18px;}
+  .logo{font-weight:600; font-size:15px; margin-right:20px;}
+  .logo b{color:var(--blue);} .logo .v{color:var(--t3); font-weight:400; font-size:11px;}
+  .navtab{padding:7px 15px; border-radius:7px; font-size:13px; font-weight:500; color:var(--t2); border:0; background:transparent;}
+  .navtab.on{color:var(--blue); background:rgba(59,130,246,.12);}
+  .crumb{margin-left:14px; font-size:12px; color:var(--t3);} .crumb b{color:var(--t2);}
+  .nav-r{margin-left:auto; display:flex; gap:8px;}
+  .back{font-size:12.5px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:7px; padding:7px 12px;}
+
+  .page{max-width:1200px; margin:0 auto; padding:18px 22px 80px;}
+  .switch{display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
+  .switch-l{font-size:11px; color:var(--t3); text-transform:uppercase; letter-spacing:.5px;}
+  .chip{font-size:12px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:20px; padding:6px 12px; display:flex; gap:7px; align-items:center;}
+  .chip.on{color:var(--t1); border-color:var(--blue); background:rgba(59,130,246,.1);}
+  .chip small{color:var(--t3); font-size:10.5px;}
+
+  .ptitle{font-size:20px; font-weight:600; margin:2px 0 14px;}
+  .ptitle .tag{font-size:12px; color:var(--draft); border:1px solid rgba(251,191,36,.35); background:rgba(251,191,36,.1); padding:3px 9px; border-radius:6px; margin-left:10px; vertical-align:middle; font-weight:500;}
+
+  .layout{display:grid; grid-template-columns:minmax(0,1fr) 350px; gap:18px; align-items:start;}
+
+  /* item summary */
+  .summary{display:flex; gap:14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px; margin-bottom:16px;}
+  .sum-tile{width:64px; height:64px; flex:none; border-radius:10px; background:#0e141b; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:#aeb7c4;}
+  .sum-main{flex:1; min-width:0;}
+  .sum-top{display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
+  .sum-name{font-size:16px; font-weight:600;}
+  .badge{font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:6px; border:1px solid; white-space:nowrap;}
+  .sum-file{font-size:11.5px; color:var(--t3); font-family:'IBM Plex Mono',monospace; margin:3px 0 9px; word-break:break-all;}
+  .sum-flags{display:flex; gap:8px; flex-wrap:wrap;}
+  .flag{font-size:10.5px; padding:3px 8px; border-radius:6px; border:1px solid var(--line); color:var(--t2); display:flex; gap:6px; align-items:center;}
+  .flag i{width:7px; height:7px; border-radius:50%;}
+  .draftreason{margin-top:10px; font-size:12px; color:#e7d9b4; display:flex; gap:8px; align-items:baseline;}
+  .dr-b{font-size:9.5px; font-weight:600; color:var(--draft); border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.12); padding:1px 6px; border-radius:4px; flex:none;}
+
+  /* sections */
+  .sec{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:16px;}
+  .sec.aux{border-style:dashed; background:rgba(22,28,36,.5);}
+  .sec-h{display:flex; align-items:center; gap:10px; margin-bottom:6px; flex-wrap:wrap;}
+  .sec-h h2{font-size:14px; font-weight:600; margin:0;}
+  .sec-sub{font-size:11.5px; color:var(--t3);}
+  .sec-pill{font-size:10px; font-family:'IBM Plex Mono',monospace; padding:2px 8px; border-radius:11px; border:1px solid; margin-left:auto;}
+  .sec-pill.block{color:var(--draft); border-color:rgba(251,191,36,.35); background:rgba(251,191,36,.08);}
+  .sec-pill.free{color:var(--t2); border-color:var(--line); background:var(--card);}
+
+  /* field rows */
+  .field{display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line2);}
+  .field:last-child{border-bottom:0;}
+  .field.miss{}
+  .f-label{width:184px; flex:none; display:flex; flex-direction:column; gap:2px;}
+  .f-name{font-size:12.5px; color:var(--t1); display:flex; align-items:center; gap:7px;}
+  .f-key{font-size:10px; color:var(--t3); font-family:'IBM Plex Mono',monospace;}
+  .f-hint{font-size:10px; color:var(--t3);}
+  .f-input{flex:1; min-width:0; display:flex; align-items:center; gap:9px;}
+  .f-input input, .f-input select{flex:1; min-width:0; background:var(--card); border:1.4px solid var(--line); color:var(--t1); border-radius:8px; padding:9px 11px; font-size:12.5px; font-family:inherit; outline:none;}
+  .f-input input:focus, .f-input select:focus{border-color:var(--blue);}
+  .field.miss .f-input input, .field.miss .f-input select{border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.05);}
+  .f-input input.flash{animation:flash .8s ease;}
+  @keyframes flash{0%{border-color:var(--pub); box-shadow:0 0 0 3px rgba(52,211,153,.25);}100%{}}
+  .f-readonly{flex:1; display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--t1); padding:9px 0;}
+  .prov{font-size:9.5px; font-weight:600; font-family:'IBM Plex Mono',monospace; padding:2px 7px; border-radius:5px; border:1px solid; text-transform:uppercase; white-space:nowrap; flex:none;}
+  .prov.auto{color:var(--auto); border-color:rgba(127,177,232,.32); background:rgba(127,177,232,.08);}
+  .prov.manual{color:var(--pub); border-color:rgba(52,211,153,.3); background:rgba(52,211,153,.08);}
+  .prov.needed{color:var(--draft); border-color:rgba(251,191,36,.35); background:rgba(251,191,36,.08);}
+  .ex-btn{font-size:10.5px; color:var(--t2); background:#121821; border:1px solid var(--line); border-radius:7px; padding:7px 10px; white-space:nowrap; flex:none;}
+  .ex-btn:hover{border-color:var(--blue); color:var(--t1);}
+
+  .proj-note{margin-top:12px; font-size:11.5px; color:var(--t2); background:rgba(59,130,246,.06); border:1px solid rgba(59,130,246,.2); border-radius:8px; padding:9px 12px; display:flex; gap:8px;}
+  .proj-note b{color:var(--blue);}
+  .unassigned-pill{font-size:10.5px; color:var(--draft);}
+
+  /* gate aside */
+  .aside{position:sticky; top:66px; display:flex; flex-direction:column; gap:14px;}
+  .gate{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden;}
+  .gate-hd{padding:18px; border-bottom:1px solid var(--line2);}
+  .gate-state{display:flex; align-items:center; gap:12px;}
+  .gate-ico{width:44px; height:44px; flex:none; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:700;}
+  .gate-blocked .gate-ico{background:rgba(251,191,36,.14); color:var(--draft); border:1px solid rgba(251,191,36,.4);}
+  .gate-ready .gate-ico{background:rgba(52,211,153,.14); color:var(--pub); border:1px solid rgba(52,211,153,.4);}
+  .gate-done .gate-ico{background:var(--pub); color:#06281c;}
+  .gate-lbl{font-size:16px; font-weight:700;}
+  .gate-blocked .gate-lbl{color:var(--draft);} .gate-ready .gate-lbl{color:var(--pub);} .gate-done .gate-lbl{color:var(--pub);}
+  .gate-sub{font-size:11.5px; color:var(--t2); margin-top:2px;}
+  .gate-prog{margin-top:14px;}
+  .gate-bar{height:7px; border-radius:4px; background:var(--card); overflow:hidden;}
+  .gate-fill{height:100%; border-radius:4px; transition:width .3s ease, background .3s;}
+  .gate-blocked .gate-fill{background:var(--draft);} .gate-ready .gate-fill, .gate-done .gate-fill{background:var(--pub);}
+  .gate-progl{display:flex; justify-content:space-between; font-size:10.5px; color:var(--t3); margin-top:6px;}
+
+  .gate-body{padding:14px 18px;}
+  .gate-blk-h{font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--t2); font-weight:600; margin-bottom:8px;}
+  .blk-row{display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:7px; background:var(--card); border:1px solid var(--line2); margin-bottom:6px; cursor:pointer; font-size:12px;}
+  .blk-row:hover{border-color:rgba(251,191,36,.4);}
+  .blk-dot{width:7px; height:7px; border-radius:50%; background:var(--draft); flex:none;}
+  .blk-sec{font-size:9.5px; color:var(--t3); margin-left:auto; flex:none;}
+  .gate-allok{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--pub); padding:6px 0;}
+
+  .note-card{font-size:11px; color:var(--t2); border:1px solid var(--line2); border-radius:8px; padding:9px 11px; margin-top:9px; display:flex; gap:8px; line-height:1.5;}
+  .note-card .ni{flex:none;}
+  .note-card.warn{border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.05);}
+  .note-card.info{border-color:rgba(127,177,232,.25); background:rgba(127,177,232,.05);}
+  .note-card b{color:var(--t1);}
+
+  .gate-acts{padding:14px 18px; border-top:1px solid var(--line2); display:flex; flex-direction:column; gap:8px;}
+  .gact{font-size:12.5px; padding:11px; border-radius:9px; border:1px solid var(--line); background:var(--card); color:var(--t1); font-weight:500; display:flex; align-items:center; justify-content:center; gap:7px;}
+  .gact:hover{border-color:#3a4655;}
+  .gact.pub{background:var(--pub); border-color:var(--pub); color:#06281c; font-weight:700;}
+  .gact.pub:disabled{background:var(--card); border-color:var(--line); color:var(--t3); cursor:not-allowed; opacity:.7;}
+  .gact.ghost{background:transparent;}
+  .gact-row{display:flex; gap:8px;} .gact-row .gact{flex:1;}
+
+  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:#0f2a20; border:1px solid var(--pub); color:#bff3dc; font-size:13px; padding:12px 20px; border-radius:10px; z-index:90; display:flex; align-items:center; gap:10px; box-shadow:0 12px 40px -12px rgba(0,0,0,.7);}
+
+  @media (max-width:820px){ .layout{grid-template-columns:1fr;} .aside{position:static;} .f-label{width:150px;} }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="explorer/data.jsx"></script>
+<script type="text/babel" src="explorer/map.jsx"></script>
+
+<script type="text/babel">
+(function () {
+const { useState, useMemo, useEffect } = React;
+const S = window.SAMS;
+
+const SPATIAL_CATS = ['pointcloud', '3d_model', '3d_tiles', 'orthoimage', 'image', 'panorama', 'video'];
+const TYPE_REQ = {
+  pointcloud: [{ key: 'pc:count', label: '포인트 수', kind: 'number' }],
+  '3d_model': [{ key: 'model:format', label: '모델 포맷', kind: 'select', options: ['glb', 'obj', 'ply', 'fbx', 'bim'] }],
+  '3d_tiles': [{ key: 'tileset:root_geometric_error', label: 'Root geometric error', kind: 'number' }],
+  orthoimage: [{ key: 'raster:gsd', label: 'GSD (해상도)', kind: 'text' }],
+  image: [{ key: 'image:gsd', label: 'GSD', kind: 'text' }, { key: 'image:camera_model', label: '카메라 모델', kind: 'text' }],
+  panorama: [{ key: 'panorama:projection', label: 'Projection', kind: 'select', options: ['equirectangular', 'cubemap'] }],
+  video: [{ key: 'video:duration', label: '재생 시간', kind: 'text' }, { key: 'video:codec', label: '코덱', kind: 'text' }],
+  document: [{ key: 'document:date', label: '문서 날짜', kind: 'text' }, { key: 'document:author', label: '작성자', kind: 'text' }],
+};
+const EXAMPLE = { 'proj:epsg': '5186', 'document:date': '2024-05-09', 'document:author': '정가공', 'raster:gsd': '0.05 m', 'image:gsd': '0.03 m', 'image:camera_model': 'Sony A7R IV', 'pc:count': '15230482', 'model:format': 'glb', 'tileset:root_geometric_error': '128', 'panorama:projection': 'equirectangular', 'video:duration': '12:22', 'video:codec': 'H.264' };
+const NAME_SUGGEST = { 'inbox-document-contract-draft': '리노베이션 공사 계약서', 'inbox-ortho-no-site': '미상 사이트 정사영상', 'inbox-image-field-photo': '북측 외벽 현장 사진' };
+const PV_COLOR = { available: 'var(--pub)', pending: 'var(--draft)', missing: 'var(--t3)', failed: '#F87171' };
+
+const DRAFTS = S.ITEMS.filter(i => i.status === 'draft');
+const EXAMPLES = [
+  { id: 'inbox-document-contract-draft', tag: '필수값+미배정+preview실패' },
+  { id: 'inbox-ortho-no-site', tag: '사이트명 없음' },
+  { id: 'inbox-image-field-photo', tag: 'display name 없음' },
+];
+
+function Badge({ status }) {
+  const v = S.STATUS[status];
+  return <span className="badge" style={{ color: v.color, borderColor: v.color + '66', background: v.color + '14', borderStyle: v.dashed ? 'dashed' : 'solid' }}>{v.label}</span>;
+}
+
+function buildSpec(item) {
+  const spatial = SPATIAL_CATS.includes(item.cat);
+  const dnMissing = (item.gaps || []).some(g => g.includes('display name'));
+  const ex = item.extra || {};
+  const quality = [
+    { key: 'display_name', label: '표시 이름', kk: 'display_name', kind: 'text', seed: dnMissing ? '' : item.name, autoSeed: false, block: true, hint: '검색자가 읽을 수 있는 이름' },
+    { key: 'datetime', label: '취득 일시', kk: 'datetime', kind: 'text', seed: item.dt, autoSeed: true, block: true },
+  ];
+  if (spatial) quality.push({ key: 'proj:epsg', label: '좌표계', kk: 'proj:epsg', kind: 'text', seed: ex['proj:epsg'] != null ? String(ex['proj:epsg']) : '', autoSeed: ex['proj:epsg'] != null, block: true, hint: 'EPSG 코드' });
+  quality.push({ key: 'data_category', label: '데이터 유형', kk: 'data_category', kind: 'category', seed: item.cat, autoSeed: true, block: true, readonly: true });
+
+  const type = (TYPE_REQ[item.cat] || []).map(f => ({ ...f, kk: f.key, seed: ex[f.key] != null ? String(ex[f.key]) : '', autoSeed: ex[f.key] != null, block: true }));
+
+  const assigned = item.col !== 'unassigned-inbox';
+  return { quality, type, assigned, spatial };
+}
+
+function Field({ f, value, prov, onChange, onExample, section }) {
+  const [flash, setFlash] = useState(false);
+  const miss = !value && f.block && !f.readonly;
+  const provLabel = prov === 'auto' ? 'AUTO' : prov === 'manual' ? '수동' : '미입력';
+  return (
+    <div className={'field' + (miss ? ' miss' : '')} id={'f-' + f.key}>
+      <div className="f-label">
+        <span className="f-name">{f.kind === 'category' && value && <CategoryGlyph cat={value} s={15} />}{f.label}</span>
+        <span className="f-key">{f.kk}</span>
+        {f.hint && <span className="f-hint">{f.hint}</span>}
+      </div>
+      <div className="f-input">
+        {f.readonly ? (
+          <span className="f-readonly">{f.kind === 'category' ? (S.CAT[value] ? S.CAT[value].ko : '—') : value}</span>
+        ) : f.kind === 'select' ? (
+          <select value={value} onChange={e => onChange(e.target.value)}>
+            <option value="">— 선택 —</option>
+            {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        ) : (
+          <input className={flash ? 'flash' : ''} value={value} placeholder={miss ? '미입력 — 보완 필요' : ''}
+            onChange={e => onChange(e.target.value)} />
+        )}
+        <span className={'prov ' + prov}>{provLabel}</span>
+        {miss && <button className="ex-btn" onClick={() => { onExample(); setFlash(true); setTimeout(() => setFlash(false), 800); }}>예시값</button>}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [itemId, setItemId] = useState('inbox-document-contract-draft');
+  const item = S.BY_ID[itemId];
+  const spec = useMemo(() => buildSpec(item), [itemId]);
+  const allFields = [...spec.quality, ...spec.type];
+
+  const seedFor = (it) => { const sp = buildSpec(it); const v = {}; [...sp.quality, ...sp.type].forEach(f => v[f.key] = f.seed); return v; };
+  const [vals, setVals] = useState(() => seedFor(item));
+  const [proj, setProj] = useState(() => spec.assigned ? { name: item.col, site: S.collectionById(item.col).site } : { name: '', site: '' });
+  const [published, setPublished] = useState(false);
+  const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    setVals(seedFor(item));
+    setProj(spec.assigned ? { name: item.col, site: S.collectionById(item.col).site } : { name: '', site: '' });
+    setPublished(false);
+  }, [itemId]);
+
+  const provOf = (f) => f.autoSeed ? 'auto' : (vals[f.key] ? 'manual' : 'needed');
+  const blockers = allFields.filter(f => f.block && !f.readonly && !vals[f.key]);
+  const totalReq = allFields.filter(f => f.block).length;
+  const filledReq = totalReq - blockers.length;
+  const gateMet = blockers.length === 0;
+  const sectionOf = (f) => spec.type.includes(f) ? 'Type-specific' : '품질';
+
+  const setExample = (f) => setVals(v => ({ ...v, [f.key]: EXAMPLE[f.key] || (f.key === 'display_name' ? (NAME_SUGGEST[item.id] || item.name) : '값') }));
+  const fillAll = () => setVals(v => { const n = { ...v }; blockers.forEach(f => n[f.key] = EXAMPLE[f.key] || (f.key === 'display_name' ? (NAME_SUGGEST[item.id] || item.name) : '값')); return n; });
+  const focusField = (key) => { const el = document.getElementById('f-' + key); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); const inp = el.querySelector('input,select'); if (inp) inp.focus(); } };
+
+  const curStatus = published ? 'published' : item.status;
+  const gateClass = published ? 'gate-done' : gateMet ? 'gate-ready' : 'gate-blocked';
+
+  return (
+    <div>
+      <nav className="nav">
+        <span className="logo">SAMS<span className="v">v0.1</span></span>
+        <button className="navtab">Explorer</button>
+        <button className="navtab">Project</button>
+        <button className="navtab">Upload</button>
+        <span className="crumb"><b>Explorer</b> › Context Panel › 보완</span>
+        <div className="nav-r"><button className="back">← Explorer로</button></div>
+      </nav>
+
+      <div className="page">
+        <div className="switch">
+          <span className="switch-l">예시 Draft</span>
+          {EXAMPLES.map(ex => (
+            <button key={ex.id} className={'chip' + (itemId === ex.id ? ' on' : '')} onClick={() => setItemId(ex.id)}>
+              {S.BY_ID[ex.id].name.length > 13 ? S.BY_ID[ex.id].name.slice(0, 12) + '…' : S.BY_ID[ex.id].name}<small>{ex.tag}</small>
+            </button>
+          ))}
+        </div>
+
+        <div className="ptitle">메타데이터 보완 <span className="tag">Draft → Published 후보</span></div>
+
+        <div className="layout">
+          {/* ---- main ---- */}
+          <div>
+            {/* item summary */}
+            <div className="summary">
+              <div className="sum-tile"><CategoryGlyph cat={item.cat} s={30} /></div>
+              <div className="sum-main">
+                <div className="sum-top">
+                  <span className="sum-name">{vals.display_name || item.name}</span>
+                  <Badge status={curStatus} />
+                  <span className="flag">유형 · {S.CAT[item.cat].ko}</span>
+                </div>
+                <div className="sum-file">{item.file} · {item.id}</div>
+                <div className="sum-flags">
+                  <span className="flag"><i style={{ background: PV_COLOR[item.preview] }} />preview {item.preview}</span>
+                  <span className="flag">위치 · {S.SPATIAL_LABEL[item.src]}</span>
+                  <span className="flag">{spec.assigned ? '프로젝트 배정됨' : '◇ 프로젝트 미배정'}</span>
+                </div>
+                {item.draftReason && !published && <div className="draftreason"><span className="dr-b">Draft</span> {item.draftReason}</div>}
+              </div>
+            </div>
+
+            {/* quality required */}
+            <div className="sec">
+              <div className="sec-h"><h2>Required Fields · 품질</h2><span className="sec-sub">검색·재사용 최소 품질</span><span className="sec-pill block">Published 차단</span></div>
+              {spec.quality.map(f => <Field key={f.key} f={f} value={vals[f.key] || ''} prov={f.readonly ? 'auto' : provOf(f)} onChange={val => setVals(v => ({ ...v, [f.key]: val }))} onExample={() => setExample(f)} />)}
+            </div>
+
+            {/* type-specific */}
+            {spec.type.length > 0 && (
+              <div className="sec">
+                <div className="sec-h"><h2>Type-specific · {S.CAT[item.cat].ko}</h2><span className="sec-sub">{item.cat} 필수값</span><span className="sec-pill block">Published 차단</span></div>
+                {spec.type.map(f => <Field key={f.key} f={f} value={vals[f.key] || ''} prov={provOf(f)} onChange={val => setVals(v => ({ ...v, [f.key]: val }))} onExample={() => setExample(f)} />)}
+              </div>
+            )}
+
+            {/* project — separate, non-blocking */}
+            <div className="sec aux">
+              <div className="sec-h"><h2>Project 연결</h2><span className="sec-sub">status와 별개 축</span><span className="sec-pill free">Published 비차단</span></div>
+              <div className="field" id="f-project">
+                <div className="f-label"><span className="f-name">프로젝트</span><span className="f-key">project:name</span></div>
+                <div className="f-input">
+                  <select value={proj.name} onChange={e => { const c = e.target.value; setProj({ name: c, site: c ? S.collectionById(c).site : '' }); }}>
+                    <option value="">미배정 (나중에 배정)</option>
+                    {S.COLLECTIONS.filter(c => c.id !== 'unassigned-inbox').map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  </select>
+                  <span className={'prov ' + (proj.name ? 'manual' : 'needed')}>{proj.name ? '수동' : '미배정'}</span>
+                </div>
+              </div>
+              <div className="field">
+                <div className="f-label"><span className="f-name">사이트</span><span className="f-key">project:site</span></div>
+                <div className="f-input">
+                  <input value={proj.site} placeholder="프로젝트 연결 시 자동 / 직접 입력" onChange={e => setProj(p => ({ ...p, site: e.target.value }))} />
+                  <span className={'prov ' + (proj.site ? 'manual' : 'needed')}>{proj.site ? '수동' : '미입력'}</span>
+                </div>
+              </div>
+              <div className="proj-note"><span>ℹ️</span><div><b>프로젝트 미배정이어도 Published 가능</b>합니다. 배정은 status와 독립적인 별도 작업이며, 나중에 Project 화면에서 연결할 수 있습니다.</div></div>
+            </div>
+          </div>
+
+          {/* ---- gate aside ---- */}
+          <div className="aside">
+            <div className={'gate ' + gateClass}>
+              <div className="gate-hd">
+                <div className="gate-state">
+                  <span className="gate-ico">{published ? '✓' : gateMet ? '✓' : '!'}</span>
+                  <div>
+                    <div className="gate-lbl">{published ? 'Published 전환됨' : gateMet ? 'Published 가능' : '보완 필요'}</div>
+                    <div className="gate-sub">{published ? '검색·재사용 가능 상태' : gateMet ? '품질 기준 충족 — 전환할 수 있습니다' : blockers.length + '개 품질 항목이 막고 있습니다'}</div>
+                  </div>
+                </div>
+                <div className="gate-prog">
+                  <div className="gate-bar"><div className="gate-fill" style={{ width: Math.round(filledReq / totalReq * 100) + '%' }} /></div>
+                  <div className="gate-progl"><span>품질 필드 {filledReq}/{totalReq}</span><span>{Math.round(filledReq / totalReq * 100)}%</span></div>
+                </div>
+              </div>
+
+              <div className="gate-body">
+                {!gateMet ? <>
+                  <div className="gate-blk-h">막고 있는 항목</div>
+                  {blockers.map(f => (
+                    <div className="blk-row" key={f.key} onClick={() => focusField(f.key)}>
+                      <span className="blk-dot" /><span>{f.label}</span><span className="blk-sec">{sectionOf(f)}</span>
+                    </div>
+                  ))}
+                </> : <div className="gate-allok">✓ 모든 품질 필드가 충족되었습니다</div>}
+
+                {/* Published ≠ 완벽 notes */}
+                {item.preview === 'failed' && (
+                  <div className="note-card warn"><span className="ni">⚠</span><div><b>preview 실패는 Published를 막지 않습니다.</b> 사유가 기록됩니다: <span className="mono">{item.previewFail}</span></div></div>
+                )}
+                {!proj.name && (
+                  <div className="note-card info"><span className="ni">◇</span><div><b>프로젝트 미배정</b> — Published 비차단. 나중에 배정 가능.</div></div>
+                )}
+                {gateMet && !published && (
+                  <div className="note-card"><span className="ni">✎</span><div>Published ≠ 완벽. 일부 optional 필드나 preview 실패는 남을 수 있으며 그 사유는 기록됩니다.</div></div>
+                )}
+              </div>
+
+              <div className="gate-acts">
+                {!gateMet && <button className="gact" onClick={fillAll}>남은 항목 예시로 채우기 (데모)</button>}
+                <button className="gact pub" disabled={!gateMet || published} onClick={() => { setPublished(true); setToast('Published로 전환되었습니다'); setTimeout(() => setToast(''), 2600); }}>
+                  {published ? '✓ Published' : 'Published로 전환'}
+                </button>
+                <div className="gact-row">
+                  <button className="gact" onClick={() => setToast('Draft가 저장되었습니다')}>저장</button>
+                  <button className="gact" onClick={() => focusField('project')}>Project 연결</button>
+                </div>
+                <button className="gact ghost" onClick={() => setToast('Explorer로 돌아갑니다…')}>← Explorer로 돌아가기</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {toast && <div className="toast">✓ {toast}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>

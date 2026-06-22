@@ -51,6 +51,8 @@ def _make_item(item_id: str, category: str = "pointcloud", status: str = "draft"
         "sams:status": status,
         **extra_props,
     }
+    if category == "pointcloud" and "pc:count" not in props:
+        props["pc:count"] = 15230482   # 유형별 Published 필수 필드 (_TYPE_REQUIRED)
     return {
         "type": "Feature",
         "stac_version": "1.0.0",
@@ -70,10 +72,9 @@ def _make_item(item_id: str, category: str = "pointcloud", status: str = "draft"
 
 class TestCreateCollection:
 
-    @patch("sams.routers.collections.stac.create_collection", new_callable=AsyncMock)
-    def test_create_collection(self, mock_create):
-        mock_create.return_value = SAMPLE_COLLECTION
-
+    def test_create_collection(self):
+        # 생성 라우터는 stac 래퍼가 아니라 pgSTAC SQL 직접 호출 — 응답 본문으로 검증한다.
+        # (conftest 가 세션 전후로 test-project 를 정리하므로 반복 실행 가능)
         resp = client.post("/api/collections", json={
             "id": "test-project",
             "title": "테스트 프로젝트",
@@ -82,10 +83,10 @@ class TestCreateCollection:
         })
 
         assert resp.status_code == 200
-        assert mock_create.called
-        call_arg = mock_create.call_args[0][0]
-        assert call_arg["id"] == "test-project"
-        assert call_arg["summaries"]["project:site"] == "서울"
+        body = resp.json()
+        assert body["id"] == "test-project"
+        assert body["summaries"]["project:site"] == "서울"
+        assert body["summaries"]["project:default_epsg"] == 5186
 
 
 # ==========================================================================
@@ -141,7 +142,7 @@ class TestCollectionDashboard:
 
 class TestItemStatus:
 
-    @patch("sams.routers.items.stac.update_item", new_callable=AsyncMock)
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
     @patch("sams.routers.items.stac.get_item", new_callable=AsyncMock)
     def test_publish_complete_item(self, mock_get, mock_update):
         mock_get.return_value = _make_item("item-1", status="draft")
@@ -239,7 +240,7 @@ class TestItemTimeline:
 
 class TestItemLinks:
 
-    @patch("sams.routers.items.stac.update_item", new_callable=AsyncMock)
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
     @patch("sams.routers.items.stac.get_item", new_callable=AsyncMock)
     def test_add_link_bidirectional(self, mock_get, mock_update):
         source = _make_item("item-1")

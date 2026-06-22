@@ -13,6 +13,10 @@
  */
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { uploadApi } from '../services/api'
+import { getSuggestions, resolveAcceptance } from '../features/upload/getSuggestionView'
+
+// 설계서 §4.2 — 이 크기 이상은 presigned URL 로 브라우저가 MinIO 에 직접 업로드
+const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024
 
 const UploadTasksContext = createContext(null)
 const STORAGE_KEY = 'sams_upload_tasks'
@@ -115,6 +119,10 @@ export function UploadTasksProvider({ children }) {
       sessionId,
       manifest: null,
       locationOverrides: {},
+      rowEdits: {},        // {idx: {data_category?, description?, datetime?}} — 검토 단계 사용자 수정
+      excludedRows: [],    // 등록에서 제외한 manifest 인덱스
+      linkOverrides: {},   // {suggestionKey: bool} — 관계 제안 기본값에 대한 사용자 토글
+      stagingKeys: {},     // {파일명: staging_key} — presigned 대용량 (등록 시 서버측 복사)
       error: null,
       startedAt: Date.now(),
       uploadProgress: 0,
@@ -128,17 +136,47 @@ export function UploadTasksProvider({ children }) {
 
     ;(async () => {
       try {
+        // 대용량은 presigned 로 MinIO 직행 (API multipart 를 거치지 않음 — 설계서 §4.2),
+        // 소용량은 기존 multipart. 같은 세션이라 서버에서 한 배치로 분석된다.
+        const largeFiles = files.filter(f => f.size >= LARGE_FILE_THRESHOLD)
+        const smallFiles = files.filter(f => f.size < LARGE_FILE_THRESHOLD)
+        const stagingKeys = {}
+        // 진행률은 배치 전체 바이트 기준 누적 — 파일마다 0→100 반복으로 보이지 않게
+        const totalBytes = files.reduce((sum, f) => sum + f.size, 0) || 1
+        let doneBytes = 0
+        // 폴더 업로드의 서브디렉토리 경로 보존 — basename 충돌(같은 이름 다른 폴더) 방지.
+        // manifest 의 file_path(세션 디렉토리 상대경로)와 같은 키가 되어 stagingKeys 매칭이 일치한다.
+        const relName = (f) => f.webkitRelativePath || f._relPath || f.name
+
+        for (const f of largeFiles) {
+          const name = relName(f)
+          const { data: pres } = await uploadApi.getPresignedUrl(
+            { filename: name, session_id: sessionId }, { signal: controller.signal })
+          await uploadApi.putPresigned(pres.url, f, {
+            signal: controller.signal,
+            onUploadProgress: (e) => {
+              updateTask(taskId, { uploadProgress: Math.min(99, Math.round(((doneBytes + e.loaded) / totalBytes) * 100)) })
+            },
+          })
+          await uploadApi.uploadComplete(
+            { session_id: sessionId, staging_key: pres.staging_key, filename: name },
+            { signal: controller.signal })
+          doneBytes += f.size
+          stagingKeys[name] = pres.staging_key
+          // 새로고침 복구 시에도 register 가 staging 복사를 쓸 수 있게 즉시 영속
+          updateTask(taskId, { stagingKeys: { ...stagingKeys } })
+        }
+
         const formData = new FormData()
-        for (const f of files) formData.append('files', f)
+        for (const f of smallFiles) formData.append('files', f, relName(f))
         formData.append('collection_id', collectionId || '')
         formData.append('session_id', sessionId)
 
         const res = await uploadApi.analyze(formData, {
           signal: controller.signal,
           onUploadProgress: (e) => {
-            if (e.total) {
-              const pct = Math.round((e.loaded / e.total) * 100)
-              updateTask(taskId, { uploadProgress: pct })
+            if (e.total && smallFiles.length) {
+              updateTask(taskId, { uploadProgress: Math.min(100, Math.round(((doneBytes + e.loaded) / totalBytes) * 100)) })
             }
           },
         })
@@ -149,6 +187,7 @@ export function UploadTasksProvider({ children }) {
           manifest: res.data,
           sessionId: res.data?.session_id || sessionId,
           uploadProgress: null,
+          stagingKeys,
         }
         updateTask(taskId, analyzedTask)
 
@@ -179,13 +218,35 @@ export function UploadTasksProvider({ children }) {
     updateTask(taskId, { status: 'registering' })
     try {
       const collectionId = task.collectionId || `upload-${Date.now()}`
+      const excluded = new Set(task.excludedRows || [])
+
+      // 수락된 관계 제안 — 양 끝이 모두 등록 대상일 때만 보낸다 (인덱스는 manifest 기준)
+      const suggestions = getSuggestions(task.manifest)
+      const acceptance = resolveAcceptance(suggestions, task.linkOverrides || {})
+      const acceptedBySource = {}
+      suggestions.forEach(s => {
+        if (!acceptance[s.key] || excluded.has(s.sourceIdx) || excluded.has(s.targetIdx)) return
+        ;(acceptedBySource[s.sourceIdx] = acceptedBySource[s.sourceIdx] || []).push({ target_idx: s.targetIdx, rel: s.rel })
+      })
+
       const items = task.manifest.manifest.map((item, idx) => {
+        if (excluded.has(idx)) return null
         const base = {
           data_category: item.detected_category,
           ...flattenExtracted(item.auto_extracted),
           ...flattenExtracted(item.inherited),
           _filename: item.file_path,
           _bundled_files: item.bundled_files || [],
+          _manifest_idx: idx,
+          ...(task.stagingKeys?.[item.file_path] ? { _staging_key: task.stagingKeys[item.file_path] } : {}),
+          ...(acceptedBySource[idx] ? { _accepted_links: acceptedBySource[idx] } : {}),
+        }
+        // 검토 단계의 사용자 수정(카테고리 교정·표시 이름·취득일)이 자동 추출값을 덮어쓴다
+        const edits = task.rowEdits?.[idx]
+        if (edits) {
+          for (const [k, v] of Object.entries(edits)) {
+            if (v !== undefined && v !== '') base[k] = v
+          }
         }
         if (!base.description) {
           base.description = item.file_path.split('/').pop()
@@ -195,7 +256,13 @@ export function UploadTasksProvider({ children }) {
           base.bbox_4326 = [loc[0] - 0.0001, loc[1] - 0.0001, loc[0] + 0.0001, loc[1] + 0.0001]
         }
         return base
-      })
+      }).filter(Boolean)
+
+      if (items.length === 0) {
+        updateTask(taskId, { status: 'analyzed' })
+        alert('등록할 항목이 없습니다 — 모든 행이 제외되었습니다.')
+        return
+      }
 
       const res = await uploadApi.register({
         collection_id: collectionId,
@@ -210,7 +277,13 @@ export function UploadTasksProvider({ children }) {
       if (registered === 0 && errors.length > 0) {
         updateTask(taskId, { status: 'failed', error: `등록 실패: ${errors.join('; ')}` })
       } else {
-        updateTask(taskId, { status: 'registered', registeredCount: registered, partialErrors: errors })
+        updateTask(taskId, {
+          status: 'registered',
+          registeredCount: registered,
+          registeredItemIds: data.item_ids || [],
+          registeredCollectionId: collectionId,
+          partialErrors: errors,
+        })
       }
     } catch (err) {
       console.error('등록 실패:', err)
@@ -250,6 +323,34 @@ export function UploadTasksProvider({ children }) {
     }))
   }, [])
 
+  // 검토 단계의 행 단위 수정 (카테고리 교정·표시 이름·취득일) — 등록 payload 에 반영된다
+  const updateRowEdit = useCallback((taskId, idx, patch) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      const cur = t.rowEdits?.[idx] || {}
+      return { ...t, rowEdits: { ...(t.rowEdits || {}), [idx]: { ...cur, ...patch } } }
+    }))
+  }, [])
+
+  // 관계 제안 수락/무시 토글 (기본값은 규칙으로 계산 — override 만 저장)
+  const toggleLinkAccept = useCallback((taskId, suggestionKey, nextValue) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      return { ...t, linkOverrides: { ...(t.linkOverrides || {}), [suggestionKey]: nextValue } }
+    }))
+  }, [])
+
+  // 행 제외/복원 토글 — 제외된 행은 등록에서 빠진다
+  const toggleRowExclude = useCallback((taskId, idx) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      const cur = new Set(t.excludedRows || [])
+      if (cur.has(idx)) cur.delete(idx)
+      else cur.add(idx)
+      return { ...t, excludedRows: [...cur] }
+    }))
+  }, [])
+
   const value = {
     tasks,
     startAnalysis,
@@ -257,6 +358,9 @@ export function UploadTasksProvider({ children }) {
     cancelTask,
     removeTask,
     updateLocationOverride,
+    updateRowEdit,
+    toggleRowExclude,
+    toggleLinkAccept,
   }
 
   return (

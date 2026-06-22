@@ -612,11 +612,14 @@ sams/
 │     │           └── samsApi.js
 │     └── public/
 └── docs/
+      ├── README.md
       ├── system_structure_design.md
       ├── autofill_pipeline_spec.md
       ├── system_architecture.md      ← 이 문서
-      ├── stac_metadata_design_v4.xlsx
-      └── system_use_scenarios.md
+      ├── stac_metadata_design_v4.md
+      ├── frontend_contracts.md
+      └── planning/
+            └── dev_status_and_roadmap_20260612.md
 ```
 
 ---

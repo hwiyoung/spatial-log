@@ -2,7 +2,79 @@
 
 이 문서는 한 대의 개발 PC에서 두 명이 하나의 공식 repository를 collaborator 방식으로 함께 개발하는 운영 기준이다. 현재 목표는 production 배포가 아니라 `develop` 기준의 공용 통합 테스트 서버를 안정적으로 운영하는 것이다.
 
-새 폴더를 만들고 개발 전 필수 설정만 빠르게 실행하려면 [dev-environment-setup.md](./dev-environment-setup.md)를 먼저 따른다.
+새 폴더를 만들거나 기존 폴더를 개발용으로 쓰기 전에도 이 문서만 보면 된다.
+
+## 빠른 개발 환경 세팅
+
+1. 작업 폴더 역할을 정한다.
+
+```text
+project-dev-me             개인 feature 개발용
+project-dev-teammate       팀원 feature 개발용
+project-shared-runtime     develop 통합 테스트 실행용
+```
+
+2. 필요한 폴더만 clone한다.
+
+```bash
+git clone https://github.com/hwiyoung/spatial-log.git project-dev-me
+git clone https://github.com/hwiyoung/spatial-log.git project-dev-teammate
+git clone https://github.com/hwiyoung/spatial-log.git project-shared-runtime
+```
+
+3. 각 폴더에서 remote와 commit 작성자를 확인한다.
+
+```bash
+git remote -v
+git config user.name "Your Name"
+git config user.email "your-email@example.com"
+```
+
+4. 개인 개발 폴더는 최신 `develop`에서 feature 브랜치를 만든다.
+
+```bash
+git switch develop
+git pull --ff-only origin develop
+git switch -c feature/yourname-task-name
+```
+
+5. 공용 실행 폴더는 `develop`만 사용한다.
+
+```bash
+git switch develop
+git pull --ff-only origin develop
+cp .env.example .env
+```
+
+6. `.env`에서 `COMPOSE_PROJECT_NAME`, `SAMS_DATA_ROOT`, host port, DB/MinIO secret을 설정한다. 여러 stack을 동시에 띄울 때는 project name, data root, host port가 겹치면 안 된다.
+
+7. 컨테이너를 올리기 전 compose 설정을 검증한다.
+
+```bash
+docker compose config --quiet
+```
+
+8. 공용 실행 폴더에서는 shared runtime을 실행한다.
+
+```bash
+./scripts/run-shared-dev.sh
+```
+
+9. 개인 feature 브랜치를 컨테이너로 확인해야 할 때만 개인 임시 runtime을 실행한다.
+
+```bash
+./scripts/run-local-temp.sh
+./scripts/down-local-temp.sh
+```
+
+10. 세팅 과정에서는 아래 명령을 실행하지 않는다.
+
+```bash
+docker compose down -v
+docker volume rm
+docker system prune --volumes
+git push origin --delete <branch>
+```
 
 ## 브랜치 운영 원칙
 

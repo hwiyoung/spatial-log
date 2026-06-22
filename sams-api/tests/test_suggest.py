@@ -59,22 +59,22 @@ class TestResolveTargetKey:
 
     def test_user_target_takes_priority(self):
         item = BatchItem(0, "/data/dabotap.laz", "pointcloud", target="다보탑")
-        assert _resolve_target_key(item) == "다보탑"
+        assert _resolve_target_key(item) == ("다보탑", "user")
 
     def test_filename_keyword(self):
         item = BatchItem(0, "/data/dabotap_scan.laz", "pointcloud")
-        assert _resolve_target_key(item) == "dabotap"
+        assert _resolve_target_key(item) == ("dabotap", "filename")
 
     def test_folder_name_fallback(self):
         item = BatchItem(0, "/data/dabotap/scan_001.laz", "pointcloud")
-        assert _resolve_target_key(item) == "dabotap"
+        assert _resolve_target_key(item) == ("dabotap", "folder")
 
     def test_category_folder_ignored(self):
         """유형 폴더명은 target으로 사용하지 않는다."""
         item = BatchItem(0, "/data/pointcloud/001.laz", "pointcloud")
         # "pointcloud"는 무시, "001"은 너무 짧아 None
-        result = _resolve_target_key(item)
-        assert result != "pointcloud"
+        key, _source = _resolve_target_key(item)
+        assert key != "pointcloud"
 
 
 # ==========================================================================
@@ -222,3 +222,59 @@ class TestSuggestEdgeCases:
         derived = [l for l in links if l.rel_type == "derived_from"]
         # PC→3DModel, 3DModel→3DTiles 두 개
         assert len(derived) >= 2
+
+
+# ==========================================================================
+# target 판정 근거별 confidence 보정
+# ==========================================================================
+
+class TestConfidenceBasis:
+    """사용자 입력 target 은 가산, 폴더명 추정은 감산."""
+
+    def test_user_target_boosts_confidence(self):
+        items = [
+            BatchItem(0, "/data/a.tif", "orthoimage", target="다보탑"),
+            BatchItem(1, "/data/b.mp4", "video", target="다보탑"),
+        ]
+        links = suggest_links(items)
+        related = [l for l in links if l.rel_type == "related"]
+        assert len(related) == 1
+        assert related[0].confidence == pytest.approx(0.95)   # 0.8 + 0.15
+        assert "사용자 입력" in related[0].reason
+
+    def test_folder_basis_lowers_confidence(self):
+        items = [
+            BatchItem(0, "/data/dabotap/001.tif", "orthoimage"),
+            BatchItem(1, "/data/dabotap/002.mp4", "video"),
+        ]
+        links = suggest_links(items)
+        related = [l for l in links if l.rel_type == "related"]
+        assert len(related) == 1
+        assert related[0].confidence == pytest.approx(0.7)    # 0.8 - 0.1
+        assert "폴더명" in related[0].reason
+
+    def test_mixed_basis_uses_weakest(self):
+        """한쪽이 폴더 추정이면 쌍 전체가 약한 근거를 따른다."""
+        items = [
+            BatchItem(0, "/data/x/dabotap_scan.laz", "pointcloud"),   # filename → 'dabotap'
+            BatchItem(1, "/data/dabotap/001.obj", "3d_model"),        # 숫자 stem → folder → 'dabotap'
+        ]
+        links = suggest_links(items)
+        derived = [l for l in links if l.rel_type == "derived_from"]
+        assert len(derived) == 1
+        assert derived[0].confidence == pytest.approx(0.6)   # 0.7 - 0.1
+        assert "폴더명" in derived[0].reason
+
+    def test_suggestions_order_independent(self):
+        """배치 내 파일 순서가 바뀌어도 같은 제안 집합이 나온다 (무방향 dedup)."""
+        a = [
+            BatchItem(0, "/data/dabotap_report.pdf", "document"),
+            BatchItem(1, "/data/dabotap_ortho.tif", "orthoimage"),
+        ]
+        b = [
+            BatchItem(0, "/data/dabotap_ortho.tif", "orthoimage"),
+            BatchItem(1, "/data/dabotap_report.pdf", "document"),
+        ]
+        rels_a = sorted(l.rel_type for l in suggest_links(a))
+        rels_b = sorted(l.rel_type for l in suggest_links(b))
+        assert rels_a == rels_b

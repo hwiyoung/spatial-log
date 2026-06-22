@@ -1,0 +1,40 @@
+/* MapView 공유 크롬 — Explorer 와 Project 공간탭이 같은 컴포넌트를 쓰므로 비스코프.
+ * (기존 .exp 스코프에서 분리 — Project 쪽 범례가 비스타일이던 갭 해소)
+ * 디자인: Explorer.html / Project.html 의 map-* 클래스. */
+
+.map-modetag { position: absolute; top: 12px; left: 12px; font-size: 11px; font-family: var(--font-mono); color: var(--t2); background: rgba(16,22,30,.8); border: 1px solid var(--line); padding: 4px 9px; border-radius: 7px; z-index: 2; pointer-events: none; }
+.map-legend { position: absolute; right: 12px; bottom: 26px; background: rgba(16,22,30,.92); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; z-index: 2; backdrop-filter: blur(3px); }
+.ml-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.ml-row + .ml-row { margin-top: 5px; padding-top: 6px; border-top: 1px solid var(--line2); }
+.ml-h { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--t3); width: 78px; flex: none; }
+.ml-cat { color: #AEB7C4; display: inline-flex; }
+.ml-st { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--t2); }
+.ml-st i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid; }
+.ml-relrow { align-items: flex-start; flex-wrap: wrap; max-width: 330px; }
+.ml-rel { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; color: var(--t3); font-family: var(--font-mono); opacity: .72; }
+.ml-rel.on { color: var(--t1); opacity: 1; }
+.ml-rel i { width: 18px; height: 0; border-top: 2px solid var(--blue); border-radius: 2px; }
+.ml-note { color: var(--t3); font-size: 10px; line-height: 1.35; }
+.map-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(12,17,23,.72); z-index: 3; color: var(--t2); font-size: 13px; pointer-events: none; }
+.map-overlay.soft { background: rgba(12,17,23,.35); }
+.map-overlay small { font-size: 11px; color: var(--t3); }
+.map-spinner { width: 26px; height: 26px; border: 3px solid #2a3340; border-top-color: var(--blue); border-radius: 50%; animation: map-spin .8s linear infinite; }
+@keyframes map-spin { to { transform: rotate(360deg); } }
+
+/* 프로젝트 region 라벨 (디자인 .region-label) — HTML 마커 */
+.region-label {
+  font-size: 11px; color: #9aa6b4; font-weight: 500; letter-spacing: .3px;
+  pointer-events: none; white-space: nowrap;
+  background: rgba(12,17,23,.78); border: 1px solid var(--line2);
+  padding: 2px 8px; border-radius: 11px;
+}
+
+/* 결과 밖/누락 관계 경고 바 (디자인 .map-warnbar) */
+.map-warnbar {
+  position: absolute; left: 12px; bottom: 12px; max-width: min(62%, calc(100% - 380px));
+  background: rgba(34,22,10,.95); border: 1px solid color-mix(in srgb, var(--orange) 45%, transparent);
+  color: #fbbf85; font-size: 11px; padding: 7px 11px; border-radius: 8px; z-index: 2;
+}
+
+/* 영역 그리기 중 — HTML 마커가 드래그 시작을 가로채지 않게 */
+.map-drawing .maplibregl-marker { pointer-events: none; }

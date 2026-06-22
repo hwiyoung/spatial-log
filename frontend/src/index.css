@@ -1,35 +1,69 @@
-/* SAMS 공통 스타일 — 다크 테마 */
+/* SAMS 공통 스타일 — 다크 테마
+ *
+ * 디자인 시스템 토큰 (Claude Design 핸드오프, 7개 화면 공통):
+ * 아래 :root 가 전 화면이 읽는 단일 토큰 세트다. 기존 변수명(--s1/--s2/--bd/--ac/...)은
+ * 디자인 토큰을 가리키는 별칭으로 유지하므로, var() 를 읽는 컴포넌트는 자동으로 새 팔레트를 따른다.
+ * (옛 색을 하드코딩한 컴포넌트는 별도 마이그레이션 대상 — design-reference 핸드오프 메모 참조.)
+ */
 :root {
-  --bg: #0C0E14;
-  --s1: #13161F;
-  --s2: #1A1E2A;
-  --bd: #2C3044;
-  --ac: #4A72FF;
-  --t1: #E4E7F0;
-  --t2: #94A0B8;
-  --t3: #5C6478;
-  --ok: #3DD68C;
-  --warn: #F0B42A;
-  --err: #F06060;
+  /* ── 디자인 토큰 (원본 값) ── */
+  --bg: #0F1419;
+  --panel: #161C24;
+  --card: #1E2630;
+  --line: #2B333F;
+  --line2: #222932;
+  --t1: #E8ECF1;
+  --t2: #98A2B3;
+  --t3: #5B6573;
+  --blue: #3B82F6;
+  --orange: #F97316;
+
+  /* 상태(Status) — 유일한 색 운반체 */
+  --draft: #FBBF24;
+  --pub: #34D399;
+  --arch: #64748B;
+  --unk: #6B7280;
+
+  /* 미리보기 상태(Preview state) */
+  --av: #34D399;
+  --pend: #FBBF24;
+  --miss: #5B6573;
+  --fail: #F87171;
+
+  /* ── 기존 변수명 별칭 (디자인 토큰으로 repoint) ── */
+  --s1: var(--panel);   /* was #13161F */
+  --s2: var(--card);    /* was #1A1E2A */
+  --bd: var(--line);    /* was #2C3044 */
+  --ac: var(--blue);    /* was #4A72FF */
+  --ok: var(--pub);     /* was #3DD68C */
+  --warn: var(--pend);  /* was #F0B42A */
+  --err: var(--fail);   /* was #F06060 */
+
+  /* 폰트 패밀리 토큰 */
+  --font-sans: 'IBM Plex Sans', 'IBM Plex Sans KR', 'Noto Sans KR', -apple-system, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: -apple-system, 'Noto Sans KR', sans-serif;
+  font-family: var(--font-sans);
   font-size: 16px;
   background: var(--bg);
   color: var(--t1);
   -webkit-font-smoothing: antialiased;
+  word-break: keep-all;
 }
 input, select, button, textarea {
   font-family: inherit;
   font-size: inherit;
 }
 
+.mono { font-family: var(--font-mono); }
+
 /* 스크롤바 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bd); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 
 /* MapLibre GL */
 .maplibregl-map { font-family: inherit; }

@@ -17,13 +17,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from sams.config import settings
-from sams.services import stac
+from sams.services import history, stac
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 _SYSTEM_RELS = {"collection", "parent", "root", "self", "items", "next", "prev", "license"}
+# 사용자 관계 링크(양방향 포함). get_related(나열)와 delete_link(인덱스)가 동일한 링크 집합을 같은
+# 순서로 열거하도록 두 곳에서 이 INCLUDE 목록을 공유한다 — 인덱스 공간 불일치로 인한 오삭제 방지.
+_USER_RELS = {"derived_from", "has_derived", "related", "describedby", "describes", "prev", "next"}
 
 def _strip_system_links(item: dict) -> dict:
     """stac-api가 자동으로 붙이는 시스템 링크를 제거한다. 사용자 링크만 유지."""
@@ -31,6 +34,12 @@ def _strip_system_links(item: dict) -> dict:
     links = item.get("links", [])
     item["links"] = [l for l in links if l.get("rel") not in _stac_system_rels]
     return item
+
+
+def pgstac_update_item_sync(collection_id: str, item_id: str, item: dict) -> None:
+    """동기 컨텍스트(Celery worker 등)용 pgSTAC Item 갱신 — _pgstac_update_item 과 동일 로직."""
+    _strip_system_links(item)
+    _pgstac_delete_insert(collection_id, item_id, item)
 
 
 async def _pgstac_update_item(collection_id: str, item_id: str, item: dict) -> None:
@@ -41,7 +50,11 @@ async def _pgstac_update_item(collection_id: str, item_id: str, item: dict) -> N
     저장 전 stac-api가 붙인 시스템 링크를 정리하여 중복을 방지한다.
     """
     _strip_system_links(item)
+    _pgstac_delete_insert(collection_id, item_id, item)
 
+
+def _pgstac_delete_insert(collection_id: str, item_id: str, item: dict) -> None:
+    """파티션 DELETE + create_item 을 한 트랜잭션으로 수행하는 공용 코어."""
     conn = psycopg2.connect(settings.DATABASE_URL)
     try:
         cur = conn.cursor()
@@ -55,8 +68,9 @@ async def _pgstac_update_item(collection_id: str, item_id: str, item: dict) -> N
             if cur.rowcount > 0:
                 break
         cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
-        conn.commit()
 
+        # DELETE 와 create_item 은 반드시 한 트랜잭션 — 중간 commit 이 있으면 create 실패
+        # (예: 잘못된 datetime) 시 Item 이 영구 삭제된다.
         cur.execute("SELECT pgstac.create_item(%s::jsonb)", (json.dumps(item),))
         conn.commit()
     except Exception as e:
@@ -92,24 +106,55 @@ async def update_item_status(collection_id: str, item_id: str, req: StatusUpdate
                 detail=f"Published 전환 불가: 필수 필드 누락 — {', '.join(missing)}",
             )
 
+    old_status = props.get("sams:status")
     props["sams:status"] = req.status
     props["updated"] = datetime.now(timezone.utc).isoformat()
     item["properties"] = props
 
     try:
         await _pgstac_update_item(collection_id, item_id, item)
-        return {"status": req.status, "item_id": item_id}
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    if req.status != old_status:
+        history.record_event(collection_id, item_id, "status", f"상태 전환 → {req.status}", {"status": req.status})
+    return {"status": req.status, "item_id": item_id}
+
+
+# proj:epsg 가 Published 필수인 유형 — v4 메타데이터 설계서 필수/선택 매트릭스 기준
+# (image/panorama/video/document 는 선택. document 는 좌표 자체가 없을 수 있다.)
+_EPSG_REQUIRED_CATS = {"pointcloud", "3d_model", "3d_tiles", "orthoimage"}
+
+# 유형별 Published 필수 필드 — 보완 화면(buildCompletionSpec)의 차단 목록과 동일해야 한다.
+# 키는 추출 파이프라인(extract.py)/v4 설계서의 정식 네임스페이스를 쓴다.
+_TYPE_REQUIRED: dict[str, list[str]] = {
+    "pointcloud": ["pc:count"],
+    "3d_model": ["3dmodel:format"],
+    "3d_tiles": ["3dtiles:geometric_error"],
+    "orthoimage": ["ortho:gsd"],
+    "image": ["image:camera_model"],
+    "panorama": ["panorama:type"],
+    "video": ["video:duration", "video:codec"],
+    "document": ["document:title", "document:authors"],
+}
+
 
 def _check_required_for_publish(props: dict) -> list[str]:
-    """Published 전환 시 필수 필드 누락 확인."""
-    required = ["datetime", "description", "data_category", "project:name", "project:site", "proj:epsg"]
+    """Published 전환 시 필수 필드 누락 확인.
+
+    디자인 핸드오프(MetadataCompletion) 원칙에 따라 project:name/site 는 비차단 —
+    "프로젝트 미배정이어도 Published 가능, 배정은 status 와 별개 축".
+    proj:epsg 는 v4 매트릭스상 필수인 유형에만, 유형별 품질 필드는 _TYPE_REQUIRED 로 요구한다.
+    """
+    required = ["datetime", "description", "data_category"]
+    category = props.get("data_category")
+    if category in _EPSG_REQUIRED_CATS:
+        required.append("proj:epsg")
+    required.extend(_TYPE_REQUIRED.get(category, []))
     missing = []
     for field in required:
         val = props.get(field)
-        if val is None or (isinstance(val, str) and val.strip() == ""):
+        if val is None or (isinstance(val, str) and val.strip() == "") or (isinstance(val, (list, dict)) and len(val) == 0):
             # datetime이 null이면 start/end 확인
             if field == "datetime" and props.get("start_datetime") and props.get("end_datetime"):
                 continue
@@ -128,12 +173,11 @@ async def get_related_items(collection_id: str, item_id: str):
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item '{item_id}'을(를) 찾을 수 없습니다.")
 
-    _user_rels = {"derived_from", "has_derived", "related", "describedby", "describes", "prev", "next"}
     links = item.get("links", [])
     related = []
     for link in links:
         rel = link.get("rel", "")
-        if rel not in _user_rels:
+        if rel not in _USER_RELS:
             continue
         href = link.get("href", "")
         target_id = _extract_item_id_from_href(href)
@@ -144,15 +188,19 @@ async def get_related_items(collection_id: str, item_id: str):
             if idx > 0:
                 target_col = parts[idx - 1]
 
-        # 대상 Item 조회하여 description, category 가져오기
+        # 대상 Item 조회하여 description, category, 상태, 존재 여부 가져오기
         description = ""
         data_category = ""
+        target_status = "unknown"
+        target_found = False
         try:
             target_item = await stac.get_item(target_col, target_id)
             if target_item:
+                target_found = True
                 tp = target_item.get("properties", {})
                 description = tp.get("description", "")
                 data_category = tp.get("data_category", "")
+                target_status = tp.get("sams:status", "draft")
         except Exception:
             pass
 
@@ -164,6 +212,8 @@ async def get_related_items(collection_id: str, item_id: str):
             "title": link.get("title", "") or description,
             "description": description,
             "data_category": data_category,
+            "status": target_status,
+            "missing": not target_found,
         })
 
     return {"item_id": item_id, "related": related}
@@ -205,6 +255,7 @@ async def get_item_timeline(collection_id: str, item_id: str):
             "datetime": dt,
             "description": it_props.get("description", ""),
             "status": it_props.get("sams:status", "draft"),
+            "data_category": it_props.get("data_category", "unknown"),
             "is_current": iid == item_id,
         })
 
@@ -264,6 +315,26 @@ async def _follow_prev_next_chain(item: dict, collection_id: str, seen_ids: set,
             add_fn(linked, target_col)
             current = linked
             current_col = target_col
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GET /api/items/{collection_id}/{item_id}/history — 이력 조회
+# ─────────────────────────────────────────────────────────────────────────
+
+@router.get("/{collection_id}/{item_id}/history")
+async def get_item_history(collection_id: str, item_id: str):
+    """Item 의 이력(등록·상태·메타데이터·위치·이동·관계·preview)을 최신순으로 반환한다."""
+    item = await stac.get_item(collection_id, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Item '{item_id}'을(를) 찾을 수 없습니다.")
+
+    try:
+        events = history.list_events(collection_id, item_id)
+    except Exception:
+        logger.exception("이력 조회 실패: %s/%s", collection_id, item_id)
+        events = []
+
+    return {"item_id": item_id, "history": events}
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -332,6 +403,18 @@ async def add_link(collection_id: str, item_id: str, req: LinkCreate):
 
     await _pgstac_update_item(collection_id, item_id, source_item)
 
+    history.record_event(
+        collection_id, item_id, "relation",
+        f"관계 추가: {req.rel} → {req.target_item_id}",
+        {"rel": req.rel, "target": req.target_item_id, "target_collection": req.target_collection_id},
+    )
+    if reverse_rel:
+        history.record_event(
+            req.target_collection_id, req.target_item_id, "relation",
+            f"관계 추가(역방향): {reverse_rel} → {item_id}",
+            {"rel": reverse_rel, "target": item_id, "target_collection": collection_id},
+        )
+
     return {"created": True, "rel": req.rel, "reverse_rel": reverse_rel}
 
 
@@ -347,11 +430,11 @@ async def delete_link(collection_id: str, item_id: str, link_index: int):
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item '{item_id}'을(를) 찾을 수 없습니다.")
 
-    _stac_system_rels = {"collection", "parent", "root", "self", "items", "license"}
     links = item.get("links", [])
 
-    # 사용자 링크만 추출하여 인덱스 매핑
-    user_links = [(i, l) for i, l in enumerate(links) if l.get("rel") not in _stac_system_rels]
+    # 사용자 링크만 추출하여 인덱스 매핑 — get_related 와 동일한 INCLUDE 목록(_USER_RELS)을 써서
+    # 프론트가 related[] 순번으로 보낸 link_index 가 정확히 같은 링크를 가리키게 한다.
+    user_links = [(i, l) for i, l in enumerate(links) if l.get("rel") in _USER_RELS]
     if link_index < 0 or link_index >= len(user_links):
         raise HTTPException(status_code=400, detail=f"유효하지 않은 link_index: {link_index}")
 
@@ -359,14 +442,30 @@ async def delete_link(collection_id: str, item_id: str, link_index: int):
     links.pop(actual_index)
     item["links"] = links
 
-    # 역방향 링크 삭제
-    reverse_rel = _REVERSE_REL.get(removed_link.get("rel", ""))
-    if reverse_rel:
-        target_id = _extract_item_id_from_href(removed_link.get("href", ""))
-        if target_id:
-            await _remove_reverse_link(collection_id, target_id, item_id, reverse_rel)
+    # 역방향 링크 삭제 — 대상 collection 은 href 에서 파생 (cross-collection 링크 지원)
+    removed_rel = removed_link.get("rel", "")
+    removed_href = removed_link.get("href", "")
+    removed_target = _extract_item_id_from_href(removed_href)
+    target_col = _extract_collection_from_href(removed_href, collection_id)
+    reverse_rel = _REVERSE_REL.get(removed_rel)
+    reverse_removed = False
+    if reverse_rel and removed_target:
+        reverse_removed = await _remove_reverse_link(target_col, removed_target, item_id, reverse_rel)
 
     await _pgstac_update_item(collection_id, item_id, item)
+
+    history.record_event(
+        collection_id, item_id, "relation",
+        f"관계 삭제: {removed_rel} → {removed_target}",
+        {"rel": removed_rel, "target": removed_target},
+    )
+    # 역방향 이벤트는 역방향 링크가 실제로 정리된 경우에만 — 일어나지 않은 일을 기록하지 않는다
+    if reverse_removed:
+        history.record_event(
+            target_col, removed_target, "relation",
+            f"관계 삭제(역방향): {reverse_rel} → {item_id}",
+            {"rel": reverse_rel, "target": item_id, "target_collection": collection_id},
+        )
 
     return {"deleted": True, "removed_link": removed_link}
 
@@ -376,20 +475,22 @@ async def _remove_reverse_link(
     target_item_id: str,
     source_item_id: str,
     reverse_rel: str,
-) -> None:
-    """타겟 Item에서 소스를 가리키는 역방향 링크를 삭제한다."""
+) -> bool:
+    """타겟 Item에서 소스를 가리키는 역방향 링크를 삭제한다. 실제로 갱신했을 때만 True."""
     try:
         target = await stac.get_item(collection_id, target_item_id)
         if target is None:
-            return
+            return False
         links = target.get("links", [])
         target["links"] = [
             l for l in links
             if not (l.get("rel") == reverse_rel and source_item_id in l.get("href", ""))
         ]
         await _pgstac_update_item(collection_id, target_item_id, target)
+        return True
     except Exception:
         logger.exception("역방향 링크 삭제 실패: %s → %s", target_item_id, source_item_id)
+        return False
 
 
 def _extract_item_id_from_href(href: str) -> str:
@@ -397,6 +498,16 @@ def _extract_item_id_from_href(href: str) -> str:
     # 형식: "./item-id" 또는 "../../collection/items/item-id"
     parts = href.rstrip("/").split("/")
     return parts[-1] if parts else ""
+
+
+def _extract_collection_from_href(href: str, fallback_collection: str) -> str:
+    """STAC link href에서 대상 collection 을 추출한다. 같은 collection("./id")이면 fallback."""
+    if "items/" in href and not href.startswith("./"):
+        parts = href.split("/")
+        idx = parts.index("items") if "items" in parts else -1
+        if idx > 0:
+            return parts[idx - 1]
+    return fallback_collection
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -410,9 +521,20 @@ async def update_item_properties(collection_id: str, item_id: str, req: dict[str
     if item is None:
         raise HTTPException(status_code=404, detail=f"Item을 찾을 수 없습니다: {item_id}")
 
+    # datetime 은 pgSTAC 필수(NOT NULL) — 비우거나 파싱 불가한 값은 저장 전에 거부한다.
+    if "datetime" in req:
+        dt_val = req["datetime"]
+        if dt_val is None or (isinstance(dt_val, str) and dt_val.strip() == ""):
+            raise HTTPException(status_code=400, detail="datetime 은 비울 수 없습니다 (ISO8601 필수).")
+        try:
+            datetime.fromisoformat(str(dt_val).replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"datetime 형식이 올바르지 않습니다 (ISO8601): {dt_val}")
+
     props = item.get("properties", {})
+    old_status = props.get("sams:status")
     for key, value in req.items():
-        if value is None or value == "":
+        if value is None or (isinstance(value, str) and value.strip() == ""):
             props.pop(key, None)
         else:
             props[key] = value
@@ -423,6 +545,19 @@ async def update_item_properties(collection_id: str, item_id: str, req: dict[str
         await _pgstac_update_item(collection_id, item_id, item)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    changed = [k for k in req.keys() if k not in ("updated",)]
+    meta_fields = [k for k in changed if k != "sams:status"]
+    if meta_fields:
+        history.record_event(
+            collection_id, item_id, "meta",
+            f"메타데이터 수정 — {', '.join(meta_fields[:6])}{' 외' if len(meta_fields) > 6 else ''}",
+            {"fields": meta_fields},
+        )
+    new_status = props.get("sams:status")
+    if "sams:status" in changed and new_status != old_status:
+        summary = f"상태 전환 → {new_status}" if new_status is not None else "상태 해제"
+        history.record_event(collection_id, item_id, "status", summary, {"status": new_status})
 
     return {"updated": True, "item_id": item_id}
 
@@ -472,7 +607,7 @@ async def update_item_location(collection_id: str, item_id: str, req: LocationUp
     props["sams:location_source"] = "manual"
     item["properties"] = props
 
-    # pgSTAC는 partition 변경을 위해 update_item 사용
+    # pgSTAC는 partition 변경을 위해 update_item 사용 — 삭제·삽입은 한 트랜잭션 (실패 시 원복)
     try:
         conn = psycopg2.connect(settings.DATABASE_URL)
         try:
@@ -491,11 +626,13 @@ async def update_item_location(collection_id: str, item_id: str, req: LocationUp
                     break
 
             cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
-            conn.commit()
 
-            # 새 항목 삽입
+            # 새 항목 삽입 (같은 트랜잭션 — create 실패 시 삭제도 롤백)
             cur.execute("SELECT pgstac.create_item(%s::jsonb)", (json.dumps(item),))
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
     except Exception as e:
@@ -503,6 +640,11 @@ async def update_item_location(collection_id: str, item_id: str, req: LocationUp
         raise HTTPException(status_code=500, detail=f"위치 갱신 실패: {e}")
 
     logger.info("Item 위치 갱신: %s/%s → [%f, %f]", collection_id, item_id, lng, lat)
+    history.record_event(
+        collection_id, item_id, "location",
+        f"위치 수동 지정 ({lng:.4f}, {lat:.4f})",
+        {"longitude": lng, "latitude": lat},
+    )
     return {"updated": True, "bbox": bbox, "longitude": lng, "latitude": lat}
 
 
@@ -537,6 +679,23 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
 
     category = item.get("properties", {}).get("data_category", "unknown")
 
+    # 2-2. 역방향 링크 정리 — 상대 Item 들의 dangling 링크 제거.
+    #      삭제가 확정된 뒤 수행해 실패 시에도 "살아있는 Item 의 비대칭 링크"가 남지 않는다.
+    for link in item.get("links", []):
+        rel = link.get("rel")
+        reverse = _REVERSE_REL.get(rel)
+        if not reverse:
+            continue   # 사용자 관계가 아닌 링크 (self/parent 등)
+        href = link.get("href", "")
+        target_id = href.rstrip("/").split("/")[-1] if href else None
+        if not target_id or target_id == item_id:
+            continue
+        target_col = _extract_collection_from_href(href, collection_id)
+        try:
+            await _remove_reverse_link(target_col, target_id, item_id, reverse)
+        except Exception:
+            logger.warning("역방향 링크 정리 실패 (계속): %s → %s", item_id, target_id)
+
     # 3. S3 파일 이동 (copy + delete)
     moved_assets = {}
     try:
@@ -570,7 +729,16 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
         logger.warning("S3 이동 중 오류 (DB 이동은 계속 진행): %s", item_id)
         moved_assets = item.get("assets", {})
 
-    # 4. DB에서 이동 (구 파티션 삭제 → 새 파티션 삽입)
+    # 4. DB에서 이동 — 구 파티션 삭제와 새 Collection 삽입을 한 트랜잭션으로 (실패 시 원복)
+    item["collection"] = req.target_collection_id
+    item["assets"] = moved_assets
+    item["properties"]["updated"] = datetime.now(timezone.utc).isoformat()
+
+    # stac-fastapi 링크 등 불필요 필드 정리
+    item.pop("type", None)
+    item["type"] = "Feature"
+    item.pop("stac_extensions", None)
+
     try:
         conn = psycopg2.connect(settings.DATABASE_URL)
         try:
@@ -589,37 +757,27 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
                     break
 
             cur.execute("ALTER TABLE pgstac.items ENABLE TRIGGER ALL")
+
+            # 새 Collection 에 삽입 (같은 트랜잭션 — 실패 시 삭제 롤백)
+            cur.execute("SELECT pgstac.create_item(%s::jsonb)", (json.dumps(item),))
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
     except Exception as e:
-        logger.exception("Item 삭제 실패 (이동 중): %s", item_id)
+        logger.exception("Item 이동 실패 (DB): %s", item_id)
         raise HTTPException(status_code=500, detail=f"이동 실패: {e}")
 
-    # 5. 새 Collection에 삽입
-    item["collection"] = req.target_collection_id
-    item["assets"] = moved_assets
-    item["properties"]["updated"] = datetime.now(timezone.utc).isoformat()
-
-    # stac-fastapi 링크 등 불필요 필드 정리
-    item.pop("type", None)
-    item["type"] = "Feature"
-    item.pop("stac_extensions", None)
-
-    try:
-        import json as _json
-        conn = psycopg2.connect(settings.DATABASE_URL)
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT pgstac.create_item(%s::jsonb)", (_json.dumps(item),))
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception as e:
-        logger.exception("Item 삽입 실패 (이동 중): %s", item_id)
-        raise HTTPException(status_code=500, detail=f"이동 실패 (삽입): {e}")
-
     logger.info("Item 이동 완료: %s/%s → %s", collection_id, item_id, req.target_collection_id)
+    # 이력이 Item 을 따라가도록 collection_id 갱신 후, 새 collection 기준으로 이동 이벤트 기록
+    history.move_history(collection_id, item_id, req.target_collection_id)
+    history.record_event(
+        req.target_collection_id, item_id, "assign",
+        f"프로젝트 이동: {collection_id} → {req.target_collection_id}",
+        {"from": collection_id, "to": req.target_collection_id},
+    )
     return {
         "moved": True,
         "item_id": item_id,
@@ -697,4 +855,5 @@ async def delete_item(collection_id: str, item_id: str):
         logger.warning("S3 정리 실패 (Item은 이미 삭제됨): %s", item_id)
 
     logger.info("Item 삭제 완료: %s/%s", collection_id, item_id)
+    history.delete_history(collection_id, item_id)
     return {"deleted": True, "item_id": item_id}

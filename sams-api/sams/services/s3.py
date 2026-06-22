@@ -28,6 +28,76 @@ def get_s3_client():
     )
 
 
+def get_public_s3_client():
+    """브라우저용 presign 전용 클라이언트 — 서명에 호스트가 포함되므로 공개 endpoint 로 만든다."""
+    import boto3
+    from botocore.config import Config
+    endpoint = settings.S3_PUBLIC_ENDPOINT or settings.S3_ENDPOINT
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=settings.S3_ACCESS_KEY,
+        aws_secret_access_key=settings.S3_SECRET_KEY,
+        config=Config(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+
+
+def generate_put_url(key: str, expires: int = 3600) -> str:
+    """대용량 직접 업로드용 presigned PUT URL (브라우저 → MinIO)."""
+    return get_public_s3_client().generate_presigned_url(
+        "put_object",
+        Params={"Bucket": settings.S3_BUCKET, "Key": key},
+        ExpiresIn=expires,
+    )
+
+
+def object_size(key: str) -> int | None:
+    """객체가 존재하면 크기(byte), 없으면 None."""
+    try:
+        head = get_s3_client().head_object(Bucket=settings.S3_BUCKET, Key=key)
+        return head["ContentLength"]
+    except Exception:
+        return None
+
+
+def download_object(key: str, local_path: str) -> None:
+    get_s3_client().download_file(settings.S3_BUCKET, key, local_path)
+
+
+def copy_object(src_key: str, dst_key: str) -> str:
+    """버킷 내 서버측 복사 — 대용량 staging→최종 경로 이동에 사용 (재업로드 없음)."""
+    get_s3_client().copy_object(
+        Bucket=settings.S3_BUCKET,
+        CopySource={"Bucket": settings.S3_BUCKET, "Key": src_key},
+        Key=dst_key,
+    )
+    return dst_key
+
+
+def delete_prefix(prefix: str) -> int:
+    """prefix 하위 객체 일괄 삭제 (staging 정리용). 삭제한 개수 반환."""
+    client = get_s3_client()
+    deleted = 0
+    try:
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=settings.S3_BUCKET, Prefix=prefix):
+            keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
+            if keys:
+                client.delete_objects(Bucket=settings.S3_BUCKET, Delete={"Objects": keys})
+                deleted += len(keys)
+    except Exception:
+        logger.warning("S3 prefix 정리 실패 (무시): %s", prefix)
+    return deleted
+
+
+def delete_object(key: str) -> None:
+    try:
+        get_s3_client().delete_object(Bucket=settings.S3_BUCKET, Key=key)
+    except Exception:
+        logger.warning("S3 객체 삭제 실패 (무시): %s", key)
+
+
 def build_s3_key(
     collection_id: str,
     data_category: str,

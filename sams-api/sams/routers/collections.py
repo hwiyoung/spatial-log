@@ -350,5 +350,9 @@ async def delete_collection(collection_id: str):
     except Exception:
         logger.warning("S3 정리 실패 (Collection은 이미 삭제됨): %s", collection_id)
 
+    # 4. 하위 Item 이력 일괄 정리 (best-effort)
+    from sams.services import history
+    history.delete_collection_history(collection_id)
+
     logger.info("Collection 삭제 완료: %s (Item %d개)", collection_id, len(items))
     return {"deleted": True, "collection_id": collection_id, "items_deleted": len(items)}

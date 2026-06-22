@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAMS · Project</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F1419; --panel:#161C24; --card:#1E2630; --line:#2B333F; --line2:#222932;
+    --t1:#E8ECF1; --t2:#98A2B3; --t3:#5B6573;
+    --blue:#3B82F6; --orange:#F97316;
+    --draft:#FBBF24; --pub:#34D399; --arch:#64748B; --unk:#6B7280; --auto:#7FB1E8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; height:100%;}
+  body{background:var(--bg); color:var(--t1); font-family:'IBM Plex Sans',system-ui,sans-serif; font-size:13px; -webkit-font-smoothing:antialiased; overflow:hidden;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#2C3540; border-radius:6px; border:2px solid var(--bg);}
+  .oc-glyph{font-size:30px; color:var(--t3); line-height:1;}
+
+  .app{display:flex; flex-direction:column; height:100vh;}
+  .nav{height:50px; flex:none; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:0 16px;}
+  .logo{font-weight:600; font-size:15px; margin-right:20px;} .logo b{color:var(--blue);} .logo .v{color:var(--t3); font-weight:400; font-size:11px;}
+  .navtab{padding:7px 15px; border-radius:7px; font-size:13px; font-weight:500; color:var(--t2); border:0; background:transparent;}
+  .navtab.on{color:var(--blue); background:rgba(59,130,246,.12);}
+
+  .content{flex:1; display:flex; min-height:0;}
+
+  /* project list */
+  .plist{width:288px; flex:none; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:8px 0 20px;}
+  .pl-group{font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--t3); font-weight:600; padding:14px 16px 7px; display:flex; align-items:center; gap:7px;}
+  .pl-group .n{margin-left:auto; color:var(--t3);}
+  .prow{margin:0 8px 4px; padding:11px 12px; border-radius:9px; cursor:pointer; border:1px solid transparent;}
+  .prow:hover{background:var(--card);}
+  .prow.on{background:#1b2735; border-color:rgba(59,130,246,.4);}
+  .prow.inbox.on{background:#241f12; border-color:rgba(251,191,36,.4);}
+  .prow-t{font-size:13px; font-weight:500; color:var(--t1); margin-bottom:6px; display:flex; align-items:center; gap:7px;}
+  .prow-t .ibx{color:var(--draft);}
+  .prow-meta{display:flex; align-items:center; gap:8px; font-size:11px; color:var(--t3);}
+  .prow-asset{font-family:'IBM Plex Mono',monospace;}
+  .prow-draft{color:var(--draft); border:1px solid rgba(251,191,36,.3); border-radius:10px; padding:1px 7px; font-size:10px;}
+  .prow-comp{margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--t2);}
+  .pl-mini{height:4px; border-radius:3px; background:var(--card); margin-top:8px; overflow:hidden;}
+  .pl-mini i{display:block; height:100%; background:var(--blue); border-radius:3px;}
+  .pl-empty{font-size:11px; color:var(--t3); padding:4px 18px 10px;}
+
+  /* main */
+  .main{flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden;}
+  .phead{flex:none; padding:18px 24px 0; border-bottom:1px solid var(--line); background:var(--bg);}
+  .ph-top{display:flex; align-items:flex-start; gap:14px;}
+  .ph-title{font-size:21px; font-weight:600; margin:0;}
+  .ph-sub{font-size:12.5px; color:var(--t2); margin-top:4px; display:flex; flex-wrap:wrap; gap:14px;}
+  .ph-sub b{color:var(--t1); font-weight:500;}
+  .ph-kpis{margin-left:auto; display:flex; gap:10px;}
+  .kpi{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:9px 14px; min-width:84px;}
+  .kpi .v{font-size:19px; font-weight:600; font-family:'IBM Plex Mono',monospace;}
+  .kpi .l{font-size:10px; color:var(--t3); text-transform:uppercase; letter-spacing:.4px; margin-top:1px;}
+  .kpi.gap .v{color:var(--draft);} .kpi.draft .v{color:var(--draft);} .kpi.pub .v{color:var(--pub);}
+  .tabs{display:flex; gap:2px; margin-top:16px;}
+  .tab{padding:9px 16px; font-size:13px; font-weight:500; color:var(--t2); background:transparent; border:0; border-bottom:2px solid transparent;}
+  .tab.on{color:var(--t1); border-bottom-color:var(--blue);}
+  .tab .b{margin-left:6px; font-size:10px; font-family:'IBM Plex Mono',monospace; color:var(--draft); border:1px solid rgba(251,191,36,.3); border-radius:9px; padding:0 6px;}
+
+  .body{flex:1; overflow-y:auto; padding:20px 24px 60px;}
+
+  /* overview */
+  .ov-kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px;}
+  .bigkpi{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px;}
+  .bigkpi .v{font-size:26px; font-weight:600; font-family:'IBM Plex Mono',monospace;}
+  .bigkpi .l{font-size:11px; color:var(--t2); margin-top:3px;}
+  .bigkpi .sub{font-size:10.5px; color:var(--t3); margin-top:5px;}
+  .bigkpi.gap .v{color:var(--draft);} .bigkpi.pub .v{color:var(--pub);}
+  .bigkpi .compbar{height:6px; border-radius:3px; background:var(--card); margin-top:9px; overflow:hidden;}
+  .bigkpi .compbar i{display:block; height:100%; background:var(--pub); border-radius:3px;}
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:18px;}
+  .panel-h{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
+  .panel-h h3{font-size:14px; font-weight:600; margin:0;}
+  .panel-h .hint{font-size:11.5px; color:var(--t3);}
+  .panel-h .miss-tag{margin-left:auto; font-size:11px; color:var(--draft); border:1px solid rgba(251,191,36,.35); background:rgba(251,191,36,.08); border-radius:8px; padding:3px 10px; font-weight:500;}
+
+  .deliv{display:flex; flex-direction:column;}
+  .drow{display:flex; align-items:center; gap:13px; padding:10px 0; border-bottom:1px solid var(--line2);}
+  .drow:last-child{border-bottom:0;}
+  .drow.miss{}
+  .d-g{width:24px; flex:none; display:flex; justify-content:center; color:#AEB7C4;}
+  .d-name{width:130px; flex:none; font-size:12.5px; color:var(--t1);}
+  .d-bar{flex:1; min-width:0; height:8px; border-radius:4px; background:var(--card); position:relative; overflow:hidden;}
+  .d-bar i{display:block; height:100%; border-radius:4px;}
+  .d-bar i.ok{background:var(--pub);} .d-bar i.part{background:var(--draft);}
+  .d-cnt{width:64px; flex:none; text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12px;}
+  .d-cnt b{color:var(--t1);} .d-cnt .e{color:var(--t3);}
+  .d-stat{width:70px; flex:none; text-align:right; font-size:11px;}
+  .d-stat.ok{color:var(--pub);} .d-stat.miss{color:var(--draft);}
+
+  .info-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px 24px;}
+  .info-k{font-size:10.5px; color:var(--t3); text-transform:uppercase; letter-spacing:.4px;}
+  .info-v{font-size:13.5px; color:var(--t1); font-weight:500; margin-top:2px;}
+  .statusmix{display:flex; gap:8px; flex-wrap:wrap;}
+  .smchip{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 11px;}
+  .smchip i{width:9px; height:9px; border-radius:50%; border:1px solid;}
+
+  /* item rows (draft/all) */
+  .irow{display:flex; align-items:center; gap:12px; padding:11px 12px; border-radius:9px; border:1px solid var(--line2); background:var(--card); margin-bottom:7px;}
+  .irow .ig{width:22px; flex:none; display:flex; justify-content:center; color:#AEB7C4;}
+  .irow .im{flex:1; min-width:0;}
+  .irow .inm{font-size:13px; font-weight:500; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .irow .isub{font-size:11px; color:var(--t3); font-family:'IBM Plex Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .gapchips{display:flex; gap:5px; flex-wrap:wrap; margin-top:5px;}
+  .gapchip{font-size:10px; font-family:'IBM Plex Mono',monospace; color:#e7d9b4; border:1px solid rgba(251,191,36,.32); background:rgba(251,191,36,.08); border-radius:5px; padding:2px 7px;}
+  .irow-r{display:flex; align-items:center; gap:9px; flex:none;}
+  .badge{font-size:10px; font-weight:600; padding:2px 7px; border-radius:5px; border:1px solid; white-space:nowrap;}
+  .pvdot{width:9px; height:9px; border-radius:50%;}
+  .complete-btn{font-size:11.5px; font-weight:600; color:#06281c; background:var(--draft); border:0; border-radius:7px; padding:7px 12px;}
+  .ghost-btn{font-size:11.5px; color:var(--t2); background:#121821; border:1px solid var(--line); border-radius:7px; padding:7px 11px;}
+
+  /* lineage */
+  .lin-h{font-size:12px; font-weight:600; color:var(--t2); margin:6px 0 10px; text-transform:uppercase; letter-spacing:.4px;}
+  .lin-edge{display:flex; align-items:center; gap:10px; padding:9px 12px; background:var(--card); border:1px solid var(--line2); border-radius:9px; margin-bottom:7px; font-size:12.5px;}
+  .lin-node{display:flex; align-items:center; gap:7px; min-width:0;}
+  .lin-node .ln-nm{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:230px;}
+  .lin-rel{font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--t3); border:1px solid var(--line); border-radius:5px; padding:2px 7px; flex:none;}
+  .lin-arrow{color:var(--t3); flex:none;}
+
+  /* spatial tab */
+  .spatial-tab{position:relative; height:520px; border:1px solid var(--line); border-radius:12px; overflow:hidden;}
+
+  /* unassigned */
+  .un-note{background:rgba(251,191,36,.06); border:1px solid rgba(251,191,36,.25); border-radius:10px; padding:12px 15px; font-size:12.5px; color:#e7d9b4; margin-bottom:14px; display:flex; gap:10px;}
+  .un-note b{color:var(--t1);}
+  .assign-chips{display:flex; gap:7px; align-items:center; flex-wrap:wrap;}
+  .assign-pick{display:flex; gap:6px; align-items:center; background:#121821; border:1px solid var(--line); border-radius:8px; padding:5px 8px;}
+  .achip{font-size:11px; color:var(--t2); background:var(--card); border:1px solid var(--line); border-radius:14px; padding:4px 10px;}
+  .achip.on{color:#bdd5ff; border-color:var(--blue); background:rgba(59,130,246,.12);}
+  .assigned-chip{font-size:10.5px; color:var(--pub); border:1px solid rgba(52,211,153,.35); background:rgba(52,211,153,.08); border-radius:14px; padding:3px 9px; display:flex; gap:6px; align-items:center;}
+  .pub-unassigned{font-size:10px; color:var(--pub); margin-left:6px;}
+
+  /* map css (from Explorer, for 공간 tab) */
+  .map-root{position:absolute; inset:0; overflow:hidden; background:radial-gradient(120% 80% at 50% 0%, #141b24 0%, #0c1117 70%);}
+  .map-plane{position:absolute; inset:0; z-index:3;}
+  .map-tiles{position:absolute; inset:0; z-index:1;}
+  .map-tile{position:absolute; filter:saturate(.62) brightness(.8) contrast(1.05); -webkit-user-drag:none; user-select:none; pointer-events:none;}
+  .map-tint{position:absolute; inset:0; z-index:2; background:linear-gradient(180deg,rgba(15,20,25,.22),rgba(15,20,25,.34)); pointer-events:none;}
+  .map-plane.is3d{background:linear-gradient(180deg,#10161e 0%, #0c1117 38%);}
+  .map-svg{position:absolute; top:0; left:0; pointer-events:none;}
+  .grat{stroke:#1b232d; stroke-width:1;}
+  .footprint{fill:rgba(59,130,246,.06); stroke-width:1.4; stroke-dasharray:4 3; opacity:.9;}
+  .rel-line{stroke:var(--blue); stroke-width:1.6; opacity:.85;}
+  .rel-line.warn{stroke:var(--orange); stroke-dasharray:5 4;}
+  .rel-tag{fill:var(--t2); font-size:10px; font-family:'IBM Plex Mono',monospace; text-anchor:middle; paint-order:stroke; stroke:#0c1117; stroke-width:3;}
+  .region-label{position:absolute; transform:translate(-50%,-50%); font-size:11px; color:#9aa6b4; font-weight:500; letter-spacing:.3px; pointer-events:none; white-space:nowrap; z-index:18; background:rgba(12,17,23,.78); border:1px solid var(--line2); padding:2px 8px; border-radius:11px;}
+  .marker{position:absolute; transform:translate(-50%,-50%); width:30px; height:30px; border-radius:8px; background:var(--card); border:1.6px solid; display:flex; align-items:center; justify-content:center; color:#C7D0DC; cursor:pointer; box-shadow:0 2px 8px -2px rgba(0,0,0,.5); transition:transform .08s;}
+  .marker:hover{transform:translate(-50%,-50%) scale(1.12);}
+  .marker.fb{border-style:dashed;} .marker.unk{border-style:dashed;}
+  .marker.sel{box-shadow:0 0 0 3px rgba(59,130,246,.9), 0 4px 14px -2px rgba(0,0,0,.6); z-index:30;}
+  .marker-glyph{display:flex;}
+  .marker-dot{position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; border:1.5px solid var(--bg);}
+  .marker-stem{position:absolute; top:100%; left:50%; width:1.5px; background:linear-gradient(var(--blue),transparent); transform:translateX(-50%);}
+  .cluster{position:absolute; transform:translate(-50%,-50%); z-index:12; border-radius:50%; background:rgba(30,38,48,.92); border:1.5px solid #3a4452; color:var(--t1); display:flex; align-items:center; justify-content:center; cursor:pointer;}
+  .cluster:hover{border-color:var(--blue);}
+  .cluster-n{font-size:13px; font-weight:600; font-family:'IBM Plex Mono',monospace;}
+  .cluster-dot{position:absolute; top:0; right:2px; width:9px; height:9px; border-radius:50%; border:1.5px solid var(--card);}
+  .rel-warning{position:absolute; transform:translateY(-50%); font-size:10px; color:var(--orange); background:rgba(20,14,8,.9); border:1px solid rgba(249,115,22,.4); border-radius:5px; padding:2px 6px; white-space:nowrap; pointer-events:none;}
+  .map-warnbar{position:absolute; left:12px; bottom:12px; max-width:62%; background:rgba(34,22,10,.95); border:1px solid rgba(249,115,22,.45); color:#fbbf85; font-size:11px; padding:7px 11px; border-radius:8px; z-index:25;}
+  .map-modetag{position:absolute; top:12px; left:12px; font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--t2); background:rgba(16,22,30,.8); border:1px solid var(--line); padding:4px 9px; border-radius:7px;}
+  .map-ctls{position:absolute; top:12px; right:12px; display:flex; flex-direction:column; gap:5px; z-index:20;}
+  .map-ctls button{width:30px; height:30px; border-radius:7px; background:rgba(22,28,36,.92); border:1px solid var(--line); color:var(--t1); font-size:15px; display:flex; align-items:center; justify-content:center;}
+  .map-ctls button:hover{border-color:#3a4655; background:#222b36;}
+  .map-legend{position:absolute; right:12px; bottom:12px; background:rgba(16,22,30,.92); border:1px solid var(--line); border-radius:9px; padding:9px 11px; z-index:20;}
+  .ml-row{display:flex; align-items:center; gap:8px; padding:2px 0;}
+  .ml-row + .ml-row{margin-top:5px; padding-top:6px; border-top:1px solid var(--line2);}
+  .ml-h{font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); width:78px; flex:none;}
+  .ml-cat{color:#AEB7C4;}
+  .ml-st{display:flex; align-items:center; gap:4px; font-size:10px; color:var(--t2);}
+  .ml-st i{width:8px; height:8px; border-radius:50%; border:1px solid;}
+  .map-overlay{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; background:rgba(12,17,23,.72); z-index:40; color:var(--t2); font-size:13px;}
+  .map-overlay.soft{background:rgba(12,17,23,.35);}
+  .map-overlay small{font-size:11px; color:var(--t3);}
+  .spinner{width:26px; height:26px; border:3px solid #2a3340; border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="explorer/data.jsx"></script>
+<script type="text/babel" src="explorer/map.jsx"></script>
+
+<script type="text/babel">
+(function () {
+const { useState, useMemo } = React;
+const S = window.SAMS;
+
+const EXPECTED = {
+  'seongsu-office-renovation': { pointcloud: 2, '3d_model': 1, '3d_tiles': 1, orthoimage: 2, image: 3, panorama: 1, video: 1, document: 1 },
+  'gyeongju-bulguksa-2024': { pointcloud: 2, '3d_model': 1, '3d_tiles': 1, orthoimage: 1, image: 2, panorama: 1, video: 1, document: 1 },
+};
+const PV_COLOR = { available: 'var(--pub)', pending: 'var(--draft)', missing: 'var(--t3)', failed: '#F87171' };
+
+function Badge({ status, sm }) {
+  const v = S.STATUS[status];
+  return <span className="badge" style={{ color: v.color, borderColor: v.color + '66', background: v.color + '14', borderStyle: v.dashed ? 'dashed' : 'solid', fontSize: sm ? 9 : 10 }}>{v.label}</span>;
+}
+
+function statsOf(col) {
+  const items = S.ITEMS.filter(i => i.col === col);
+  const regByCat = {}; items.forEach(i => regByCat[i.cat] = (regByCat[i.cat] || 0) + 1);
+  const exp = EXPECTED[col] || {};
+  const expTotal = Object.values(exp).reduce((a, b) => a + b, 0);
+  const deliverables = S.CAT_ORDER.map(c => ({ cat: c, expected: exp[c] || 0, registered: regByCat[c] || 0 })).filter(d => d.expected > 0 || d.registered > 0);
+  const missing = deliverables.filter(d => d.registered < d.expected);
+  const statusCounts = {}; items.forEach(i => statusCounts[i.status] = (statusCounts[i.status] || 0) + 1);
+  return { items, deliverables, missing, expTotal, regTotal: items.length, draftCount: statusCounts.draft || 0, pubCount: statusCounts.published || 0, statusCounts };
+}
+
+/* ---- overview ---- */
+function Overview({ col, st }) {
+  const c = S.collectionById(col);
+  const comp = st.expTotal ? Math.round(st.regTotal / st.expTotal * 100) : 100;
+  return (
+    <div>
+      <div className="ov-kpis">
+        <div className="bigkpi"><div className="v">{st.regTotal}</div><div className="l">총 Asset</div><div className="sub">등록된 산출물</div></div>
+        <div className="bigkpi gap"><div className="v">{st.regTotal}/{st.expTotal}</div><div className="l">등록 완성도</div><div className="compbar"><i style={{ width: comp + '%' }} /></div></div>
+        <div className="bigkpi gap"><div className="v">{st.missing.reduce((a, d) => a + (d.expected - d.registered), 0)}</div><div className="l">누락 산출물</div><div className="sub">{st.missing.length}개 유형에서 부족</div></div>
+        <div className="bigkpi"><div className="v" style={{ color: 'var(--draft)' }}>{st.draftCount}</div><div className="l">Draft</div><div className="sub">보완 대기</div></div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><h3>예상 산출물 대비 등록</h3><span className="hint">expected_deliverables vs registered</span>
+          {st.missing.length > 0 && <span className="miss-tag">누락 {st.missing.reduce((a, d) => a + (d.expected - d.registered), 0)}건 · {st.missing.length}개 유형</span>}</div>
+        <div className="deliv">
+          {st.deliverables.map(d => {
+            const full = d.registered >= d.expected;
+            const pct = d.expected ? Math.min(100, Math.round(d.registered / d.expected * 100)) : 100;
+            return (
+              <div className={'drow' + (full ? '' : ' miss')} key={d.cat}>
+                <span className="d-g"><CategoryGlyph cat={d.cat} s={16} /></span>
+                <span className="d-name">{S.CAT[d.cat].ko}</span>
+                <span className="d-bar"><i className={full ? 'ok' : 'part'} style={{ width: pct + '%' }} /></span>
+                <span className="d-cnt"><b>{d.registered}</b><span className="e"> / {d.expected || '—'}</span></span>
+                <span className={'d-stat ' + (full ? 'ok' : 'miss')}>{full ? '✓ 충족' : '누락 ' + (d.expected - d.registered)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-h"><h3>프로젝트 정보</h3></div>
+        <div className="info-grid">
+          <div><div className="info-k">Site</div><div className="info-v">{c.site}</div></div>
+          <div><div className="info-k">발주처 (Client)</div><div className="info-v">{c.client}</div></div>
+          <div><div className="info-k">PM</div><div className="info-v">{c.pm}</div></div>
+          <div><div className="info-k">Period</div><div className="info-v">{c.period}</div></div>
+          <div><div className="info-k">Default EPSG</div><div className="info-v mono">{c.epsg}</div></div>
+          <div><div className="info-k">상태 분포</div><div className="statusmix" style={{ marginTop: 4 }}>
+            {Object.entries(st.statusCounts).map(([s, n]) => <span className="smchip" key={s}><i style={{ background: S.STATUS[s].color, borderColor: S.STATUS[s].color, borderStyle: S.STATUS[s].dashed ? 'dashed' : 'solid' }} />{S.STATUS[s].label} {n}</span>)}
+          </div></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- spatial ---- */
+function SpatialTab({ items }) {
+  const positioned = items.filter(i => i.lon != null);
+  const [sel, setSel] = useState(null);
+  const ids = useMemo(() => new Set(items.map(i => i.id)), [items]);
+  return (
+    <div className="spatial-tab">
+      <AssetMap items={items} visibleIds={ids} selectedId={sel} onSelect={setSel} mode="2d" showRelations={false}
+        loading={false} emptyKind={positioned.length ? null : 'none'} fitKey={items.length + '_' + (items[0] && items[0].col)} />
+    </div>
+  );
+}
+
+/* ---- draft tab ---- */
+function DraftTab({ items }) {
+  const drafts = items.filter(i => i.status === 'draft');
+  if (!drafts.length) return <div className="panel" style={{ textAlign: 'center', color: 'var(--t3)' }}>Draft 없음 — 모든 산출물이 보완 완료되었습니다</div>;
+  return (
+    <div>
+      <div className="panel-h" style={{ padding: '0 2px' }}><h3 style={{ fontSize: 14 }}>Draft · 보완 대상</h3><span className="hint">{drafts.length}건 · 각 항목 → Metadata Completion</span></div>
+      {drafts.map(it => (
+        <div className="irow" key={it.id}>
+          <span className="ig"><CategoryGlyph cat={it.cat} s={16} /></span>
+          <div className="im">
+            <div className="inm">{it.name}</div>
+            <div className="isub">{it.file}</div>
+            {(it.miss && it.miss.length > 0 || it.gaps && it.gaps.length > 0) &&
+              <div className="gapchips">{(it.miss || []).map(m => <span key={m} className="gapchip">{m}</span>)}{(it.gaps || []).map((g, i) => <span key={'g' + i} className="gapchip">{g}</span>)}</div>}
+          </div>
+          <div className="irow-r">
+            <span className="pvdot" style={{ background: PV_COLOR[it.preview] }} title={'preview ' + it.preview} />
+            <Badge status={it.status} />
+            <button className="complete-btn">보완하기 →</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---- all items ---- */
+function ItemsTab({ items }) {
+  return (
+    <div>
+      <div className="panel-h" style={{ padding: '0 2px' }}><h3 style={{ fontSize: 14 }}>전체 Item</h3><span className="hint">{items.length}건</span></div>
+      {items.map(it => (
+        <div className="irow" key={it.id}>
+          <span className="ig"><CategoryGlyph cat={it.cat} s={16} /></span>
+          <div className="im"><div className="inm">{it.name}</div><div className="isub">{S.CAT[it.cat].ko} · {it.dt} · {S.formatSize(it.size)}</div></div>
+          <div className="irow-r"><span className="pvdot" style={{ background: PV_COLOR[it.preview] }} /><Badge status={it.status} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---- lineage ---- */
+function LineageTab({ items }) {
+  const ids = new Set(items.map(i => i.id));
+  const edges = []; const timeline = [];
+  items.forEach(it => (it.rel || []).forEach(r => {
+    const e = { from: it, rel: r.rel, target: r.target, title: r.title, missing: r.missing || !S.BY_ID[r.target], inProject: ids.has(r.target) };
+    if (['prev', 'next'].includes(r.rel)) timeline.push(e); else edges.push(e);
+  }));
+  const node = (it) => <span className="lin-node"><CategoryGlyph cat={it.cat} s={14} /><span className="ln-nm">{it.name}</span></span>;
+  const tnode = (id, title) => { const t = S.BY_ID[id]; return t ? <span className="lin-node"><CategoryGlyph cat={t.cat} s={14} /><span className="ln-nm">{t.name}</span></span> : <span className="lin-node" style={{ color: 'var(--orange)' }}>⚠ {title}</span>; };
+  return (
+    <div>
+      <div className="panel">
+        <div className="lin-h">가공 계보 · derived / describes</div>
+        {edges.length === 0 ? <div style={{ color: 'var(--t3)', fontSize: 12 }}>계보 관계 없음</div> :
+          edges.map((e, i) => (
+            <div className="lin-edge" key={i}>{node(e.from)}<span className="lin-rel">{e.rel}</span><span className="lin-arrow">→</span>{tnode(e.target, e.title)}
+              {!e.inProject && !e.missing && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--t3)' }}>다른 프로젝트</span>}</div>
+          ))}
+      </div>
+      <div className="panel">
+        <div className="lin-h">시계열 · prev / next</div>
+        {timeline.length === 0 ? <div style={{ color: 'var(--t3)', fontSize: 12 }}>시계열 관계 없음</div> :
+          timeline.map((e, i) => (
+            <div className="lin-edge" key={i}>{node(e.from)}<span className="lin-rel">{e.rel}</span><span className="lin-arrow">→</span>{tnode(e.target, e.title)}</div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---- unassigned ---- */
+function UnassignedView({ items }) {
+  const [assign, setAssign] = useState({});
+  const [picking, setPicking] = useState(null);
+  const projects = S.COLLECTIONS.filter(c => c.id !== 'unassigned-inbox');
+  const toggle = (itemId, col) => setAssign(a => {
+    const cur = a[itemId] || [];
+    return { ...a, [itemId]: cur.includes(col) ? cur.filter(x => x !== col) : [...cur, col] };
+  });
+  const cleaned = Object.values(assign).filter(v => v.length).length;
+  const counts = {}; items.forEach(i => counts[i.status] = (counts[i.status] || 0) + 1);
+  return (
+    <div>
+      <div className="un-note"><span>◇</span><div><b>Unassigned Inbox는 "고장난 것들"이 아니라 "아직 프로젝트에 안 붙은 것들"입니다.</b> Draft와 Published가 섞여 있으며, 상태로 거르지 않습니다. 아래에서 프로젝트에 연결하세요 (한 Item을 여러 프로젝트에 연결 가능).</div></div>
+      <div className="statusmix" style={{ marginBottom: 14 }}>
+        {Object.entries(counts).map(([s, n]) => <span className="smchip" key={s}><i style={{ background: S.STATUS[s].color, borderColor: S.STATUS[s].color, borderStyle: S.STATUS[s].dashed ? 'dashed' : 'solid' }} />{S.STATUS[s].label} {n}</span>)}
+        <span className="smchip" style={{ marginLeft: 'auto', color: 'var(--pub)' }}>정리됨 {cleaned}/{items.length}</span>
+      </div>
+      {items.map(it => {
+        const mine = assign[it.id] || [];
+        return (
+          <div className="irow" key={it.id} style={{ alignItems: 'flex-start' }}>
+            <span className="ig" style={{ marginTop: 2 }}><CategoryGlyph cat={it.cat} s={16} /></span>
+            <div className="im">
+              <div className="inm">{it.name}{it.status === 'published' && <span className="pub-unassigned">● Published인데 미배정</span>}</div>
+              <div className="isub">{it.file}</div>
+              {mine.length > 0 && <div className="assign-chips" style={{ marginTop: 7 }}>{mine.map(c => <span className="assigned-chip" key={c}>✓ {S.collectionById(c).title}<span style={{ cursor: 'pointer', color: 'var(--t3)' }} onClick={() => toggle(it.id, c)}>×</span></span>)}</div>}
+              {picking === it.id && (
+                <div className="assign-chips" style={{ marginTop: 8 }}>
+                  <span className="assign-pick">
+                    {projects.map(p => <span key={p.id} className={'achip' + (mine.includes(p.id) ? ' on' : '')} onClick={() => toggle(it.id, p.id)}>{mine.includes(p.id) ? '✓ ' : '+ '}{p.title}</span>)}
+                    <span className="achip" onClick={() => setPicking(null)} style={{ borderColor: 'transparent', color: 'var(--t3)' }}>완료</span>
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="irow-r" style={{ marginTop: 2 }}>
+              <Badge status={it.status} />
+              {picking !== it.id && <button className="ghost-btn" onClick={() => setPicking(it.id)}>{mine.length ? '프로젝트 편집' : '＋ 프로젝트 연결'}</button>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const TABS = ['현황', '공간', 'Draft', '전체 Item', 'Timeline·Lineage'];
+
+function App() {
+  const [col, setCol] = useState('seongsu-office-renovation');
+  const [tab, setTab] = useState('현황');
+  const isInbox = col === 'unassigned-inbox';
+  const st = useMemo(() => statsOf(col), [col]);
+  const c = S.collectionById(col);
+  const comp = st.expTotal ? Math.round(st.regTotal / st.expTotal * 100) : null;
+
+  const listFor = (status) => S.COLLECTIONS.filter(p => p.status === status);
+  const ProjectRow = ({ p }) => {
+    const ps = statsOf(p.id);
+    const inbox = p.id === 'unassigned-inbox';
+    return (
+      <div className={'prow' + (col === p.id ? ' on' : '') + (inbox ? ' inbox' : '')} onClick={() => { setCol(p.id); setTab('현황'); }}>
+        <div className="prow-t">{inbox && <span className="ibx">◇</span>}{inbox ? 'Unassigned Inbox' : p.title}</div>
+        <div className="prow-meta">
+          <span className="prow-asset">{ps.regTotal} assets</span>
+          {ps.draftCount > 0 && <span className="prow-draft">Draft {ps.draftCount}</span>}
+          {!inbox && <span className="prow-comp">{ps.regTotal}/{ps.expTotal}</span>}
+        </div>
+        {!inbox && <div className="pl-mini"><i style={{ width: (ps.regTotal / ps.expTotal * 100) + '%' }} /></div>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="app">
+      <nav className="nav">
+        <span className="logo">SAMS<span className="v">v0.1</span></span>
+        <button className="navtab">Explorer</button>
+        <button className="navtab on">Project</button>
+        <button className="navtab">Upload</button>
+      </nav>
+
+      <div className="content">
+        <div className="plist">
+          <div className="pl-group">Active <span className="n">{listFor('active').length}</span></div>
+          {listFor('active').map(p => <ProjectRow key={p.id} p={p} />)}
+          <div className="pl-group">Archived <span className="n">0</span></div>
+          <div className="pl-empty">보관된 프로젝트 없음</div>
+          <div className="pl-group">Unassigned</div>
+          {S.COLLECTIONS.filter(p => p.id === 'unassigned-inbox').map(p => <ProjectRow key={p.id} p={p} />)}
+        </div>
+
+        <div className="main">
+          <div className="phead">
+            <div className="ph-top">
+              <div>
+                <h1 className="ph-title">{isInbox ? '◇ Unassigned Inbox' : c.title}</h1>
+                <div className="ph-sub">
+                  {isInbox ? <span>아직 프로젝트에 배정되지 않은 산출물 · 특수 버킷</span> : <>
+                    <span>📍 <b>{c.site}</b></span><span>발주처 <b>{c.client}</b></span><span>PM <b>{c.pm}</b></span><span>{c.period}</span><span className="mono">{c.epsg}</span>
+                  </>}
+                </div>
+              </div>
+              <div className="ph-kpis">
+                <div className="kpi"><div className="v">{st.regTotal}</div><div className="l">Assets</div></div>
+                <div className="kpi draft"><div className="v">{st.draftCount}</div><div className="l">Draft</div></div>
+                {!isInbox && <div className="kpi gap"><div className="v">{st.regTotal}/{st.expTotal}</div><div className="l">등록</div></div>}
+                {isInbox && <div className="kpi pub"><div className="v">{st.pubCount}</div><div className="l">Published</div></div>}
+              </div>
+            </div>
+            {!isInbox && (
+              <div className="tabs">
+                {TABS.map(t => <button key={t} className={'tab' + (tab === t ? ' on' : '')} onClick={() => setTab(t)}>{t}{t === 'Draft' && st.draftCount > 0 && <span className="b">{st.draftCount}</span>}</button>)}
+              </div>
+            )}
+          </div>
+
+          <div className="body">
+            {isInbox ? <UnassignedView items={st.items} /> : <>
+              {tab === '현황' && <Overview col={col} st={st} />}
+              {tab === '공간' && <SpatialTab items={st.items} />}
+              {tab === 'Draft' && <DraftTab items={st.items} />}
+              {tab === '전체 Item' && <ItemsTab items={st.items} />}
+              {tab === 'Timeline·Lineage' && <LineageTab items={st.items} />}
+            </>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>

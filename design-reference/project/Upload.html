@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAMS · Upload</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F1419; --panel:#161C24; --card:#1E2630; --line:#2B333F; --line2:#222932;
+    --t1:#E8ECF1; --t2:#98A2B3; --t3:#5B6573;
+    --blue:#3B82F6; --orange:#F97316;
+    --draft:#FBBF24; --pub:#34D399; --arch:#64748B; --unk:#6B7280; --fail:#F87171; --auto:#7FB1E8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0; height:100%;}
+  body{background:var(--bg); color:var(--t1); font-family:'IBM Plex Sans',system-ui,sans-serif; font-size:13px; -webkit-font-smoothing:antialiased; overflow:hidden;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  input,select{font-family:inherit; font-size:12.5px; color:var(--t1); background:#121821; border:1px solid var(--line); border-radius:7px; padding:6px 9px;}
+  input:focus,select:focus{outline:none; border-color:var(--orange);}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#2C3540; border-radius:6px; border:2px solid var(--bg);}
+
+  .app{display:flex; flex-direction:column; height:100vh;}
+  .nav{height:50px; flex:none; background:var(--panel); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:0 16px;}
+  .logo{font-weight:600; font-size:15px; margin-right:20px;} .logo b{color:var(--blue);} .logo .v{color:var(--t3); font-weight:400; font-size:11px;}
+  .navtab{padding:7px 15px; border-radius:7px; font-size:13px; font-weight:500; color:var(--t2); border:0; background:transparent; text-decoration:none;}
+  .navtab:hover{color:var(--t1);}
+  .navtab.on{color:var(--orange); background:rgba(249,115,22,.12);}
+
+  .wrap{flex:1; overflow-y:auto;}
+  .inner{max-width:1080px; margin:0 auto; padding:24px 28px 80px;}
+
+  /* header row */
+  .uphead{display:flex; align-items:flex-end; gap:18px; margin-bottom:20px;}
+  .uphead h1{font-size:22px; font-weight:600; margin:0;}
+  .uphead .sub{font-size:12.5px; color:var(--t2); margin-top:5px; max-width:640px; line-height:1.5;}
+  .uphead .sub b{color:var(--draft); font-weight:500;}
+  .modetoggle{margin-left:auto; flex:none; display:flex; background:var(--card); border:1px solid var(--line); border-radius:9px; padding:3px;}
+  .modetoggle button{padding:8px 16px; border-radius:7px; font-size:12.5px; font-weight:600; color:var(--t2); border:0; background:transparent; display:flex; flex-direction:column; align-items:flex-start; gap:1px; line-height:1.25; white-space:nowrap;}
+  .modetoggle button .mt-s{font-size:10px; font-weight:400; color:var(--t3);}
+  .modetoggle button.on{background:var(--orange); color:#1a0d02;}
+  .modetoggle button.on .mt-s{color:#3d2206;}
+
+  /* draft policy banner */
+  .policy{display:flex; gap:11px; align-items:flex-start; background:rgba(249,115,22,.06); border:1px solid rgba(249,115,22,.28); border-radius:11px; padding:12px 15px; margin-bottom:20px; font-size:12.5px; color:#f3cba6; line-height:1.55;}
+  .policy b{color:var(--t1);} .policy .pi{flex:none; color:var(--orange); font-size:15px; line-height:1.2;}
+
+  /* drop zone */
+  .drop{border:1.5px dashed #38424f; border-radius:13px; background:linear-gradient(180deg,#141a22,#11161d); padding:30px 24px; text-align:center; margin-bottom:18px; transition:border-color .15s;}
+  .drop.hot{border-color:var(--orange); background:rgba(249,115,22,.05);}
+  .drop .di{font-size:30px; color:var(--t3); margin-bottom:8px;}
+  .drop h3{font-size:15px; font-weight:600; margin:0 0 4px;}
+  .drop p{font-size:12px; color:var(--t3); margin:0 0 14px;}
+
+  /* mock palette */
+  .pal-h{font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--t3); font-weight:600; margin:4px 0 9px; display:flex; align-items:center; gap:8px;}
+  .pal-h .ln{flex:1; height:1px; background:var(--line2);}
+  .palette{display:grid; grid-template-columns:repeat(2,1fr); gap:8px;}
+  .palchip{display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:9px; background:var(--card); border:1px solid var(--line); text-align:left;}
+  .palchip:hover{border-color:#3a4655; background:#212b36;}
+  .palchip.added{border-color:rgba(249,115,22,.5); background:rgba(249,115,22,.07); cursor:default;}
+  .palchip .pg{flex:none; color:#AEB7C4; width:20px; display:flex; justify-content:center;}
+  .palchip .pf{flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;}
+  .palchip .pf .pn{font-size:12.5px; font-weight:500; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .palchip .pf .pe{font-size:10.5px; color:var(--t3); font-family:'IBM Plex Mono',monospace;}
+  .palchip .pp{flex:none; font-size:15px; color:var(--orange); font-weight:600;}
+  .palchip.added .pp{color:var(--orange);}
+  .palbar{display:flex; gap:10px; margin-top:12px;}
+  .btn{font-size:13px; font-weight:600; border-radius:9px; padding:10px 18px; border:1px solid transparent;}
+  .btn.primary{background:var(--orange); color:#1a0d02; border-color:var(--orange);}
+  .btn.primary:disabled{background:#3a2c1e; border-color:#3a2c1e; color:#8a6f55; cursor:not-allowed;}
+  .btn.ghost{background:#121821; color:var(--t2); border-color:var(--line);}
+  .btn.ghost:hover{border-color:#3a4655; color:var(--t1);}
+
+  /* analyzing */
+  .analyzing{display:flex; flex-direction:column; align-items:center; gap:14px; padding:60px 0; color:var(--t2);}
+  .scanbar{width:300px; height:6px; border-radius:4px; background:var(--card); overflow:hidden; position:relative;}
+  .scanbar i{position:absolute; height:100%; width:40%; border-radius:4px; background:var(--orange); animation:scan 1s ease-in-out infinite;}
+  @keyframes scan{0%{left:-40%;}100%{left:100%;}}
+  .analyzing .at{font-size:14px; font-weight:600; color:var(--t1);}
+  .analyzing .as{font-size:12px; color:var(--t3);}
+
+  /* section title */
+  .sect-h{display:flex; align-items:center; gap:10px; margin:8px 0 14px;}
+  .sect-h h2{font-size:15px; font-weight:600; margin:0;}
+  .sect-h .cnt{font-size:11.5px; color:var(--t3);}
+  .sect-h .leg{margin-left:auto; display:flex; gap:14px; font-size:10.5px; color:var(--t3);}
+  .sect-h .leg span{display:flex; align-items:center; gap:5px;}
+  .sect-h .leg i{width:9px; height:9px; border-radius:50%;}
+
+  /* single card */
+  .fcard{background:var(--panel); border:1px solid var(--line); border-radius:13px; margin-bottom:14px; overflow:hidden;}
+  .fc-top{display:flex; align-items:center; gap:13px; padding:14px 17px; border-bottom:1px solid var(--line2);}
+  .fc-glyph{width:42px; height:42px; flex:none; border-radius:10px; background:var(--card); border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:#C7D0DC;}
+  .fc-id{flex:1; min-width:0;}
+  .fc-name{font-size:14.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .fc-meta{font-size:11px; color:var(--t3); font-family:'IBM Plex Mono',monospace; margin-top:2px;}
+  .fc-rm{flex:none; color:var(--t3); background:transparent; border:0; font-size:17px; padding:4px 8px;}
+  .fc-rm:hover{color:var(--fail);}
+  .draftpill{flex:none; font-size:10.5px; font-weight:600; color:var(--draft); border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.1); border-radius:7px; padding:4px 10px;}
+
+  .pred{display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid var(--line2);}
+  .pred-c{padding:13px 17px; border-right:1px solid var(--line2);}
+  .pred-c:last-child{border-right:0;}
+  .pred-l{font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); font-weight:600; margin-bottom:7px;}
+  .pred-cat{display:flex; align-items:center; gap:9px;}
+  .pred-cat .pcg{color:#C7D0DC; flex:none;}
+  .pred-cat select{flex:1; min-width:0;}
+  .conf{font-size:9.5px; font-family:'IBM Plex Mono',monospace; padding:2px 6px; border-radius:5px; border:1px solid; white-space:nowrap;}
+  .conf.high{color:var(--pub); border-color:rgba(52,211,153,.35); background:rgba(52,211,153,.08);}
+  .conf.medium{color:var(--draft); border-color:rgba(251,191,36,.35); background:rgba(251,191,36,.08);}
+  .conf.low{color:var(--orange); border-color:rgba(249,115,22,.4); background:rgba(249,115,22,.08);}
+  .pv-line{display:flex; align-items:center; gap:8px; font-size:13px; font-weight:500;}
+  .pv-dot{width:10px; height:10px; border-radius:50%; flex:none;}
+  .pred-note{font-size:11px; color:var(--t3); margin-top:6px; line-height:1.45;}
+  .sp-line{display:flex; align-items:center; gap:9px; font-size:13px; font-weight:500;}
+  .sp-glyph{flex:none; color:#AEB7C4;}
+
+  .fc-body{display:grid; grid-template-columns:1fr 1fr; gap:0;}
+  .fc-half{padding:14px 17px;}
+  .fc-half.l{border-right:1px solid var(--line2);}
+  .fc-sub{font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); font-weight:600; margin-bottom:9px; display:flex; align-items:center; gap:7px;}
+  .autorow{display:flex; align-items:baseline; gap:8px; padding:4px 0; font-size:12px;}
+  .autorow .ak{color:var(--t3); font-family:'IBM Plex Mono',monospace; min-width:120px;}
+  .autorow .av{color:var(--t1); font-family:'IBM Plex Mono',monospace; flex:1;}
+  .autorow .ab{font-size:8.5px; font-weight:700; letter-spacing:.4px; color:var(--auto); border:1px solid rgba(127,177,232,.3); border-radius:4px; padding:1px 5px;}
+  .misschips{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:9px;}
+  .misschip{font-size:10.5px; font-family:'IBM Plex Mono',monospace; color:#e7d9b4; border:1px solid rgba(251,191,36,.32); background:rgba(251,191,36,.08); border-radius:6px; padding:3px 8px;}
+  .reason{font-size:11.5px; color:#e7d9b4; line-height:1.5; background:rgba(251,191,36,.05); border-left:2px solid var(--draft); padding:7px 11px; border-radius:0 6px 6px 0;}
+
+  .fc-fields{padding:13px 17px; border-top:1px solid var(--line2); display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:12px;}
+  .ff label{font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); font-weight:600; display:block; margin-bottom:5px;}
+  .ff input,.ff select{width:100%;}
+  .ff .opt{font-size:9px; color:var(--t3); font-weight:400; text-transform:none; letter-spacing:0;}
+
+  .flags{display:flex; gap:6px; flex-wrap:wrap;}
+  .flag{font-size:10px; font-weight:600; border-radius:6px; padding:3px 8px; border:1px solid; display:inline-flex; align-items:center; gap:4px;}
+
+  /* action bar */
+  .actbar{position:sticky; bottom:0; margin:18px -28px -80px; padding:16px 28px; background:linear-gradient(180deg,rgba(15,20,25,0),var(--bg) 32%); display:flex; align-items:center; gap:14px; z-index:10;}
+  .actbar .summary{font-size:12.5px; color:var(--t2);}
+  .actbar .summary b{color:var(--t1);}
+  .actbar .right{margin-left:auto; display:flex; gap:10px;}
+
+  /* bulk table */
+  .bulkbar{display:flex; align-items:flex-end; gap:14px; background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:13px 16px; margin-bottom:14px;}
+  .bulkbar .bb-h{font-size:11px; color:var(--t2); font-weight:600;}
+  .bulkbar .bb-h b{color:var(--orange);}
+  .bf{display:flex; flex-direction:column; gap:5px;}
+  .bf label{font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); font-weight:600;}
+  .bulkbar .apply{margin-left:auto;}
+  .tbl-wrap{border:1px solid var(--line); border-radius:11px; overflow:hidden; background:var(--panel);}
+  table{width:100%; border-collapse:collapse; font-size:12px;}
+  thead th{text-align:left; font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--t3); font-weight:600; padding:10px 12px; background:#131922; border-bottom:1px solid var(--line); white-space:nowrap;}
+  tbody td{padding:10px 12px; border-bottom:1px solid var(--line2); vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:0;}
+  tbody tr:hover{background:#1a212b;}
+  .td-file{display:flex; align-items:center; gap:9px; min-width:200px;}
+  .td-file .tg{flex:none; color:#AEB7C4;}
+  .td-file .tn{font-weight:500; color:var(--t1); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px;}
+  .td-file .ts{font-size:10px; color:var(--t3); font-family:'IBM Plex Mono',monospace;}
+  .td-cat{display:flex; align-items:center; gap:7px; white-space:nowrap;}
+  .td-cat .tcg{color:#AEB7C4; flex:none;}
+  .td-pv{display:flex; align-items:center; gap:6px; white-space:nowrap;}
+  .td-pv i{width:9px; height:9px; border-radius:50%;}
+  .td-flags{max-width:230px;}
+  .tbl-sel{width:100%; background:#121821; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-size:11.5px; color:var(--t1);}
+  .tbl-in{width:118px;}
+  .tbl-rm{color:var(--t3); background:transparent; border:0; font-size:15px;}
+  .tbl-rm:hover{color:var(--fail);}
+  .ov-tag{font-size:9px; color:var(--orange); margin-left:5px;}
+
+  /* done */
+  .done-wrap{text-align:center; padding:18px 0 0;}
+  .done-ico{width:62px; height:62px; border-radius:50%; background:rgba(251,191,36,.12); border:1.5px solid var(--draft); color:var(--draft); display:flex; align-items:center; justify-content:center; font-size:30px; margin:8px auto 16px;}
+  .done-wrap h2{font-size:20px; font-weight:600; margin:0 0 6px;}
+  .done-wrap .ds{font-size:13px; color:var(--t2); max-width:560px; margin:0 auto 22px; line-height:1.55;}
+  .done-wrap .ds b{color:var(--t1);}
+  .done-list{max-width:640px; margin:0 auto 24px; text-align:left;}
+  .done-row{display:flex; align-items:center; gap:11px; padding:10px 14px; background:var(--panel); border:1px solid var(--line); border-radius:9px; margin-bottom:7px;}
+  .done-row .dg{flex:none; color:#AEB7C4;}
+  .done-row .dn{flex:1; min-width:0; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .done-row .new{font-size:9.5px; font-weight:700; color:var(--blue); border:1px solid rgba(59,130,246,.35); background:rgba(59,130,246,.1); border-radius:5px; padding:2px 6px;}
+  .done-row .badge{font-size:10px; font-weight:600; color:var(--draft); border:1px solid rgba(251,191,36,.4); background:rgba(251,191,36,.1); border-radius:5px; padding:2px 7px;}
+  .done-cta{display:flex; gap:12px; justify-content:center; flex-wrap:wrap; max-width:760px; margin:0 auto;}
+  .ctacard{flex:1; min-width:200px; text-decoration:none; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; text-align:left; transition:border-color .12s, transform .12s;}
+  .ctacard:hover{border-color:var(--orange); transform:translateY(-2px);}
+  .ctacard.primary{border-color:rgba(59,130,246,.45); background:rgba(59,130,246,.06);}
+  .ctacard .ci{font-size:20px; margin-bottom:9px;}
+  .ctacard .ct{font-size:14px; font-weight:600; color:var(--t1); display:flex; align-items:center; gap:6px;}
+  .ctacard .cd{font-size:11.5px; color:var(--t3); margin-top:5px; line-height:1.45;}
+  .done-foot{margin-top:24px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="explorer/data.jsx"></script>
+
+<script type="text/babel">
+(function () {
+const { useState, useMemo } = React;
+const S = window.SAMS;
+
+/* ---- category glyph (shape only) ---- */
+function CategoryGlyph({ cat, s = 16 }) {
+  const sw = 1.6, c = 'currentColor';
+  const common = { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: c, strokeWidth: sw, strokeLinejoin: 'round', strokeLinecap: 'round' };
+  switch ((S.CAT[cat] || {}).shape) {
+    case 'pointcloud': return (<svg {...common}>{[[7,7],[12,6],[17,8],[6,13],[12,12],[18,14],[9,18],[15,17]].map(([x,y],i)=><circle key={i} cx={x} cy={y} r="1.05" fill={c} stroke="none"/>)}</svg>);
+    case 'model': return (<svg {...common}><path d="M12 4 L20 18 L4 18 Z"/><path d="M12 4 L12 18 M7 13 L17 13"/></svg>);
+    case 'tiles': return (<svg {...common}><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>);
+    case 'ortho': return (<svg {...common}><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 14 L10 9 L14 13 L20 8"/><path d="M4 18 L9 15 L13 18"/></svg>);
+    case 'image': return (<svg {...common}><rect x="4" y="6" width="16" height="12" rx="1.5"/><circle cx="9" cy="11" r="1.6"/><path d="M5 17 L11 12 L15 15 L19 11"/></svg>);
+    case 'pano': return (<svg {...common}><ellipse cx="12" cy="12" rx="9" ry="6"/><path d="M12 6 C8 9 8 15 12 18 M12 6 C16 9 16 15 12 18 M3.4 12 H20.6"/></svg>);
+    case 'video': return (<svg {...common}><rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M10 9.5 L14.5 12 L10 14.5 Z" fill={c} stroke="none"/></svg>);
+    case 'doc': return (<svg {...common}><path d="M7 3 H14 L18 7 V21 H7 Z"/><path d="M14 3 V7 H18 M9.5 12 H15.5 M9.5 15 H15.5 M9.5 18 H13"/></svg>);
+    default: return (<svg {...common}><circle cx="12" cy="12" r="8"/></svg>);
+  }
+}
+
+/* ---- spatial prediction glyph ---- */
+function SpatialGlyph({ kind, s = 16 }) {
+  const common = { width: s, height: s, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinejoin: 'round', strokeLinecap: 'round' };
+  switch (kind) {
+    case 'geometry': return (<svg {...common}><path d="M12 21 C7 15 4 11 4 8 a8 8 0 0 1 16 0 c0 3 -3 7 -8 13 Z"/><circle cx="12" cy="8" r="2.2"/></svg>);
+    case 'bbox': return (<svg {...common}><rect x="4.5" y="4.5" width="15" height="15" rx="1" strokeDasharray="3 2.4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>);
+    case 'vector': return (<svg {...common}><path d="M4 18 C9 18 8 7 13 7 c4 0 4 -3 7 -3"/><circle cx="4" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.6" fill="currentColor" stroke="none"/></svg>);
+    case 'coverage': return (<svg {...common}><path d="M6 5 L18 7 L20 16 L13 20 L4 15 Z" strokeDasharray="3 2.4"/></svg>);
+    case 'fallback': return (<svg {...common}><circle cx="12" cy="12" r="8" strokeDasharray="3 2.6"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>);
+    default: return (<svg {...common}><circle cx="12" cy="12" r="8" strokeDasharray="2 3" opacity="0.6"/><path d="M8 8 L16 16 M16 8 L8 16" opacity="0.6"/></svg>);
+  }
+}
+
+const SP_LABEL = { geometry: 'Geometry center', bbox: 'BBox center', vector: 'Vector geometry', coverage: 'Coverage (계산 대기)', fallback: 'Project fallback', none: '좌표 없음' };
+const PVC = { available: 'var(--pub)', pending: 'var(--draft)', missing: 'var(--t3)', failed: 'var(--fail)' };
+const FLAG_STYLE = {
+  crs: { color: 'var(--draft)', bd: 'rgba(251,191,36,.38)', bg: 'rgba(251,191,36,.09)' },
+  category: { color: 'var(--orange)', bd: 'rgba(249,115,22,.42)', bg: 'rgba(249,115,22,.09)' },
+  metadata: { color: 'var(--draft)', bd: 'rgba(251,191,36,.38)', bg: 'rgba(251,191,36,.09)' },
+  coverage: { color: 'var(--draft)', bd: 'rgba(251,191,36,.38)', bg: 'rgba(251,191,36,.09)' },
+  preview: { color: 'var(--draft)', bd: 'rgba(251,191,36,.38)', bg: 'rgba(251,191,36,.09)' },
+  spatial: { color: 'var(--t2)', bd: 'var(--line)', bg: 'var(--card)' },
+};
+
+/* ---- mock file descriptors with auto-classification predictions ---- */
+const FILES = [
+  { id:'f1', file:'basement_lidar_scan.laz', size:2748779069, cat:'pointcloud', conf:'high',
+    preview:{s:'available', note:'포인트 클라우드 뷰어 표시 가능'}, spatial:{kind:'bbox', note:'스캔 헤더 BBox 중심에서 위치 추정'},
+    auto:[['pc:count','15,230,482 pts'],['acq_date','2024-02-18'],['sensor','RTC360 (추정)']],
+    missing:['proj:epsg','pc:density'], reason:'좌표계(CRS)가 헤더에서 확정되지 않음 — 등록 후 CRS 지정 필요.',
+    flags:[{k:'crs',t:'CRS 확인 필요'}] },
+  { id:'f2', file:'lobby_bim_model.glb', size:224395264, cat:'3d_model', conf:'high',
+    preview:{s:'pending', note:'모델 뷰어용 변환 작업 대기 중'}, spatial:{kind:'fallback', note:'glb 내 georeference 없음 → 프로젝트 위치'},
+    auto:[['model:format','glb'],['mesh:nodes','1,842']],
+    missing:['model:vertex_count','proj:epsg'], reason:'preview 변환이 대기 중이고 모델에 좌표가 없어 프로젝트 위치로 fallback.',
+    flags:[{k:'preview',t:'preview pending'},{k:'spatial',t:'project fallback'}] },
+  { id:'f3', file:'rooftop_ortho.tif', size:1369020825, cat:'orthoimage', conf:'high',
+    preview:{s:'missing', note:'원본 TIFF 직접 표시 불가 — 타일 변환 필요'}, spatial:{kind:'geometry', note:'GeoTIFF footprint 폴리곤 추출됨'},
+    auto:[['proj:epsg','5186'],['raster:gsd','0.04m'],['bands','RGB']],
+    missing:[], reason:'메타데이터는 양호하나 원본 TIFF는 타일 변환 전까지 preview 미지원. 검색·재사용 품질에는 영향 없음.',
+    flags:[{k:'preview',t:'TIFF preview 미지원'}] },
+  { id:'f4', file:'drone_photos_facade.zip', size:734003200, cat:'image', conf:'medium',
+    preview:{s:'available', note:'썸네일 슬라이드쇼 생성됨'}, spatial:{kind:'coverage', note:'사진 38장 EXIF GPS → coverage polygon 계산 대기'},
+    auto:[['image:count','38'],['camera','일부 EXIF 추출']],
+    missing:['image:gsd','coverage'], reason:'개별 사진 좌표는 있으나 coverage polygon이 아직 계산되지 않고 촬영 해상도 일부 누락.',
+    flags:[{k:'coverage',t:'coverage 필요'},{k:'metadata',t:'metadata 일부 누락'}] },
+  { id:'f5', file:'drone_flight_path.geojson', size:1887436, cat:'video', conf:'low',
+    preview:{s:'missing', note:'벡터 — 썸네일 대신 경로로 표시'}, spatial:{kind:'vector', note:'flight path LineString 파싱됨 (1,204 vertices)'},
+    auto:[['geometry','LineString'],['length','1,840m']],
+    missing:['data_category 확인'], reason:'category 자동 판별 불확실 — flight path는 보통 동영상(route)에 연결됩니다. 연결 자체는 Detail에서.',
+    flags:[{k:'category',t:'category 확인 필요'}] },
+  { id:'f6', file:'tileset.json', size:644245094, cat:'3d_tiles', conf:'high',
+    preview:{s:'pending', note:'3D Tiles 뷰어 로드 대기'}, spatial:{kind:'bbox', note:'tileset root boundingVolume → boundary'},
+    auto:[['tileset:version','1.1'],['tiles','~3,400']],
+    missing:['tileset:root_geometric_error'], reason:'tileset boundary는 잡혔으나 품질(geometric error) 메타가 미검수.',
+    flags:[{k:'metadata',t:'tileset 메타 검수'}] },
+  { id:'f7', file:'site_walkthrough.mp4', size:1288490189, cat:'video', conf:'high',
+    preview:{s:'pending', note:'poster(대표 프레임) 생성 대기'}, spatial:{kind:'fallback', note:'영상에 GPS 트랙 없음 → 프로젝트 위치'},
+    auto:[['video:duration','08:40'],['video:codec','h.264'],['resolution','3840×2160']],
+    missing:['poster','geometry'], reason:'poster 생성이 대기 중이고 위치 정보가 없어 프로젝트 위치로 fallback.',
+    flags:[{k:'preview',t:'poster pending'},{k:'spatial',t:'project fallback'}] },
+  { id:'f8', file:'permit_memo.pdf', size:12582912, cat:'document', conf:'high',
+    preview:{s:'available', note:'PDF 첫 페이지 렌더'}, spatial:{kind:'fallback', note:'좌표 없음 → 프로젝트 위치(project fallback)'},
+    auto:[['pages','3'],['format','PDF 1.7']],
+    missing:['document:author','document:date'], reason:'좌표가 없어 프로젝트 위치로 표시되며, 작성자·문서 날짜는 수동 입력 필요.',
+    flags:[{k:'spatial',t:'project fallback'},{k:'metadata',t:'문서 메타 수동'}] },
+];
+const FILE_BY = {}; FILES.forEach(f => FILE_BY[f.id] = f);
+const PROJECTS = S.COLLECTIONS.filter(c => c.id !== 'unassigned-inbox');
+
+function Flag({ f }) { const st = FLAG_STYLE[f.k] || FLAG_STYLE.metadata; return <span className="flag" style={{ color: st.color, borderColor: st.bd, background: st.bg }}>{f.t}</span>; }
+function suggestedName(file) { return file.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+
+/* ================= SINGLE CARD ================= */
+function SingleCard({ f, row, onChange, onRemove }) {
+  return (
+    <div className="fcard">
+      <div className="fc-top">
+        <div className="fc-glyph"><CategoryGlyph cat={row.cat} s={22} /></div>
+        <div className="fc-id">
+          <div className="fc-name">{f.file}</div>
+          <div className="fc-meta">{S.formatSize(f.size)} · 업로드 원본</div>
+        </div>
+        <span className="draftpill">Draft로 등록 예정</span>
+        <button className="fc-rm" onClick={() => onRemove(f.id)} title="제외">✕</button>
+      </div>
+
+      <div className="pred">
+        <div className="pred-c">
+          <div className="pred-l">예측 category</div>
+          <div className="pred-cat">
+            <span className="pcg"><CategoryGlyph cat={row.cat} s={18} /></span>
+            <select value={row.cat} onChange={e => onChange(f.id, { cat: e.target.value })}>
+              {S.CAT_ORDER.map(c => <option key={c} value={c}>{S.CAT[c].ko}</option>)}
+            </select>
+            <span className={'conf ' + f.conf}>{f.conf === 'high' ? '신뢰 높음' : f.conf === 'medium' ? '신뢰 보통' : '신뢰 낮음'}</span>
+          </div>
+          {f.conf === 'low' && <div className="pred-note">자동 판별이 불확실합니다 — 직접 확인하세요.</div>}
+        </div>
+        <div className="pred-c">
+          <div className="pred-l">예측 preview</div>
+          <div className="pv-line"><span className="pv-dot" style={{ background: PVC[f.preview.s] }} />{f.preview.s}</div>
+          <div className="pred-note">{f.preview.note}</div>
+        </div>
+        <div className="pred-c">
+          <div className="pred-l">예측 spatial</div>
+          <div className="sp-line"><span className="sp-glyph"><SpatialGlyph kind={f.spatial.kind} s={17} /></span>{SP_LABEL[f.spatial.kind]}</div>
+          <div className="pred-note">{f.spatial.note}</div>
+        </div>
+      </div>
+
+      <div className="fc-body">
+        <div className="fc-half l">
+          <div className="fc-sub">자동 추출됨</div>
+          {f.auto.map(([k, v], i) => (
+            <div className="autorow" key={i}><span className="ak">{k}</span><span className="av">{v}</span><span className="ab">AUTO</span></div>
+          ))}
+        </div>
+        <div className="fc-half">
+          <div className="fc-sub">등록 시 누락 <span style={{ color: 'var(--draft)', textTransform: 'none', letterSpacing: 0 }}>= Draft 사유</span></div>
+          {f.missing.length > 0
+            ? <div className="misschips">{f.missing.map(m => <span className="misschip" key={m}>{m}</span>)}</div>
+            : <div className="misschips"><span style={{ fontSize: 11.5, color: 'var(--t3)' }}>품질 필드 누락 없음</span></div>}
+          <div className="reason">{f.reason}</div>
+        </div>
+      </div>
+
+      <div className="fc-fields">
+        <div className="ff">
+          <label>Display name <span className="opt">· 사람이 읽는 이름</span></label>
+          <input value={row.name} onChange={e => onChange(f.id, { name: e.target.value })} />
+        </div>
+        <div className="ff">
+          <label>취득일 <span className="opt">· acquired</span></label>
+          <input type="date" value={row.date} onChange={e => onChange(f.id, { date: e.target.value })} />
+        </div>
+        <div className="ff">
+          <label>프로젝트 <span className="opt">· 선택 · 비차단</span></label>
+          <select value={row.project} onChange={e => onChange(f.id, { project: e.target.value })}>
+            <option value="">미배정 (나중에)</option>
+            {PROJECTS.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+          </select>
+        </div>
+        <div className="ff" style={{ gridColumn: '1 / -1' }}>
+          <label>분류 플래그</label>
+          <div className="flags">{f.flags.map((fl, i) => <Flag key={i} f={fl} />)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================= BULK TABLE ================= */
+function BulkTable({ rows, onChange, onRemove }) {
+  return (
+    <div className="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>파일</th><th>예측 category</th><th>preview</th><th>spatial</th><th>분류 플래그 · Draft 사유</th><th>프로젝트</th><th>취득일</th><th></th>
+        </tr></thead>
+        <tbody>
+          {rows.map(r => { const f = FILE_BY[r.id]; return (
+            <tr key={r.id}>
+              <td><div className="td-file"><span className="tg"><CategoryGlyph cat={r.cat} s={17} /></span>
+                <div style={{ minWidth: 0 }}><div className="tn" title={f.file}>{f.file}</div><div className="ts">{S.formatSize(f.size)}</div></div></div></td>
+              <td><div className="td-cat">
+                <select className="tbl-sel" style={{ width: 132 }} value={r.cat} onChange={e => onChange(r.id, { cat: e.target.value })}>
+                  {S.CAT_ORDER.map(c => <option key={c} value={c}>{S.CAT[c].ko}</option>)}
+                </select>
+                {f.conf === 'low' && <span style={{ color: 'var(--orange)', fontSize: 11 }} title="신뢰 낮음">⚠</span>}
+              </div></td>
+              <td><div className="td-pv"><i style={{ background: PVC[f.preview.s] }} />{f.preview.s}</div></td>
+              <td><div className="td-cat"><span className="tcg"><SpatialGlyph kind={f.spatial.kind} s={15} /></span>{SP_LABEL[f.spatial.kind]}</div></td>
+              <td><div className="td-flags"><div className="flags">{f.flags.map((fl, i) => <Flag key={i} f={fl} />)}</div></div></td>
+              <td><select className="tbl-sel" style={{ width: 150 }} value={r.project} onChange={e => onChange(r.id, { project: e.target.value, _ovP: true })}>
+                <option value="">미배정</option>
+                {PROJECTS.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </select>{r._ovP && <span className="ov-tag">개별</span>}</td>
+              <td><input className="tbl-in" type="date" value={r.date} onChange={e => onChange(r.id, { date: e.target.value, _ovD: true })} />{r._ovD && <span className="ov-tag">개별</span>}</td>
+              <td><button className="tbl-rm" onClick={() => onRemove(r.id)} title="제외">✕</button></td>
+            </tr>
+          ); })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ================= DONE ================= */
+function DoneView({ rows, onReset }) {
+  const assigned = rows.filter(r => r.project).length;
+  return (
+    <div className="done-wrap">
+      <div className="done-ico">✓</div>
+      <h2>{rows.length}건이 Draft로 등록되었습니다</h2>
+      <p className="ds">불완전한 데이터도 잃지 않고 <b>Draft로 안전하게 수용</b>되었습니다. 모두 <b>미배정</b>으로 시작하며{assigned > 0 ? <> ({assigned}건은 업로드 시 프로젝트 지정됨)</> : null}, 보완·배정은 status와 별개로 언제든 진행할 수 있습니다.</p>
+      <div className="done-list">
+        {rows.map(r => { const f = FILE_BY[r.id]; return (
+          <div className="done-row" key={r.id}>
+            <span className="dg"><CategoryGlyph cat={r.cat} s={18} /></span>
+            <span className="dn">{r.name}</span>
+            <span className="new">NEW</span>
+            <span className="badge">Draft</span>
+          </div>
+        ); })}
+      </div>
+      <div className="done-cta">
+        <a className="ctacard primary" href="Explorer.html">
+          <div className="ci">🧭</div>
+          <div className="ct">Explorer에서 확인 →</div>
+          <div className="cd">새 Item이 지도·목록에 Draft로 나타납니다. 같은 visibleItems로 동기화.</div>
+        </a>
+        <a className="ctacard" href="MetadataCompletion.html">
+          <div className="ci">◐</div>
+          <div className="ct">보완하기 →</div>
+          <div className="cd">누락 필드를 채워 Published 후보로. 라이브 품질 게이트로 진행.</div>
+        </a>
+        <a className="ctacard" href="Project.html">
+          <div className="ci">▤</div>
+          <div className="ct">Project 연결 →</div>
+          <div className="cd">미배정 Item을 프로젝트에 연결. 배정은 Published와 별개 축.</div>
+        </a>
+      </div>
+      <div className="done-foot"><button className="btn ghost" onClick={onReset}>← 다른 데이터 업로드</button></div>
+    </div>
+  );
+}
+
+/* ================= APP ================= */
+function App() {
+  const [mode, setMode] = useState('single');   // single | bulk
+  const [stage, setStage] = useState('intake');  // intake | analyzing | review | done
+  const [rows, setRows] = useState([]);          // {id, cat, name, date, project, _ovP, _ovD}
+  const [hot, setHot] = useState(false);
+  const [bulkProject, setBulkProject] = useState('');
+  const [bulkDate, setBulkDate] = useState('');
+
+  const mkRow = (f) => ({ id: f.id, cat: f.cat, name: suggestedName(f.file), date: f.auto.find(a => a[0] === 'acq_date') ? f.auto.find(a => a[0] === 'acq_date')[1] : '', project: '' });
+  const limit = mode === 'single' ? 2 : 8;
+  const addedIds = useMemo(() => new Set(rows.map(r => r.id)), [rows]);
+
+  function analyze(next) {
+    setRows(next); setStage('analyzing');
+    setTimeout(() => setStage('review'), 850);
+  }
+  function addFile(f) {
+    if (addedIds.has(f.id) || rows.length >= limit) return;
+    analyze([...rows, mkRow(f)]);
+  }
+  function addAll() { analyze(FILES.map(mkRow)); }
+  function changeRow(id, patch) { setRows(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r)); }
+  function removeRow(id) { setRows(rs => { const n = rs.filter(r => r.id !== id); if (!n.length) setStage('intake'); return n; }); }
+  function applyBulk() {
+    setRows(rs => rs.map(r => ({ ...r, project: (bulkProject !== '' ? bulkProject : r.project), _ovP: bulkProject !== '' ? false : r._ovP, date: (bulkDate ? bulkDate : r.date), _ovD: bulkDate ? false : r._ovD })));
+  }
+  function switchMode(m) { setMode(m); setStage('intake'); setRows([]); }
+  function reset() { setStage('intake'); setRows([]); setBulkProject(''); setBulkDate(''); }
+
+  const draftCount = rows.length;
+
+  return (
+    <div className="app">
+      <nav className="nav">
+        <span className="logo">SAMS<span className="v">v0.1</span></span>
+        <a className="navtab" href="Explorer.html">Explorer</a>
+        <a className="navtab" href="Project.html">Project</a>
+        <button className="navtab on">Upload</button>
+      </nav>
+
+      <div className="wrap">
+        <div className="inner">
+
+          {stage !== 'done' && (
+            <div className="uphead">
+              <div>
+                <h1>데이터 등록</h1>
+                <div className="sub">완성된 데이터만 받는 문이 아닙니다. 불완전해도 <b>Draft로 안전하게 수용</b>하고, 자동 분류로 "왜 Draft인지"를 등록 전에 먼저 드러냅니다.</div>
+              </div>
+              <div className="modetoggle">
+                <button className={mode === 'single' ? 'on' : ''} onClick={() => switchMode('single')}>단건 등록<span className="mt-s">정밀 · 1–2건</span></button>
+                <button className={mode === 'bulk' ? 'on' : ''} onClick={() => switchMode('bulk')}>벌크 등록<span className="mt-s">효율 · 다수</span></button>
+              </div>
+            </div>
+          )}
+
+          {stage !== 'done' && (
+            <div className="policy"><span className="pi">●</span><div>업로드된 데이터는 모두 <b>Draft</b>로 시작하며 기본 <b>미배정</b>입니다. Published 전환·프로젝트 배정은 등록 이후 별개 축으로 진행됩니다 — 등록 단계에서 완벽함을 강요하지 않습니다.</div></div>
+          )}
+
+          {/* INTAKE */}
+          {stage === 'intake' && (
+            <>
+              <div className={'drop' + (hot ? ' hot' : '')}
+                onDragOver={e => { e.preventDefault(); setHot(true); }} onDragLeave={() => setHot(false)}
+                onDrop={e => { e.preventDefault(); setHot(false); mode === 'bulk' ? addAll() : addFile(FILES[0]); }}>
+                <div className="di">⤓</div>
+                <h3>{mode === 'single' ? '파일을 끌어다 놓거나 선택' : '여러 파일을 한 번에 끌어다 놓기'}</h3>
+                <p>{mode === 'single' ? '정밀 등록 — 1~2개 파일의 모든 메타데이터를 직접 확인' : '효율 등록 — 테이블에서 공통값 일괄 입력 + 개별 override'}</p>
+                <p style={{ color: 'var(--t3)', fontStyle: 'italic' }}>mock-first — 아래 fixture로 시뮬레이션</p>
+              </div>
+
+              <div className="pal-h">mock 파일 추가 <span className="ln" /> {mode === 'single' ? '클릭해 1–2개 선택' : '클릭 또는 전체 추가'}</div>
+              <div className="palette">
+                {FILES.map(f => (
+                  <button key={f.id} className={'palchip' + (addedIds.has(f.id) ? ' added' : '')} onClick={() => addFile(f)} disabled={addedIds.has(f.id)}>
+                    <span className="pg"><CategoryGlyph cat={f.cat} s={17} /></span>
+                    <span className="pf"><span className="pn">{f.file}</span><span className="pe">{S.formatSize(f.size)} · {f.cat}</span></span>
+                    <span className="pp">{addedIds.has(f.id) ? '✓' : '＋'}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="palbar">
+                {mode === 'bulk' && <button className="btn primary" onClick={addAll}>전체 8개 추가 · 자동 분류 →</button>}
+                {rows.length > 0 && <button className="btn primary" onClick={() => setStage('review')}>{rows.length}건 분류 결과 보기 →</button>}
+              </div>
+            </>
+          )}
+
+          {/* ANALYZING */}
+          {stage === 'analyzing' && (
+            <div className="analyzing">
+              <div className="at">자동 분류 중…</div>
+              <div className="scanbar"><i /></div>
+              <div className="as">category · preview · spatial · 누락 메타데이터 예측</div>
+            </div>
+          )}
+
+          {/* REVIEW — SINGLE */}
+          {stage === 'review' && mode === 'single' && (
+            <>
+              <div className="sect-h">
+                <h2>분류 결과 검토</h2><span className="cnt">{rows.length}건 · 정밀 등록</span>
+                <div className="leg">
+                  <span><i style={{ background: 'var(--pub)' }} />available</span>
+                  <span><i style={{ background: 'var(--draft)' }} />pending</span>
+                  <span><i style={{ background: 'var(--t3)' }} />missing</span>
+                  <span><i style={{ background: 'var(--fail)' }} />failed</span>
+                </div>
+              </div>
+              {rows.map(r => <SingleCard key={r.id} f={FILE_BY[r.id]} row={r} onChange={changeRow} onRemove={removeRow} />)}
+              {rows.length < 2 && (
+                <>
+                  <div className="pal-h">파일 추가 <span className="ln" /></div>
+                  <div className="palette">
+                    {FILES.filter(f => !addedIds.has(f.id)).slice(0, 4).map(f => (
+                      <button key={f.id} className="palchip" onClick={() => addFile(f)}>
+                        <span className="pg"><CategoryGlyph cat={f.cat} s={17} /></span>
+                        <span className="pf"><span className="pn">{f.file}</span><span className="pe">{S.formatSize(f.size)} · {f.cat}</span></span>
+                        <span className="pp">＋</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {/* REVIEW — BULK */}
+          {stage === 'review' && mode === 'bulk' && (
+            <>
+              <div className="sect-h"><h2>분류 결과 검토</h2><span className="cnt">{rows.length}건 · 벌크 등록</span></div>
+              <div className="bulkbar">
+                <div className="bb-h">공통값 <b>일괄 적용</b><br /><span style={{ color: 'var(--t3)', fontWeight: 400 }}>개별 행에서 덮어쓸 수 있음</span></div>
+                <div className="bf"><label>프로젝트 (일괄)</label>
+                  <select value={bulkProject} onChange={e => setBulkProject(e.target.value)} style={{ width: 200 }}>
+                    <option value="">미배정 유지</option>
+                    {PROJECTS.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                  </select></div>
+                <div className="bf"><label>취득일 (일괄)</label><input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)} /></div>
+                <button className="btn ghost apply" onClick={applyBulk}>일괄 적용 ↻</button>
+              </div>
+              <BulkTable rows={rows} onChange={changeRow} onRemove={removeRow} />
+            </>
+          )}
+
+          {/* DONE */}
+          {stage === 'done' && <DoneView rows={rows} onReset={reset} />}
+
+          {/* ACTION BAR */}
+          {stage === 'review' && (
+            <div className="actbar">
+              <div className="summary"><b>{draftCount}건</b>이 <b style={{ color: 'var(--draft)' }}>Draft</b>로 등록됩니다 · 모두 미배정으로 시작</div>
+              <div className="right">
+                <button className="btn ghost" onClick={reset}>취소</button>
+                <button className="btn primary" disabled={!draftCount} onClick={() => setStage('done')}>
+                  {mode === 'bulk' ? draftCount + '건 일괄 Draft 등록 →' : 'Draft로 등록 →'}
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script>
+</body>
+</html>
