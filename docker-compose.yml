@@ -52,6 +52,8 @@ services:
     build:
       context: ./sams-api
       dockerfile: Dockerfile
+    # dev 기본값은 --reload. 배포 시 .env 의 SAMS_API_CMD 로 멀티워커(no reload)로 전환.
+    command: ${SAMS_API_CMD:-uvicorn sams.main:app --host 0.0.0.0 --port 8000 --reload}
     environment:
       DATABASE_URL: postgresql://sams:${DB_PASSWORD:-sams_dev_2024}@db:5432/samsdb
       STAC_API_URL: http://stac-api:8080
@@ -132,6 +134,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # dev 기본값은 Vite dev 서버. 배포 시 .env 의 FRONTEND_TARGET=prod 로 정적 빌드 서빙.
+      target: ${FRONTEND_TARGET:-dev}
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
     volumes:
@@ -145,7 +149,8 @@ services:
     ports:
       - "${NGINX_HOST_PORT:-7800}:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # dev 기본값은 nginx.conf(/minio 콘솔 노출). 배포 시 .env 의 NGINX_CONF_FILE=nginx.prod.conf.
+      - ./nginx/${NGINX_CONF_FILE:-nginx.conf}:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
       - sams-api

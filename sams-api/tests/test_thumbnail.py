@@ -38,7 +38,15 @@ class TestGenerateThumbnail:
     def test_unsupported_category_returns_none(self):
         """미지원 유형 → None."""
         assert generate_thumbnail("/fake/file", "unknown") is None
-        assert generate_thumbnail("/fake/file", "3d_tiles") is None
+
+    @pytest.mark.skipif(not _pillow_available(), reason="Pillow 미설치")
+    def test_3d_tiles_returns_placeholder(self):
+        """3D Tiles → 타일셋 렌더 대신 유형 플레이스홀더 PNG (원본 파일 불필요)."""
+        result = generate_thumbnail("/fake/tileset.json", "3d_tiles")
+        assert result is not None
+        assert result.endswith(".png")
+        assert os.path.exists(result)
+        os.unlink(result)
 
     def test_nonexistent_file_returns_none(self):
         """존재하지 않는 파일 → None (에러 없이)."""
