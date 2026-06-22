@@ -37,6 +37,7 @@ def generate_thumbnail(filepath: str, data_category: str) -> str | None:
         "panorama": _thumb_image,  # 파노라마도 이미지 리사이즈
         "video": _thumb_video,
         "document": _thumb_document,
+        "3d_tiles": _thumb_3dtiles,
     }
 
     gen = generators.get(data_category)
@@ -244,6 +245,56 @@ def _thumb_document(filepath: str) -> str | None:
         logger.exception("pdf2image PDF 썸네일 실패")
 
     return None
+
+
+def _thumb_3dtiles(filepath: str) -> str | None:
+    """3D Tiles → 타일셋 대표 렌더가 어려우므로 유형 플레이스홀더 타일을 생성한다."""
+    return _thumb_placeholder("3d_tiles")
+
+
+_PLACEHOLDER_COLORS = {
+    "3d_tiles": (37, 99, 235),
+    "pointcloud": (14, 165, 233),
+    "3d_model": (139, 92, 246),
+    "orthoimage": (16, 185, 129),
+    "image": (245, 158, 11),
+    "panorama": (236, 72, 153),
+    "video": (239, 68, 68),
+    "document": (100, 116, 139),
+}
+
+
+def _thumb_placeholder(data_category: str) -> str | None:
+    """렌더 불가 유형(예: 3D Tiles)용 — 유형 라벨이 중앙에 들어간 단색 플레이스홀더 타일.
+
+    원본 파일을 읽지 않으므로 어떤 경로든(존재하지 않아도) 항상 생성 가능하다.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        logger.warning("Pillow 미설치 — 플레이스홀더 썸네일 건너뜀")
+        return None
+
+    bg = _PLACEHOLDER_COLORS.get(data_category, (71, 85, 105))
+    img = Image.new("RGB", THUMB_SIZE, bg)
+    draw = ImageDraw.Draw(img)
+    label = (data_category or "asset").replace("_", " ").upper()
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+    try:
+        bbox = draw.textbbox((0, 0), label, font=font)
+        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    except Exception:
+        text_w, text_h = len(label) * 6, 11
+    draw.text(
+        ((THUMB_WIDTH - text_w) / 2, (THUMB_HEIGHT - text_h) / 2),
+        label, fill=(235, 240, 248), font=font,
+    )
+    out = _tmp_png()
+    img.save(out, "PNG")
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────
