@@ -37,6 +37,11 @@ function DoneView({ task, onRemove }) {
   const col = task.registeredCollectionId
   const single = ids.length === 1 ? ids[0] : null
   const go = (pathname, state) => navigate({ pathname, search: location.search }, state ? { state } : undefined)
+  const goProject = () => {
+    const search = new URLSearchParams(location.search)
+    if (col) search.set('col', col)
+    navigate({ pathname: '/project', search: search.toString() })
+  }
 
   return (
     <div className="done-wrap">
@@ -73,7 +78,7 @@ function DoneView({ task, onRemove }) {
             <div className="cd">누락 필드를 채워 Published 후보로. 라이브 품질 게이트로 진행.</div>
           </button>
         )}
-        <button type="button" className="ctacard" onClick={() => go('/project')}>
+        <button type="button" className="ctacard" onClick={goProject}>
           <div className="ci">▤</div>
           <div className="ct">Project 확인 →</div>
           <div className="cd">프로젝트별 현황·Draft 목록에서 후속 작업.</div>
@@ -143,7 +148,11 @@ export default function TaskSection({ task }) {
 
       {task.status === 'analyzing' && (
         <div className="analyzing">
-          <div className="at">{task.uploadProgress != null && task.uploadProgress < 100 ? `서버로 전송 중 — ${task.uploadProgress}%` : '자동 분류 중…'}</div>
+          <div className="at">
+            {task.uploadProgress != null && task.uploadProgress < 100
+              ? `${task.uploadStage || '서버로 전송 중'} — ${task.uploadProgress}%`
+              : (task.uploadStage || '자동 분류 중…')}
+          </div>
           <div className="scanbar">
             {task.uploadProgress != null && task.uploadProgress < 100
               ? <i className="det" style={{ width: task.uploadProgress + '%' }} />

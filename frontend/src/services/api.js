@@ -12,17 +12,28 @@ export const stacApi = axios.create({ baseURL: '/stac' })
 
 // ── Upload (자동 채움 파이프라인) ──
 export const uploadApi = {
+  getPolicy: (config = {}) => samsApi.get('/upload/policy', config),
   analyze: (formData, config) => samsApi.post('/upload/analyze', formData, config),
+  analyzeAsync: (formData, config) => samsApi.post('/upload/analyze-async', formData, config),
   validate: (manifest) => samsApi.post('/upload/validate', manifest),
   register: (manifest) => samsApi.post('/upload/register', manifest),
-  getSession: (sessionId) => samsApi.get(`/upload/sessions/${sessionId}`),
+  getSession: (sessionId, config = {}) => samsApi.get(`/upload/sessions/${sessionId}`, config),
+  retryAnalysis: (sessionId, config = {}) => samsApi.post(`/upload/sessions/${sessionId}/retry-analysis`, {}, config),
   cancelSession: (sessionId) => samsApi.delete(`/upload/sessions/${sessionId}`),
   getPresignedUrl: (params, config = {}) => samsApi.get('/upload/presigned-url', { params, ...config }),
   getManifestTemplate: (collectionId) => samsApi.get(`/upload/manifest-template/${collectionId}`, { responseType: 'blob' }),
   importManifest: (formData) => samsApi.post('/upload/manifest-import', formData),
   uploadComplete: (body, config) => samsApi.post('/upload/upload-complete', body, config),
+  initiateMultipart: (body, config) => samsApi.post('/upload/multipart/initiate', body, config),
+  getMultipartPartUrl: (body, config) => samsApi.post('/upload/multipart/part-url', body, config),
+  completeMultipart: (body, config) => samsApi.post('/upload/multipart/complete', body, config),
+  abortMultipart: (body, config) => samsApi.post('/upload/multipart/abort', body, config),
   // presigned PUT — MinIO 직행이므로 samsApi 인스턴스(baseURL/인터셉터) 를 쓰지 않는다
   putPresigned: (url, file, config = {}) => axios.put(url, file, {
+    headers: { 'Content-Type': 'application/octet-stream' },
+    ...config,
+  }),
+  putPresignedPart: (url, blob, config = {}) => axios.put(url, blob, {
     headers: { 'Content-Type': 'application/octet-stream' },
     ...config,
   }),
@@ -32,6 +43,7 @@ export const uploadApi = {
 export const collectionApi = {
   list: () => stacApi.get('/collections'),
   get: (id) => stacApi.get(`/collections/${id}`),
+  items: (id, params = {}) => stacApi.get(`/collections/${id}/items`, { params: { limit: 200, ...params } }),
   create: (data) => samsApi.post('/collections', data),
   update: (id, data) => samsApi.put(`/collections/${id}`, data),
   dashboard: (id) => samsApi.get(`/collections/${id}/dashboard`),

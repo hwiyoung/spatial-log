@@ -47,6 +47,22 @@
 .up .policy b { color: var(--t1); }
 .up .policy .pi { flex: none; color: var(--orange); font-size: 15px; line-height: 1.2; }
 
+.up .large-warn {
+  display: flex; align-items: center; gap: 14px; justify-content: space-between;
+  background: color-mix(in srgb, var(--draft) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--draft) 34%, transparent);
+  border-radius: 10px; padding: 12px 14px; margin: -4px 0 18px;
+}
+.up .large-warn .lw-main { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.up .large-warn .lw-ico {
+  flex: none; width: 20px; height: 20px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #1a1302; background: var(--draft); font-weight: 800; font-size: 13px;
+}
+.up .large-warn b { color: var(--t1); }
+.up .large-warn span { color: #e7d9b4; line-height: 1.5; }
+.up .large-warn .lw-actions { display: flex; gap: 8px; flex: none; }
+
 /* options row (Collection 선택 + 자동 등록) */
 .up .optrow { display: flex; gap: 14px; align-items: flex-end; margin-bottom: 14px; flex-wrap: wrap; }
 .up .optrow .of { display: flex; flex-direction: column; gap: 5px; }
@@ -176,6 +192,14 @@
 .up .ff label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--t3); font-weight: 600; display: block; margin-bottom: 5px; }
 .up .ff input, .up .ff select { width: 100%; }
 .up .ff .opt { font-size: 9px; color: var(--t3); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.up .acq-input { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.up .acq-dt { width: 100%; }
+.up .acq-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.up .acq-actions button {
+  border: 1px solid var(--line); background: #10161e; color: var(--t2);
+  border-radius: 6px; padding: 4px 7px; font-size: 10.5px; line-height: 1.2;
+}
+.up .acq-actions button:hover { border-color: var(--orange); color: var(--t1); }
 
 /* bulk table */
 .up .tbl-wrap { border: 1px solid var(--line); border-radius: 11px; overflow: auto; background: var(--card); margin-top: 12px; }
@@ -193,6 +217,10 @@
 .up .td-cat .tcg { color: #AEB7C4; flex: none; }
 .up .tbl-sel { background: #121821; border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; font-size: 11.5px; color: var(--t1); }
 .up .tbl-in { width: 130px; }
+.up .acq-input.compact { width: 190px; gap: 5px; }
+.up .acq-input.compact .acq-dt { width: 190px; font-size: 11.5px; padding: 5px 6px; }
+.up .acq-input.compact .acq-actions { flex-wrap: wrap; }
+.up .acq-input.compact .acq-actions button { padding: 3px 5px; font-size: 10px; white-space: nowrap; }
 .up .tbl-rm { color: var(--t3); background: transparent; border: 0; font-size: 15px; }
 .up .tbl-rm:hover { color: var(--fail); }
 .up .miss-cell { font-size: 10.5px; color: var(--draft); font-family: var(--font-mono); max-width: 220px; overflow-wrap: anywhere; }

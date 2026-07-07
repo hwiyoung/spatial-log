@@ -12,7 +12,7 @@
  */
 import { useEffect, useState } from 'react'
 import { collectionApi } from '../services/api'
-import { useUploadTasks } from '../contexts/UploadTasksContext'
+import { DEFAULT_UPLOAD_POLICY, formatUploadBytes, useUploadTasks } from '../contexts/UploadTasksContext'
 import TaskSection from '../components/upload/TaskSection'
 import '../styles/upload.css'
 
@@ -21,7 +21,8 @@ export default function Upload() {
   const [collections, setCollections] = useState([])
   const [selectedCollection, setSelectedCollection] = useState('')
   const [autoRegister, setAutoRegister] = useState(false)
-  const { tasks, startAnalysis } = useUploadTasks()
+  const [pendingLargeUpload, setPendingLargeUpload] = useState(null)
+  const { tasks, startAnalysis, uploadPolicy } = useUploadTasks()
 
   useEffect(() => {
     collectionApi.list()
@@ -30,6 +31,38 @@ export default function Upload() {
   }, [])
 
   const visibleTasks = tasks.slice().reverse()
+  const policy = uploadPolicy || DEFAULT_UPLOAD_POLICY
+
+  function queueFiles(files) {
+    const selected = [...files]
+    if (selected.length === 0) return
+    const totalBytes = selected.reduce((sum, f) => sum + (f.size || 0), 0)
+    const warnBytes = policy.warn_upload_bytes || DEFAULT_UPLOAD_POLICY.warn_upload_bytes
+    const maxBytes = policy.max_upload_bytes || DEFAULT_UPLOAD_POLICY.max_upload_bytes
+    if (totalBytes >= warnBytes && totalBytes <= maxBytes) {
+      setPendingLargeUpload({
+        files: selected,
+        mode,
+        collectionId: selectedCollection,
+        autoRegister,
+        totalBytes,
+        fileCount: selected.length,
+      })
+      return
+    }
+    startAnalysis(selected, mode, selectedCollection, autoRegister)
+  }
+
+  function confirmLargeUpload() {
+    if (!pendingLargeUpload) return
+    startAnalysis(
+      pendingLargeUpload.files,
+      pendingLargeUpload.mode,
+      pendingLargeUpload.collectionId,
+      pendingLargeUpload.autoRegister,
+    )
+    setPendingLargeUpload(null)
+  }
 
   return (
     <div className="up">
@@ -76,8 +109,27 @@ export default function Upload() {
 
         <Dropzone
           mode={mode}
-          onFiles={(files) => startAnalysis(files, mode, selectedCollection, autoRegister)}
+          onFiles={queueFiles}
         />
+
+        {pendingLargeUpload && (
+          <div className="large-warn" role="alert">
+            <div className="lw-main">
+              <span className="lw-ico">!</span>
+              <div>
+                <b>{formatUploadBytes(pendingLargeUpload.totalBytes)}</b> 대용량 업로드입니다.
+                <span>
+                  {' '}파일 {pendingLargeUpload.fileCount}개 · 경고 기준 {formatUploadBytes(policy.warn_upload_bytes)} 이상.
+                  업로드와 자동 분류가 오래 걸릴 수 있으니 네트워크와 저장 공간을 확인하세요.
+                </span>
+              </div>
+            </div>
+            <div className="lw-actions">
+              <button type="button" className="btn ghost" onClick={() => setPendingLargeUpload(null)}>취소</button>
+              <button type="button" className="btn primary" onClick={confirmLargeUpload}>업로드 시작</button>
+            </div>
+          </div>
+        )}
 
         {visibleTasks.map(task => <TaskSection key={task.id} task={task} />)}
       </div>
