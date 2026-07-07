@@ -21,6 +21,7 @@ import { buildCompletionSpec } from '../features/completion/buildCompletionSpec.
 import { STATUS_META, PREVIEW_META, SPATIAL_LABEL, tint } from '../features/explorer/explorerMeta'
 import { getCategoryInfo } from '../constants'
 import CategoryGlyph from '../components/viewer/CategoryGlyph'
+import AcquiredDateTimeInput from '../components/upload/AcquiredDateTimeInput'
 import '../styles/completion.css'
 
 function Badge({ status }) {
@@ -44,6 +45,8 @@ function Field({ f, value, prov, onChange }) {
       <div className="f-input">
         {f.readonly ? (
           <span className="f-readonly">{f.kind === 'category' ? getCategoryInfo(value).label : value}</span>
+        ) : f.kind === 'datetime' ? (
+          <AcquiredDateTimeInput value={value} autoValue={f.seed} onChange={onChange} />
         ) : f.kind === 'select' ? (
           <select value={value} onChange={e => onChange(e.target.value)}>
             <option value="">— 선택 —</option>
@@ -58,6 +61,27 @@ function Field({ f, value, prov, onChange }) {
   )
 }
 
+function collectionTitle(col) {
+  return col?.title || col?.id || ''
+}
+
+function collectionSite(col) {
+  return col?.summaries?.['project:site'] || col?.properties?.['project:site'] || ''
+}
+
+function collectionOptionLabel(col) {
+  const title = collectionTitle(col)
+  return title && title !== col.id ? `${title} (${col.id})` : title
+}
+
+function projectMetadataForCollection(col) {
+  if (!col || col.id === 'unassigned-inbox') return { name: '', site: '' }
+  return {
+    name: collectionTitle(col),
+    site: collectionSite(col),
+  }
+}
+
 export default function MetadataCompletion() {
   const { collectionId, itemId } = useParams()
   const navigate = useNavigate()
@@ -70,7 +94,7 @@ export default function MetadataCompletion() {
   const [vals, setVals] = useState({})
   const [seeds, setSeeds] = useState({})
   const [touched, setTouched] = useState({})   // 사용자가 직접 수정한 키 — 저장 후에도 '수동' 유지
-  const [proj, setProj] = useState({ name: '', site: '' })
+  const [selectedProjectId, setSelectedProjectId] = useState('')
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [published, setPublished] = useState(false)
@@ -102,8 +126,7 @@ export default function MetadataCompletion() {
           setSeeds(seed)
           setVals(seed)
           setTouched({})
-          const props = loaded.properties || {}
-          setProj({ name: props['project:name'] || '', site: props['project:site'] || '' })
+          setSelectedProjectId(loaded.collection || collectionId)
           setPublished(v.status === 'published')
         }
       } catch (err) {
@@ -119,6 +142,13 @@ export default function MetadataCompletion() {
 
   const view = useMemo(() => (item ? getExplorerItemView(item, collections) : null), [item, collections])
   const spec = useMemo(() => (item && view ? buildCompletionSpec(item, view) : null), [item, view])
+  const selectedProject = useMemo(
+    () => collections.find(c => c.id === selectedProjectId) || null,
+    [collections, selectedProjectId],
+  )
+  const selectedProjectMeta = useMemo(() => projectMetadataForCollection(selectedProject), [selectedProject])
+  const projectWillMove = Boolean(selectedProjectId && selectedProjectId !== collectionId)
+  const projectAssigned = Boolean(selectedProjectId && selectedProjectId !== 'unassigned-inbox')
 
   // 진입 출처(Detail/Explorer/Upload)에 따라 돌아갈 곳을 맞춘다 — navigate state 의 from 힌트
   const origin = location.state?.from || 'detail'
@@ -199,22 +229,34 @@ export default function MetadataCompletion() {
         payload[f.key] = next
       }
     })
-    const props = item.properties || {}
-    if ((proj.name || '').trim() !== (props['project:name'] || '').trim()) payload['project:name'] = proj.name.trim() || null
-    if ((proj.site || '').trim() !== (props['project:site'] || '').trim()) payload['project:site'] = proj.site.trim() || null
+    if (projectWillMove) {
+      payload['project:name'] = selectedProjectMeta.name || null
+      payload['project:site'] = selectedProjectMeta.site || null
+    }
     return payload
   }
 
   const handleSave = async () => {
     if (!validateDatetime()) return
     const payload = changedPayload()
-    if (Object.keys(payload).length === 0) { showToast('변경된 내용이 없습니다'); return }
+    if (Object.keys(payload).length === 0 && !projectWillMove) { showToast('변경된 내용이 없습니다'); return }
     if (isMock) { showToast('저장됨 (데모 세션 — 영속되지 않음)'); return }
     setSaving(true)
     try {
-      await itemApi.updateProperties(collectionId, itemId, payload)
-      setSeeds(s => ({ ...s, ...Object.fromEntries(Object.entries(payload).filter(([k]) => k in s).map(([k, v]) => [k, v == null ? '' : String(v)])) }))
-      showToast('Draft가 저장되었습니다')
+      if (Object.keys(payload).length > 0) {
+        await itemApi.updateProperties(collectionId, itemId, payload)
+        setSeeds(s => ({ ...s, ...Object.fromEntries(Object.entries(payload).filter(([k]) => k in s).map(([k, v]) => [k, v == null ? '' : String(v)])) }))
+      }
+      if (projectWillMove) {
+        await itemApi.move(collectionId, itemId, selectedProjectId)
+        showToast('프로젝트가 변경되었습니다')
+        navigate(
+          { pathname: `/complete/${selectedProjectId}/${itemId}`, search: location.search },
+          { replace: true, state: location.state },
+        )
+      } else {
+        showToast('Draft가 저장되었습니다')
+      }
     } catch (err) {
       alert('저장 실패: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -231,9 +273,17 @@ export default function MetadataCompletion() {
       // 미저장 변경분 먼저 저장 후 전환 — 백엔드 게이트가 최종 검증한다
       const payload = changedPayload()
       if (Object.keys(payload).length > 0) await itemApi.updateProperties(collectionId, itemId, payload)
-      await itemApi.updateStatus(`${collectionId}/${itemId}`, 'published')
+      const statusCollectionId = projectWillMove ? selectedProjectId : collectionId
+      if (projectWillMove) await itemApi.move(collectionId, itemId, selectedProjectId)
+      await itemApi.updateStatus(`${statusCollectionId}/${itemId}`, 'published')
       setPublished(true)
       showToast('Published로 전환되었습니다')
+      if (projectWillMove) {
+        navigate(
+          { pathname: `/complete/${selectedProjectId}/${itemId}`, search: location.search },
+          { replace: true, state: location.state },
+        )
+      }
     } catch (err) {
       alert('전환 실패: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -313,32 +363,24 @@ export default function MetadataCompletion() {
               <div className="field" id="mcf-project">
                 <div className="f-label"><span className="f-name">프로젝트</span><span className="f-key">project:name</span></div>
                 <div className="f-input">
-                  <select
-                    value={proj.name}
-                    onChange={e => {
-                      const name = e.target.value
-                      const col = collections.find(c => (c.title || c.id) === name)
-                      setProj({ name, site: name ? (col?.summaries?.['project:site'] || col?.properties?.['project:site'] || proj.site) : '' })
-                    }}
-                  >
-                    <option value="">미배정 (나중에 배정)</option>
-                    {collections.filter(c => c.id !== 'unassigned-inbox').map(c => (
-                      <option key={c.id} value={c.title || c.id}>{c.title || c.id}</option>
+                  <select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}>
+                    {collections.map(c => (
+                      <option key={c.id} value={c.id}>{collectionOptionLabel(c)}</option>
                     ))}
                   </select>
-                  <span className={'prov ' + (proj.name ? 'manual' : 'needed')}>{proj.name ? '수동' : '미배정'}</span>
+                  <span className={'prov ' + (projectWillMove ? 'manual' : 'auto')}>{projectWillMove ? '이동' : '현재'}</span>
                 </div>
               </div>
               <div className="field">
                 <div className="f-label"><span className="f-name">사이트</span><span className="f-key">project:site</span></div>
                 <div className="f-input">
-                  <input value={proj.site} placeholder="프로젝트 연결 시 자동 / 직접 입력" onChange={e => setProj(p => ({ ...p, site: e.target.value }))} />
-                  <span className={'prov ' + (proj.site ? 'manual' : 'needed')}>{proj.site ? '수동' : '미입력'}</span>
+                  <span className="f-readonly">{selectedProjectMeta.site || '—'}</span>
+                  <span className={'prov ' + (selectedProjectMeta.site ? 'auto' : 'needed')}>{selectedProjectMeta.site ? 'AUTO' : '미입력'}</span>
                 </div>
               </div>
               <div className="proj-note">
-                <span>ℹ️</span>
-                <div><b>프로젝트 미배정이어도 Published 가능</b>합니다. 여기서는 메타데이터(project:name/site)만 기록하며, Collection 이동은 Detail의 📦 이동에서 수행합니다.</div>
+                <span>i</span>
+                <div><b>{projectWillMove ? '저장하면 실제 프로젝트 소속이 변경됩니다.' : '현재 실제 프로젝트 소속입니다.'}</b> 프로젝트를 바꾸면 선택한 Collection 값으로 project:name/site가 기록됩니다.</div>
               </div>
             </div>
           </div>
@@ -382,7 +424,7 @@ export default function MetadataCompletion() {
                     <div><b>preview 실패는 Published를 막지 않습니다.</b>{view.previewFail && <> 사유: <span className="mono">{view.previewFail}</span></>}</div>
                   </div>
                 )}
-                {!proj.name && (
+                {!projectAssigned && (
                   <div className="note-card info"><span className="ni">◇</span><div><b>프로젝트 미배정</b> — Published 비차단. 나중에 배정 가능.</div></div>
                 )}
                 {gateMet && !published && (

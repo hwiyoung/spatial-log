@@ -7,8 +7,11 @@
  */
 import CategoryGlyph from '../viewer/CategoryGlyph'
 import SpatialMiniMap from './SpatialMiniMap'
+import AcquiredDateTimeInput from '../upload/AcquiredDateTimeInput'
 import { CATEGORIES } from '../../constants'
 import { STATUS_META, tint } from '../../features/explorer/explorerMeta'
+
+export const PROJECT_MOVE_DRAFT_KEY = '__target_collection_id'
 
 // 메타 행 key → 실제 편집 대상 STAC property key
 const EDIT_FIELD = {
@@ -24,6 +27,19 @@ const EDIT_FIELD = {
   gsd: 'gsd',
 }
 const STATUS_OPTIONS = ['draft', 'published', 'archived']
+
+function collectionTitle(col) {
+  return col?.title || col?.id || ''
+}
+
+function collectionSite(col) {
+  return col?.summaries?.['project:site'] || col?.properties?.['project:site'] || ''
+}
+
+function collectionOptionLabel(col) {
+  const title = collectionTitle(col)
+  return title && title !== col.id ? `${title} (${col.id})` : title
+}
 
 function ProvBadge({ prov }) {
   return <span className={'prov ' + prov}>{prov === 'auto' ? 'AUTO' : prov === 'manual' ? '수동' : '미입력'}</span>
@@ -45,9 +61,11 @@ function rawValue(item, propKey, editDraft) {
   return typeof raw === 'object' ? JSON.stringify(raw) : String(raw)
 }
 
-function EditField({ propKey, item, editDraft, onEditChange, placeholder }) {
+function EditField({ propKey, item, editDraft, onEditChange, placeholder, collections, currentCollectionId }) {
   const value = rawValue(item, propKey, editDraft)
   const set = (v) => onEditChange(propKey, v)
+  const selectedProjectId = editDraft[PROJECT_MOVE_DRAFT_KEY] || currentCollectionId
+  const selectedProject = collections.find(c => c.id === selectedProjectId)
 
   if (propKey === 'sams:status') {
     return (
@@ -63,6 +81,19 @@ function EditField({ propKey, item, editDraft, onEditChange, placeholder }) {
       </select>
     )
   }
+  if (propKey === 'datetime') {
+    return <AcquiredDateTimeInput value={value} autoValue={item?.properties?.datetime} onChange={set} />
+  }
+  if (propKey === 'project:name') {
+    return (
+      <select className="rr-sel" value={selectedProjectId} onChange={e => onEditChange(PROJECT_MOVE_DRAFT_KEY, e.target.value)}>
+        {collections.map(c => <option key={c.id} value={c.id}>{collectionOptionLabel(c)}</option>)}
+      </select>
+    )
+  }
+  if (propKey === 'project:site') {
+    return <span className="mv">{collectionSite(selectedProject) || '—'}</span>
+  }
   return (
     <input
       className="mv-input" value={value} placeholder={placeholder || '입력하세요'}
@@ -71,14 +102,22 @@ function EditField({ propKey, item, editDraft, onEditChange, placeholder }) {
   )
 }
 
-function MetaRow({ row, item, editMode, editDraft, onEditChange }) {
+function MetaRow({ row, item, editMode, editDraft, onEditChange, collections, currentCollectionId }) {
   const propKey = EDIT_FIELD[row.k]
   const editable = editMode && !!propKey
   return (
     <div className="mrow">
       <span className="mk">{row.glyph && <CategoryGlyph cat={row.glyph} s={14} />}{row.label}</span>
       {editable ? (
-        <EditField propKey={propKey} item={item} editDraft={editDraft} onEditChange={onEditChange} placeholder={row.value} />
+        <EditField
+          propKey={propKey}
+          item={item}
+          editDraft={editDraft}
+          onEditChange={onEditChange}
+          placeholder={row.value}
+          collections={collections}
+          currentCollectionId={currentCollectionId}
+        />
       ) : (
         <span className={'mv' + (row.mono ? ' mono' : '') + (row.prov === 'needed' ? ' needed' : '')}>
           {row.status ? <StatusBadgeInline status={row.status} /> : row.value}
@@ -89,7 +128,7 @@ function MetaRow({ row, item, editMode, editDraft, onEditChange }) {
   )
 }
 
-export function MetadataSection({ meta, item, editMode, editDraft, onEditChange }) {
+export function MetadataSection({ meta, item, editMode, editDraft, onEditChange, collections = [], currentCollectionId = '' }) {
   const groups = meta.order.filter(g => g !== 'Spatial')
   return (
     <section className="dsec">
@@ -104,7 +143,16 @@ export function MetadataSection({ meta, item, editMode, editDraft, onEditChange 
           <div className="meta-gh">{g}</div>
           <div className="meta-grid">
             {meta.groups[g].map(row => (
-              <MetaRow key={row.k} row={row} item={item} editMode={editMode} editDraft={editDraft} onEditChange={onEditChange} />
+              <MetaRow
+                key={row.k}
+                row={row}
+                item={item}
+                editMode={editMode}
+                editDraft={editDraft}
+                onEditChange={onEditChange}
+                collections={collections}
+                currentCollectionId={currentCollectionId}
+              />
             ))}
           </div>
         </div>

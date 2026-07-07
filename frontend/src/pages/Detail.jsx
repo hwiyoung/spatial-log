@@ -23,7 +23,7 @@ import { buildDetailMetadata } from '../features/detail/buildDetailMetadata.js'
 import { normalizeRelations } from '../features/detail/normalizeRelations.js'
 import { buildMockTimeline } from '../features/detail/buildMockTimeline.js'
 import { DetailHeader, AssetsSection } from '../components/detail/DetailHero'
-import { MetadataSection, SpatialSection } from '../components/detail/MetadataSection'
+import { MetadataSection, SpatialSection, PROJECT_MOVE_DRAFT_KEY } from '../components/detail/MetadataSection'
 import RelationsSection from '../components/detail/RelationsSection'
 import TimelineSection from '../components/detail/TimelineSection'
 import HistorySection from '../components/detail/HistorySection'
@@ -88,6 +88,14 @@ function toCandidate(feature) {
     status: getItemStatus(feature),
     file: getOriginalFilename(feature) || feature.id,
   }
+}
+
+function collectionTitle(col) {
+  return col?.title || col?.id || ''
+}
+
+function collectionSite(col) {
+  return col?.summaries?.['project:site'] || col?.properties?.['project:site'] || ''
 }
 
 export default function Detail() {
@@ -243,13 +251,31 @@ export default function Detail() {
   // ── metadata edit ──
   const onEditChange = useCallback((key, value) => setEditDraft(prev => ({ ...prev, [key]: value })), [])
   const handleSave = async () => {
-    if (Object.keys(editDraft).length === 0) { setEditMode(false); return }
+    const { [PROJECT_MOVE_DRAFT_KEY]: targetCollectionId, ...propertyDraft } = editDraft
+    const projectWillMove = Boolean(targetCollectionId && targetCollectionId !== collectionId)
+    if (Object.keys(propertyDraft).length === 0 && !projectWillMove) { setEditMode(false); return }
     setSaving(true)
     try {
-      await itemApi.updateProperties(collectionId, itemId, editDraft)
+      let activeCollectionId = collectionId
+      let shouldNavigate = false
+      if (projectWillMove) {
+        await itemApi.move(collectionId, itemId, targetCollectionId)
+        activeCollectionId = targetCollectionId
+        shouldNavigate = true
+        const targetCollection = collections.find(c => c.id === targetCollectionId)
+        propertyDraft['project:name'] = targetCollectionId === 'unassigned-inbox' ? null : (collectionTitle(targetCollection) || null)
+        propertyDraft['project:site'] = targetCollectionId === 'unassigned-inbox' ? null : (collectionSite(targetCollection) || null)
+      }
+      if (Object.keys(propertyDraft).length > 0) {
+        await itemApi.updateProperties(activeCollectionId, itemId, propertyDraft)
+      }
       setEditMode(false)
       setEditDraft({})
-      await loadItem()
+      if (shouldNavigate) {
+        navigate({ pathname: `/detail/${activeCollectionId}/${itemId}`, search: location.search }, { replace: true })
+      } else {
+        await loadItem()
+      }
     } catch (err) {
       alert('저장 실패: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -320,7 +346,15 @@ export default function Detail() {
 
         <AssetsSection view={view} onOpenViewer={goViewer} onDownload={handleDownload} canDownload={canDownload} />
 
-        <MetadataSection meta={meta} item={item} editMode={editMode} editDraft={editDraft} onEditChange={onEditChange} />
+        <MetadataSection
+          meta={meta}
+          item={item}
+          editMode={editMode}
+          editDraft={editDraft}
+          onEditChange={onEditChange}
+          collections={collections}
+          currentCollectionId={collectionId}
+        />
 
         <SpatialSection
           meta={meta} item={item} view={view}

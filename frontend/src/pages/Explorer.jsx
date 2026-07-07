@@ -106,12 +106,12 @@ export default function Explorer() {
     api.then(res => setCollections(res.data?.collections || [])).catch(() => setCollections([]))
   }, [mockMode])
 
-  // ── 범위 검색 (debounced): 키워드·시간·그린 영역은 서버(/search) 파라미터로 범위 자체를 좁히고,
-  //    상태·카테고리·프로젝트·뷰포트는 클라이언트 필터(즉시 토글 + facet 일관성). ──
+  // ── 범위 검색 (debounced): 키워드·시간·그린 영역·프로젝트는 서버(/search) 파라미터로 범위 자체를 좁히고,
+  //    상태·카테고리·뷰포트는 클라이언트 필터(즉시 토글 + facet 일관성). ──
   useEffect(() => {
     const timer = setTimeout(() => doSearch(), 300)
     return () => clearTimeout(timer)
-  }, [filters.kw, filters.timeFrom, filters.timeTo, filters.drawnBbox, mockMode])
+  }, [filters.kw, filters.timeFrom, filters.timeTo, filters.drawnBbox, filters.project, mockMode])
 
   const doSearch = useCallback(async () => {
     setLoading(true)
@@ -119,14 +119,18 @@ export default function Explorer() {
       const interval = monthRangeToInterval(filters.timeFrom, filters.timeTo)
       if (mockMode) {
         const res = await mockExplorerDataSource.search({
-          keyword: filters.kw, categories: [], collectionId: null, status: 'all',
+          keyword: filters.kw,
+          categories: [],
+          collectionId: filters.project === 'all' ? null : filters.project,
+          status: 'all',
           datetimeRange: interval ? interval.split('/').map(v => (v === '..' ? null : v)) : null,
           bbox: filters.drawnBbox,
         })
         setScopeItems(res.data?.features || [])
         return
       }
-      const params = { limit: 200 }
+      const params = { limit: filters.project === 'all' ? 200 : 1000 }
+      if (filters.project !== 'all') params.collections = [filters.project]
       if (interval) params.datetime = interval
       if (filters.drawnBbox) params.bbox = filters.drawnBbox
       const kw = filters.kw.trim()
@@ -145,7 +149,7 @@ export default function Explorer() {
     } finally {
       setLoading(false)
     }
-  }, [filters.kw, filters.timeFrom, filters.timeTo, filters.drawnBbox, mockMode])
+  }, [filters.kw, filters.timeFrom, filters.timeTo, filters.drawnBbox, filters.project, mockMode])
 
   // 좌표 없는 Item 의 project fallback 위치 + region 라벨 (Collection extent → Item 유도).
   // 키워드 검색으로 결과가 좁혀져도 앵커가 사라지거나 점프하지 않게 세션 동안 sticky (선착 키 유지).

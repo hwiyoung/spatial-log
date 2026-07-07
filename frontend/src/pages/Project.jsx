@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { collectionApi, searchApi, itemApi } from '../services/api'
+import { collectionApi, itemApi } from '../services/api'
 import { isMockExplorerMode, mockExplorerDataSource } from '../mocks/mockExplorerDataSource'
 import { getExplorerItemView } from '../features/explorer/getExplorerItemView.js'
 import { getProjectStats, getCollectionFacts } from '../features/project/getProjectStats.js'
@@ -47,8 +47,8 @@ export default function Project() {
   const [mapSel, setMapSel] = useState(null)
   const loadSeq = useRef(0)   // 빠른 프로젝트 전환 시 늦게 도착한 응답이 화면을 덮지 않게
 
-  // 보완 화면에서 "← Project로" 복귀 시 원래 프로젝트 복원 (?col= 힌트)
-  const initialCol = useMemo(() => new URLSearchParams(window.location.search).get('col'), [])
+  // 보완/업로드 화면에서 "← Project로" 복귀 시 원래 프로젝트 복원 (?col= 힌트)
+  const requestedCol = useMemo(() => new URLSearchParams(location.search).get('col'), [location.search])
 
   // ── Collection 목록 + 사이드바 통계 ──
   // 주의: 갱신(rename/move/create 후)에는 전체 로더를 띄우지 않는다 — 화면 언마운트로
@@ -59,8 +59,8 @@ export default function Project() {
       const cols = res.data?.collections || []
       setCollections(cols)
       setSelectedId(prev => (
-        prev && cols.some(c => c.id === prev) ? prev
-          : (initialCol && cols.some(c => c.id === initialCol)) ? initialCol
+        (requestedCol && cols.some(c => c.id === requestedCol)) ? requestedCol
+          : prev && cols.some(c => c.id === prev) ? prev
             : (cols[0]?.id ?? null)
       ))
       setLoading(false)   // 목록이 오면 즉시 페인트 — 사이드바 통계는 비동기로 채워진다
@@ -95,7 +95,7 @@ export default function Project() {
     } finally {
       setLoading(false)
     }
-  }, [isMock, initialCol])
+  }, [isMock, requestedCol])
 
   useEffect(() => { loadCollections() }, [loadCollections])
 
@@ -112,7 +112,7 @@ export default function Project() {
         setDashboard(null)
       } else {
         const [itemsRes, dashRes] = await Promise.allSettled([
-          searchApi.search({ collections: [selectedId], limit: 200 }),
+          collectionApi.items(selectedId, { limit: 1000 }),
           collectionApi.dashboard(selectedId),
         ])
         if (seq !== loadSeq.current) return

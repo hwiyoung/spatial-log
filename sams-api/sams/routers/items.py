@@ -697,16 +697,56 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
             logger.warning("역방향 링크 정리 실패 (계속): %s → %s", item_id, target_id)
 
     # 3. S3 파일 이동 (copy + delete)
+    # 번들 이미지 세트는 assets.data.href 에 대표 파일 1개만 들어가므로 item prefix 전체를 옮긴다.
     moved_assets = {}
     try:
         s3 = get_s3_client()
+        old_prefix = f"{collection_id}/{category}/{item_id}/"
+        new_prefix = f"{req.target_collection_id}/{category}/{item_id}/"
+        objects: list[dict] = []
+        token = None
+        while True:
+            kwargs = {"Bucket": settings.S3_BUCKET, "Prefix": old_prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            resp = s3.list_objects_v2(**kwargs)
+            objects.extend(resp.get("Contents", []))
+            if not resp.get("IsTruncated"):
+                break
+            token = resp.get("NextContinuationToken")
+
+        copied_old_keys: list[str] = []
+        if objects:
+            for obj in objects:
+                old_key = obj.get("Key")
+                if not old_key or not old_key.startswith(old_prefix):
+                    continue
+                new_key = new_prefix + old_key[len(old_prefix):]
+                s3.copy_object(
+                    Bucket=settings.S3_BUCKET,
+                    CopySource={"Bucket": settings.S3_BUCKET, "Key": old_key},
+                    Key=new_key,
+                )
+                copied_old_keys.append(old_key)
+
+            for i in range(0, len(copied_old_keys), 1000):
+                batch = copied_old_keys[i:i + 1000]
+                s3.delete_objects(
+                    Bucket=settings.S3_BUCKET,
+                    Delete={"Objects": [{"Key": key} for key in batch]},
+                )
+
         for asset_key, asset in item.get("assets", {}).items():
             href = asset.get("href", "")
             if href.startswith("/api/files/"):
                 old_s3_key = href.replace("/api/files/", "")
                 # 기존: {old_collection}/{category}/{item_id}/{filename}
                 parts = old_s3_key.split("/")
-                if len(parts) >= 4:
+                if old_s3_key.startswith(old_prefix):
+                    new_s3_key = new_prefix + old_s3_key[len(old_prefix):]
+                    new_href = f"/api/files/{new_s3_key}"
+                    moved_assets[asset_key] = {**asset, "href": new_href}
+                elif len(parts) >= 4:
                     filename = parts[-1]
                     new_s3_key = f"{req.target_collection_id}/{category}/{item_id}/{filename}"
                     new_href = f"/api/files/{new_s3_key}"

@@ -79,6 +79,22 @@
   border-color: color-mix(in srgb, var(--draft) 50%, transparent);
   background: color-mix(in srgb, var(--draft) 5%, transparent);
 }
+.mc .f-input .acq-input { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mc .f-input .acq-dt {
+  width: 100%; min-width: 0; background: var(--card); border: 1.4px solid var(--line);
+  color: var(--t1); border-radius: 8px; padding: 9px 11px; font-size: 12.5px; font-family: inherit; outline: none;
+}
+.mc .f-input .acq-dt:focus { border-color: var(--blue); }
+.mc .field.miss .f-input .acq-dt {
+  border-color: color-mix(in srgb, var(--draft) 50%, transparent);
+  background: color-mix(in srgb, var(--draft) 5%, transparent);
+}
+.mc .f-input .acq-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.mc .f-input .acq-actions button {
+  border: 1px solid var(--line); background: #10161e; color: var(--t2);
+  border-radius: 6px; padding: 4px 7px; font-size: 10.5px; line-height: 1.2;
+}
+.mc .f-input .acq-actions button:hover { border-color: var(--orange); color: var(--t1); }
 .mc .f-input input.mc-flash { animation: mc-flash .8s ease; }
 @keyframes mc-flash { 0% { border-color: var(--pub); box-shadow: 0 0 0 3px rgba(52, 211, 153, .25); } 100% {} }
 .mc .f-readonly { flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--t1); padding: 9px 0; }

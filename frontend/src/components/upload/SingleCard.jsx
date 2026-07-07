@@ -11,6 +11,7 @@ import { CATEGORIES, formatSize } from '../../constants'
 import { PREVIEW_META } from '../../features/explorer/explorerMeta'
 import { CONF_LABEL, SPATIAL_NOTE } from '../../features/upload/getManifestRowView'
 import { Flag, PvDot, SP_LABEL } from './uploadBits'
+import AcquiredDateTimeInput from './AcquiredDateTimeInput'
 
 const CAT_ORDER = ['pointcloud', '3d_model', '3d_tiles', 'orthoimage', 'image', 'panorama', 'video', 'document']
 
@@ -130,10 +131,11 @@ export default function SingleCard({ row, onEdit, onExclude, onLocation, suggest
           <input value={row.name} placeholder={row.filename} onChange={e => onEdit(row.idx, { description: e.target.value })} />
         </div>
         <div className="ff">
-          <label>취득일 <span className="opt">· acquired</span></label>
-          <input
-            type="date" value={row.date}
-            onChange={e => onEdit(row.idx, { datetime: e.target.value ? e.target.value + 'T00:00:00Z' : '' })}
+          <label>취득일시 <span className="opt">· acquired</span></label>
+          <AcquiredDateTimeInput
+            value={row.datetime}
+            autoValue={row.autoDatetime}
+            onChange={datetime => onEdit(row.idx, { datetime })}
           />
         </div>
         {row.flags.length > 0 && (

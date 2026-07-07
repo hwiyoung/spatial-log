@@ -10,6 +10,7 @@ import LocationPicker from '../LocationPicker'
 import { CATEGORIES } from '../../constants'
 import { formatSize } from '../../constants'
 import { PvDot, SP_LABEL } from './uploadBits'
+import AcquiredDateTimeInput from './AcquiredDateTimeInput'
 
 const CAT_ORDER = ['pointcloud', '3d_model', '3d_tiles', 'orthoimage', 'image', 'panorama', 'video', 'document']
 
@@ -22,7 +23,7 @@ export default function BulkTable({ rows, onEdit, onExclude, onLocation }) {
       <table>
         <thead>
           <tr>
-            <th>파일</th><th>예측 category</th><th>preview</th><th>위치</th><th>누락 · Draft 사유</th><th>취득일</th><th></th>
+            <th>파일</th><th>예측 category</th><th>preview</th><th>위치</th><th>누락 · Draft 사유</th><th>취득일시</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -63,9 +64,11 @@ export default function BulkTable({ rows, onEdit, onExclude, onLocation }) {
                   : <span style={{ color: 'var(--t3)', fontSize: 11 }}>없음</span>}
               </td>
               <td>
-                <input
-                  className="tbl-in" type="date" value={r.date}
-                  onChange={e => onEdit(r.idx, { datetime: e.target.value ? e.target.value + 'T00:00:00Z' : '' })}
+                <AcquiredDateTimeInput
+                  compact
+                  value={r.datetime}
+                  autoValue={r.autoDatetime}
+                  onChange={datetime => onEdit(r.idx, { datetime })}
                 />
               </td>
               <td>

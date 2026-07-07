@@ -43,6 +43,7 @@ export function getManifestRowView(item, idx, { edits = {}, location = null, exc
   const filename = (item.file_path || '').split('/').pop() || item.file_path
   const size = extractedValue(item, 'file:size')
   const autoDatetime = extractedValue(item, 'datetime')
+  const currentDatetime = edits.datetime ?? (typeof autoDatetime === 'string' ? autoDatetime : '')
   const hasAutoLocation = Boolean(extractedValue(item, 'bbox_4326') || item.auto_extracted?.bbox_4326)
 
   const spatialKind = location ? 'manual' : hasAutoLocation ? 'bbox' : 'none'
@@ -90,7 +91,9 @@ export function getManifestRowView(item, idx, { edits = {}, location = null, exc
     flags,
     excluded,
     name: edits.description ?? '',
-    date: edits.datetime ? edits.datetime.slice(0, 10) : (typeof autoDatetime === 'string' ? autoDatetime.slice(0, 10) : ''),
+    date: currentDatetime ? currentDatetime.slice(0, 10) : '',
+    datetime: currentDatetime,
+    autoDatetime: typeof autoDatetime === 'string' ? autoDatetime : '',
     bundledFiles: item.bundled_files || [],
   }
 }

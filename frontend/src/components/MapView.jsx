@@ -61,6 +61,19 @@ const CARTO_DARK = [
   'https://c.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
   'https://d.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
 ]
+const MIN_SELECTED_FIT_DEG = 0.0003
+const MAX_SELECTED_FIT_DEG = 30
+
+function selectedBoundsAreFittable(bounds) {
+  if (!Array.isArray(bounds) || bounds.length < 4) return false
+  const [w, s, e, n] = bounds.map(Number)
+  if (![w, s, e, n].every(Number.isFinite)) return false
+  const dw = Math.abs(e - w)
+  const dh = Math.abs(n - s)
+  return (dw > MIN_SELECTED_FIT_DEG || dh > MIN_SELECTED_FIT_DEG)
+    && dw <= MAX_SELECTED_FIT_DEG
+    && dh <= MAX_SELECTED_FIT_DEG
+}
 
 function stylePointEl(inner, dot, props, state) {
   const statusColor = STATUS_VAR[props.status] || STATUS_VAR.unknown
@@ -650,7 +663,8 @@ export default function MapView({
     hasFitRef.current = true
   }, [items, mapLoaded, fitToItems, spatialMode])
 
-  // 선택 시 줌은 바꾸지 않는다(기획). 단, 선택 item 이 현재 화면 밖이면 줌 유지한 채 중심만 이동해 보이게 한다.
+  // 선택한 item 에 geometry/bbox 가 있으면 범위가 보이도록 맞춘다.
+  // 점/수동 위치처럼 너무 작은 범위는 중심 이동 + 적당한 줌으로 처리한다.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded || !selectedId) return
@@ -658,9 +672,25 @@ export default function MapView({
     const item = itemsByIdRef.current.get(selectedId)
     const pos = item && getItemMapPosition(item, fallbackCentersRef.current)
     if (!pos) return
-    if (!map.getBounds().contains(pos.position)) {
-      map.easeTo({ center: pos.position, zoom: map.getZoom(), duration: 500 })
+    if (selectedBoundsAreFittable(pos.bounds)) {
+      const [w, s, e, n] = pos.bounds
+      map.fitBounds([[w, s], [e, n]], {
+        padding: 96,
+        maxZoom: 16,
+        duration: 520,
+        pitch: 0,
+        bearing: 0,
+      })
+      return
     }
+    const targetZoom = pos.source === 'fallback' ? 12.5 : 15
+    map.easeTo({
+      center: pos.position,
+      zoom: Math.max(map.getZoom(), targetZoom),
+      duration: 500,
+      pitch: 0,
+      bearing: 0,
+    })
   }, [selectedId, mapLoaded, spatialMode])
 
   // 3D 관계뷰에서는 선택 Item 의 1-depth endpoint 범위를 중심으로 카메라를 맞춘다.

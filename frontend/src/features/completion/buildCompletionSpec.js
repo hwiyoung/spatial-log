@@ -39,8 +39,8 @@ export function buildCompletionSpec(item, view) {
       hint: '검색자가 읽을 수 있는 이름', seed: props.description || '',
     },
     {
-      key: 'datetime', label: '취득 일시', kind: 'text', block: true,
-      hint: 'ISO8601 (예: 2024-03-12T09:30:00Z)', seed: props.datetime || '',
+      key: 'datetime', label: '취득 일시', kind: 'datetime', block: true,
+      hint: '날짜/시간 선택', seed: props.datetime || '',
     },
   ]
   if (EPSG_REQUIRED_CATS.includes(cat)) {
