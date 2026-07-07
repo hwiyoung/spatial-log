@@ -52,6 +52,51 @@ def generate_put_url(key: str, expires: int = 3600) -> str:
     )
 
 
+def initiate_multipart_upload(key: str, content_type: str | None = None) -> str:
+    """대용량 multipart upload를 시작하고 upload_id를 반환한다."""
+    params = {"Bucket": settings.S3_BUCKET, "Key": key}
+    if content_type:
+        params["ContentType"] = content_type
+    resp = get_s3_client().create_multipart_upload(**params)
+    return resp["UploadId"]
+
+
+def generate_upload_part_url(key: str, upload_id: str, part_number: int, expires: int = 3600) -> str:
+    """multipart part 업로드용 presigned URL (브라우저 → MinIO)."""
+    return get_public_s3_client().generate_presigned_url(
+        "upload_part",
+        Params={
+            "Bucket": settings.S3_BUCKET,
+            "Key": key,
+            "UploadId": upload_id,
+            "PartNumber": part_number,
+        },
+        ExpiresIn=expires,
+    )
+
+
+def complete_multipart_upload(key: str, upload_id: str, parts: list[dict]) -> None:
+    """업로드된 multipart part들을 하나의 객체로 확정한다."""
+    get_s3_client().complete_multipart_upload(
+        Bucket=settings.S3_BUCKET,
+        Key=key,
+        UploadId=upload_id,
+        MultipartUpload={"Parts": parts},
+    )
+
+
+def abort_multipart_upload(key: str, upload_id: str) -> None:
+    """진행 중인 multipart upload를 중단하고 업로드된 part를 정리한다."""
+    try:
+        get_s3_client().abort_multipart_upload(
+            Bucket=settings.S3_BUCKET,
+            Key=key,
+            UploadId=upload_id,
+        )
+    except Exception:
+        logger.warning("multipart upload 중단 실패 (무시): %s", key)
+
+
 def object_size(key: str) -> int | None:
     """객체가 존재하면 크기(byte), 없으면 None."""
     try:

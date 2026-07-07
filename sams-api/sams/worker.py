@@ -25,7 +25,45 @@ app.conf.update(
     accept_content=["json"],
     task_track_started=True,
     task_acks_late=True,
+    beat_schedule={
+        "cleanup-stale-multipart-uploads": {
+            "task": "sams.worker.cleanup_stale_multipart_uploads_task",
+            "schedule": settings.UPLOAD_CLEANUP_INTERVAL_SECONDS,
+        },
+    },
 )
+
+
+@app.task
+def cleanup_stale_multipart_uploads_task():
+    """오래 열린 multipart upload를 abort하고 세션 기록을 정리한다."""
+    from sams.services.upload_session import cleanup_stale_multipart_uploads
+
+    cleaned = cleanup_stale_multipart_uploads()
+    if cleaned:
+        logger.info("오래된 multipart upload 정리 완료: %d건", cleaned)
+    return {"cleaned": cleaned}
+
+
+@app.task(bind=True, max_retries=1, default_retry_delay=30)
+def analyze_session_task(
+    self,
+    session_id: str,
+    collection_defaults: dict | None = None,
+):
+    """업로드 세션의 staging 파일을 내려받고 자동 채움 분석을 수행한다."""
+    from sams.services.upload_session import run_analysis_for_session, save_analysis_status
+
+    logger.info("세션 분석 시작: %s", session_id)
+    save_analysis_status(session_id, "running", task_id=self.request.id, collection_defaults=collection_defaults)
+    try:
+        manifest = run_analysis_for_session(session_id, collection_defaults)
+        logger.info("세션 분석 완료: %s (%d items)", session_id, len(manifest.manifest))
+        return {"status": "analyzed", "session_id": session_id, "items": len(manifest.manifest)}
+    except Exception as exc:
+        logger.exception("세션 분석 실패: %s", session_id)
+        save_analysis_status(session_id, "failed", task_id=self.request.id, error=str(exc), collection_defaults=collection_defaults)
+        raise
 
 
 @app.task(bind=True, max_retries=2, default_retry_delay=30)

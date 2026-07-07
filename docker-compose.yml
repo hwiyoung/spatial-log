@@ -59,12 +59,17 @@ services:
       STAC_API_URL: http://stac-api:8080
       S3_ENDPOINT: http://minio:9000
       # 브라우저 직접 업로드(presigned PUT)용 — 호스트에서 접근 가능한 MinIO 주소
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:19000}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:${MINIO_API_HOST_PORT:-9000}}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       S3_BUCKET: sams-archive
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-1TiB}
+      WARN_UPLOAD_BYTES: ${WARN_UPLOAD_BYTES:-500GiB}
+      UPLOAD_STALE_MULTIPART_SECONDS: ${UPLOAD_STALE_MULTIPART_SECONDS:-86400}
+      UPLOAD_ANALYSIS_STALE_SECONDS: ${UPLOAD_ANALYSIS_STALE_SECONDS:-900}
+      UPLOAD_CLEANUP_INTERVAL_SECONDS: ${UPLOAD_CLEANUP_INTERVAL_SECONDS:-3600}
     ports:
       - "${SAMS_API_HOST_PORT:-8000}:8000"
     depends_on:
@@ -90,6 +95,38 @@ services:
       S3_BUCKET: sams-archive
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-1TiB}
+      WARN_UPLOAD_BYTES: ${WARN_UPLOAD_BYTES:-500GiB}
+      UPLOAD_STALE_MULTIPART_SECONDS: ${UPLOAD_STALE_MULTIPART_SECONDS:-86400}
+      UPLOAD_ANALYSIS_STALE_SECONDS: ${UPLOAD_ANALYSIS_STALE_SECONDS:-900}
+      UPLOAD_CLEANUP_INTERVAL_SECONDS: ${UPLOAD_CLEANUP_INTERVAL_SECONDS:-3600}
+    depends_on:
+      - db
+      - minio
+      - redis
+    volumes:
+      - ${SAMS_DATA_ROOT:-/media/innopam/InnoPAM-8TB/sams-data}/uploads:/tmp/uploads
+      - ./sams-api:/app
+
+  worker-beat:
+    build:
+      context: ./sams-api
+      dockerfile: Dockerfile
+    command: celery -A sams.worker beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql://sams:${DB_PASSWORD:-sams_dev_2024}@db:5432/samsdb
+      STAC_API_URL: http://stac-api:8080
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: sams-archive
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-1TiB}
+      WARN_UPLOAD_BYTES: ${WARN_UPLOAD_BYTES:-500GiB}
+      UPLOAD_STALE_MULTIPART_SECONDS: ${UPLOAD_STALE_MULTIPART_SECONDS:-86400}
+      UPLOAD_ANALYSIS_STALE_SECONDS: ${UPLOAD_ANALYSIS_STALE_SECONDS:-900}
+      UPLOAD_CLEANUP_INTERVAL_SECONDS: ${UPLOAD_CLEANUP_INTERVAL_SECONDS:-3600}
     depends_on:
       - db
       - minio
@@ -138,6 +175,9 @@ services:
       target: ${FRONTEND_TARGET:-dev}
     ports:
       - "${FRONTEND_HOST_PORT:-3000}:3000"
+    environment:
+      VITE_DEV_API_PROXY_TARGET: ${VITE_DEV_API_PROXY_TARGET:-http://sams-api:8000}
+      VITE_DEV_STAC_PROXY_TARGET: ${VITE_DEV_STAC_PROXY_TARGET:-http://stac-api:8080}
     volumes:
       - ./frontend:/app
       - /app/node_modules

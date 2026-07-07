@@ -20,6 +20,24 @@ client = TestClient(app)
 
 
 # ==========================================================================
+# GET /api/upload/policy
+# ==========================================================================
+
+class TestUploadPolicy:
+    """프론트가 사용하는 업로드 정책."""
+
+    def test_policy_returns_runtime_limits(self):
+        resp = client.get("/api/upload/policy")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["max_upload_bytes"] > body["warn_upload_bytes"] > 0
+        assert body["large_file_threshold_bytes"] == 100 * 1024 * 1024
+        assert body["multipart_part_size_bytes"] >= 64 * 1024 * 1024
+        assert body["multipart_max_parts"] == 10000
+
+
+# ==========================================================================
 # POST /api/upload/analyze
 # ==========================================================================
 
@@ -389,11 +407,10 @@ class TestPresignedFlow:
         })
         assert resp.status_code == 404
 
-    @patch("sams.routers.upload.download_object")
+    @patch("sams.routers.upload.record_staged_upload")
     @patch("sams.routers.upload.object_size")
-    def test_upload_complete_downloads_to_session(self, mock_size, mock_dl):
+    def test_upload_complete_records_staging(self, mock_size, mock_record):
         mock_size.return_value = 123456789
-        mock_dl.return_value = None
         resp = client.post("/api/upload/upload-complete", json={
             "session_id": "abcdef123456",
             "staging_key": "_staging/abcdef123456/scan.las",
@@ -401,4 +418,178 @@ class TestPresignedFlow:
         })
         assert resp.status_code == 200
         assert resp.json()["size"] == 123456789
-        assert mock_dl.called
+        mock_record.assert_called_once_with(
+            "abcdef123456",
+            "scan.las",
+            "_staging/abcdef123456/scan.las",
+            123456789,
+        )
+
+    @patch("sams.routers.upload.object_size")
+    def test_upload_complete_rejects_size_mismatch(self, mock_size):
+        mock_size.return_value = 123
+        resp = client.post("/api/upload/upload-complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "filename": "scan.las",
+            "size": 124,
+        })
+        assert resp.status_code == 400
+
+    @patch("sams.worker.analyze_session_task.delay")
+    def test_analyze_async_enqueues_task(self, mock_delay):
+        mock_delay.return_value.id = "task-123"
+        files = [("files", ("scan.laz", io.BytesIO(b"\x00" * 10), "application/octet-stream"))]
+        resp = client.post(
+            "/api/upload/analyze-async",
+            files=files,
+            data={"session_id": "abcdef123456", "collection_id": ""},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "queued"
+        assert body["session_id"] == "abcdef123456"
+        assert body["task_id"] == "task-123"
+        mock_delay.assert_called_once()
+
+    @patch("sams.routers.upload.initiate_multipart_upload")
+    def test_multipart_initiate(self, mock_init):
+        mock_init.return_value = "upload-123"
+        resp = client.post("/api/upload/multipart/initiate", json={
+            "session_id": "abcdef123456",
+            "filename": "scan.las",
+            "size": 150 * 1024 * 1024,
+            "content_type": "application/octet-stream",
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["staging_key"] == "_staging/abcdef123456/scan.las"
+        assert body["upload_id"] == "upload-123"
+        assert body["part_size"] >= 64 * 1024 * 1024
+        assert body["part_count"] == 3
+
+    def test_multipart_initiate_requires_size(self):
+        resp = client.post("/api/upload/multipart/initiate", json={
+            "session_id": "abcdef123456",
+            "filename": "scan.las",
+            "content_type": "application/octet-stream",
+        })
+        assert resp.status_code == 400
+
+    @patch("sams.routers.upload.settings.MAX_UPLOAD_BYTES", 10)
+    def test_multipart_initiate_rejects_oversize(self):
+        resp = client.post("/api/upload/multipart/initiate", json={
+            "session_id": "abcdef123456",
+            "filename": "scan.las",
+            "size": 11,
+            "content_type": "application/octet-stream",
+        })
+        assert resp.status_code == 413
+
+    @patch("sams.routers.upload.generate_upload_part_url")
+    @patch("sams.routers.upload.get_multipart_upload")
+    def test_multipart_part_url_issued(self, mock_get_upload, mock_url):
+        mock_get_upload.return_value = {
+            "status": "open",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "upload_id": "upload-123",
+            "expected_size": 150 * 1024 * 1024,
+        }
+        mock_url.return_value = "http://minio.example/part?sig=x"
+        resp = client.post("/api/upload/multipart/part-url", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "upload_id": "upload-123",
+            "part_number": 2,
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["url"].startswith("http")
+        assert body["part_number"] == 2
+
+    def test_multipart_part_url_rejects_foreign_staging_key(self):
+        resp = client.post("/api/upload/multipart/part-url", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/other/scan.las",
+            "upload_id": "upload-123",
+            "part_number": 1,
+        })
+        assert resp.status_code == 400
+
+    @patch("sams.routers.upload.record_staged_upload")
+    @patch("sams.routers.upload.object_size")
+    @patch("sams.routers.upload.get_multipart_upload")
+    @patch("sams.routers.upload.complete_multipart_upload")
+    def test_multipart_complete_records_staging(self, mock_complete, mock_get_upload, mock_size, mock_record):
+        mock_complete.return_value = None
+        mock_get_upload.return_value = {
+            "status": "open",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "upload_id": "upload-123",
+            "expected_size": 150 * 1024 * 1024,
+        }
+        mock_size.return_value = 150 * 1024 * 1024
+        resp = client.post("/api/upload/multipart/complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "filename": "scan.las",
+            "upload_id": "upload-123",
+            "parts": [
+                {"part_number": 1, "etag": '"etag-1"'},
+                {"part_number": 2, "etag": '"etag-2"'},
+            ],
+        })
+        assert resp.status_code == 200
+        assert resp.json()["size"] == 150 * 1024 * 1024
+        mock_complete.assert_called_once()
+        mock_record.assert_called_once_with(
+            "abcdef123456",
+            "scan.las",
+            "_staging/abcdef123456/scan.las",
+            150 * 1024 * 1024,
+        )
+
+    @patch("sams.routers.upload.object_size")
+    @patch("sams.routers.upload.get_multipart_upload")
+    @patch("sams.routers.upload.complete_multipart_upload")
+    def test_multipart_complete_rejects_size_mismatch(self, mock_complete, mock_get_upload, mock_size):
+        mock_complete.return_value = None
+        mock_get_upload.return_value = {
+            "status": "open",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "upload_id": "upload-123",
+            "expected_size": 10,
+        }
+        mock_size.return_value = 11
+        resp = client.post("/api/upload/multipart/complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "filename": "scan.las",
+            "upload_id": "upload-123",
+            "parts": [{"part_number": 1, "etag": '"etag-1"'}],
+        })
+        assert resp.status_code == 400
+
+    def test_multipart_complete_rejects_duplicate_parts(self):
+        resp = client.post("/api/upload/multipart/complete", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "filename": "scan.las",
+            "upload_id": "upload-123",
+            "parts": [
+                {"part_number": 1, "etag": '"etag-1"'},
+                {"part_number": 1, "etag": '"etag-dup"'},
+            ],
+        })
+        assert resp.status_code == 400
+
+    @patch("sams.routers.upload.abort_multipart_upload")
+    def test_multipart_abort(self, mock_abort):
+        resp = client.post("/api/upload/multipart/abort", json={
+            "session_id": "abcdef123456",
+            "staging_key": "_staging/abcdef123456/scan.las",
+            "upload_id": "upload-123",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        mock_abort.assert_called_once()

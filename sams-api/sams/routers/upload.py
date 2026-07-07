@@ -12,8 +12,7 @@ Upload 엔드포인트 — 자동 채움 파이프라인의 API 인터페이스.
 import logging
 import os
 import re
-import shutil
-import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,17 +24,127 @@ from pydantic import BaseModel, Field
 
 from sams.config import settings
 from sams.models.manifest import Manifest
-from sams.pipeline import analyze
 from sams.pipeline.thumbnail import generate_thumbnail
 from sams.services import history
 from sams.services.s3 import (
     upload_file, build_asset_href, build_s3_key,
-    generate_put_url, object_size, download_object, copy_object, delete_object, delete_prefix,
+    generate_put_url, object_size, copy_object, delete_object, delete_prefix,
+    initiate_multipart_upload, generate_upload_part_url, complete_multipart_upload,
+    abort_multipart_upload,
+)
+from sams.services.upload_session import (
+    collect_session_files,
+    cleanup_stale_multipart_uploads,
+    cleanup_session as cleanup_upload_session,
+    ensure_session_dir,
+    get_multipart_upload,
+    get_session_dir,
+    is_status_stale,
+    load_analysis_status,
+    load_manifest,
+    load_staged_uploads,
+    record_staged_upload,
+    record_multipart_upload,
+    run_analysis_for_session,
+    save_analysis_status,
+    save_upload_files,
+    session_payload_size,
+    set_multipart_upload_status,
+    staged_upload_map,
+    touch_multipart_upload,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+MULTIPART_PART_SIZE = 64 * 1024 * 1024
+MULTIPART_MAX_PARTS = 10_000
+_last_multipart_cleanup = 0.0
+
+
+class UploadPolicyResponse(BaseModel):
+    """클라이언트가 업로드 전 표시/차단에 사용하는 정책값."""
+    max_upload_bytes: int
+    warn_upload_bytes: int
+    large_file_threshold_bytes: int
+    multipart_part_size_bytes: int
+    multipart_max_parts: int
+
+
+@router.get("/policy", response_model=UploadPolicyResponse)
+async def upload_policy():
+    """현재 런타임 업로드 정책. 프론트 하드코딩과 서버 설정 불일치를 방지한다."""
+    return UploadPolicyResponse(
+        max_upload_bytes=settings.MAX_UPLOAD_BYTES,
+        warn_upload_bytes=settings.WARN_UPLOAD_BYTES,
+        large_file_threshold_bytes=100 * 1024 * 1024,
+        multipart_part_size_bytes=MULTIPART_PART_SIZE,
+        multipart_max_parts=MULTIPART_MAX_PARTS,
+    )
+
+
+def _validate_upload_size(size: int | None, label: str = "업로드") -> None:
+    if size is None:
+        return
+    if size <= 0:
+        raise HTTPException(status_code=400, detail=f"{label} 크기가 유효하지 않습니다.")
+    if size > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{label} 크기가 최대 업로드 크기({settings.MAX_UPLOAD_BYTES} bytes)를 초과합니다.",
+        )
+
+
+def _validate_session_payload_size(session_id: str) -> None:
+    total = session_payload_size(session_id)
+    if total > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"업로드 세션 총 크기({total} bytes)가 최대 업로드 크기({settings.MAX_UPLOAD_BYTES} bytes)를 초과합니다.",
+        )
+
+
+def _maybe_cleanup_stale_multipart_uploads() -> None:
+    global _last_multipart_cleanup
+    now = time.time()
+    if now - _last_multipart_cleanup < settings.UPLOAD_CLEANUP_INTERVAL_SECONDS:
+        return
+    _last_multipart_cleanup = now
+    try:
+        cleaned = cleanup_stale_multipart_uploads()
+        if cleaned:
+            logger.info("오래된 multipart upload 정리: %d건", cleaned)
+    except Exception:
+        logger.warning("오래된 multipart upload 정리 실패", exc_info=True)
+
+
+def _validate_session_id(session_id: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", session_id):
+        raise HTTPException(status_code=400, detail="유효하지 않은 세션 ID 입니다.")
+
+
+def _staging_key(session_id: str, safe_name: str) -> str:
+    return f"_staging/{session_id}/{safe_name}"
+
+
+def _validate_staging_key(session_id: str, staging_key: str, safe_name: str | None = None) -> None:
+    _validate_session_id(session_id)
+    prefix = f"_staging/{session_id}/"
+    if not staging_key.startswith(prefix) or ".." in staging_key:
+        raise HTTPException(status_code=400, detail="staging_key 가 세션과 일치하지 않습니다.")
+    if safe_name is not None and staging_key != _staging_key(session_id, safe_name):
+        raise HTTPException(status_code=400, detail="staging_key 가 세션과 일치하지 않습니다.")
+
+
+def _multipart_part_size(size: int | None) -> tuple[int, int | None]:
+    if size is None or size <= 0:
+        return MULTIPART_PART_SIZE, None
+    part_size = max(MULTIPART_PART_SIZE, (size + MULTIPART_MAX_PARTS - 1) // MULTIPART_MAX_PARTS)
+    one_mib = 1024 * 1024
+    part_size = ((part_size + one_mib - 1) // one_mib) * one_mib
+    part_count = (size + part_size - 1) // part_size
+    return part_size, part_count
 
 def _safe_relative_name(name: str | None) -> str | None:
     """업로드 파일명 검증 — 절대경로·상위 참조·제어문자를 거부하고 정규화된 상대경로만 허용."""
@@ -54,29 +163,12 @@ def _safe_relative_name(name: str | None) -> str | None:
 
 def _get_session_dir(session_id: str) -> str | None:
     """세션 ID로 임시 디렉토리를 찾는다 (파일 시스템 기반)."""
-    base = settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else tempfile.gettempdir()
-    prefix = f"sams_{session_id}_"
-    try:
-        dirs = os.listdir(base)
-    except OSError:
-        logger.warning("임시 디렉토리 목록 조회 실패: %s", base)
-        return None
-    for d in dirs:
-        if d.startswith(prefix):
-            full = os.path.join(base, d)
-            if os.path.isdir(full):
-                logger.info("세션 디렉토리 찾음: %s → %s", session_id, full)
-                return full
-    logger.warning("세션 디렉토리 못 찾음: session=%s, base=%s, dirs=%s", session_id, base, dirs)
-    return None
+    return get_session_dir(session_id)
 
 
 def _cleanup_session(session_id: str) -> None:
     """세션의 임시 디렉토리를 정리한다."""
-    tmp_dir = _get_session_dir(session_id)
-    if tmp_dir:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        logger.info("세션 정리 완료: %s", session_id)
+    cleanup_upload_session(session_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -97,100 +189,107 @@ async def upload_analyze(
         session_id = uuid.uuid4().hex
     # presigned 대용량 파일이 이미 받아져 있는 세션이면 그 디렉토리를 재사용 —
     # 소용량(multipart)과 대용량(presigned)이 한 배치로 묶여 번들링·관계 제안이 함께 동작한다.
-    tmp_dir = _get_session_dir(session_id) or tempfile.mkdtemp(
-        prefix=f"sams_{session_id}_",
-        dir=settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else None,
-    )
+    _validate_session_id(session_id)
+    tmp_dir = ensure_session_dir(session_id)
 
     try:
-        # 파일을 임시 디렉토리에 저장 (원본 파일명 유지)
-        for file in (files or []):
-            safe_name = _safe_relative_name(file.filename) or f"unknown_{uuid.uuid4().hex[:8]}"
-            tmp_path = os.path.join(tmp_dir, safe_name)
-            os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
-            content = await file.read()
-            with open(tmp_path, "wb") as f:
-                f.write(content)
-
-        # 분석 대상 = 세션 디렉토리의 전체 파일 (지금 업로드분 + 사전 스테이징된 대용량분)
-        saved_paths: list[str] = []
-        for root, _dirs, names in os.walk(tmp_dir):
-            for name in names:
-                saved_paths.append(os.path.join(root, name))
-        if not saved_paths:
+        # 파일을 임시 디렉토리에 저장 (원본 파일명 유지). 대용량 staging 객체가 있으면
+        # run_analysis_for_session()이 분석 전에 내려받는다.
+        await save_upload_files(tmp_dir, files or [], _safe_relative_name)
+        _validate_session_payload_size(session_id)
+        if not collect_session_files(tmp_dir) and not load_staged_uploads(session_id):
             raise HTTPException(status_code=400, detail="파일이 없습니다.")
 
         # Collection 기본값 조회
         collection_defaults = await _fetch_collection_defaults(collection_id)
 
         # 파이프라인 실행
-        manifest = analyze(saved_paths, collection_defaults)
-
-        # file_path를 임시 디렉토리 기준 상대경로로 치환 (임시 경로 노출 방지 + 서브디렉토리 유지)
-        for item in manifest.manifest:
-            try:
-                item.file_path = os.path.relpath(item.file_path, tmp_dir)
-            except ValueError:
-                item.file_path = Path(item.file_path).name
-            if item.bundled_files:
-                rel_files = []
-                for f in item.bundled_files:
-                    try:
-                        rel_files.append(os.path.relpath(f, tmp_dir))
-                    except ValueError:
-                        rel_files.append(Path(f).name)
-                item.bundled_files = rel_files
-
-        # 지원하지 않는 확장자(unknown 카테고리) 제외
-        before = len(manifest.manifest)
-        manifest.manifest = [
-            item for item in manifest.manifest
-            if item.detected_category != "unknown"
-        ]
-        skipped = before - len(manifest.manifest)
-        if skipped:
-            logger.info("미지원 파일 %d개 제외 (unknown 카테고리)", skipped)
-            manifest.summary.total_files = len(manifest.manifest)
-
-        # 세션 ID를 반환
-        manifest.session_id = session_id
-        logger.info("분석 완료 — session=%s, tmp_dir=%s, files=%d", session_id, tmp_dir, len(saved_paths))
-
-        # manifest를 세션 디렉토리에 저장 (새로고침 후 복구용)
-        try:
-            import json as _json
-            manifest_path = os.path.join(tmp_dir, "_manifest.json")
-            with open(manifest_path, "w", encoding="utf-8") as mf:
-                mf.write(_json.dumps(manifest.model_dump(), ensure_ascii=False, default=str))
-        except Exception:
-            logger.warning("manifest 저장 실패 (분석 결과 반환은 정상): %s", session_id)
-
+        manifest = run_analysis_for_session(session_id, collection_defaults)
+        logger.info("분석 완료 — session=%s, tmp_dir=%s, files=%d", session_id, tmp_dir, len(collect_session_files(tmp_dir)))
         return manifest
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         # 분석 실패해도 임시 파일 유지 (리로드 시 데이터 손실 방지)
         # 등록 완료 시 또는 cleanup 주기에서 정리
         raise
 
 
+class AnalyzeAsyncResponse(BaseModel):
+    """비동기 분석 접수 결과."""
+    status: str
+    session_id: str
+    task_id: str | None = None
+
+
+@router.post("/analyze-async", response_model=AnalyzeAsyncResponse)
+async def upload_analyze_async(
+    files: list[UploadFile] | None = File(None),
+    collection_id: str = Form(""),
+    session_id: str = Form(""),
+):
+    """파일 저장 후 분석을 Celery worker에 맡긴다. 클라이언트는 /sessions/{id}를 폴링한다."""
+    if not session_id:
+        session_id = uuid.uuid4().hex
+    _validate_session_id(session_id)
+    tmp_dir = ensure_session_dir(session_id)
+
+    await save_upload_files(tmp_dir, files or [], _safe_relative_name)
+    _validate_session_payload_size(session_id)
+    if not collect_session_files(tmp_dir) and not load_staged_uploads(session_id):
+        raise HTTPException(status_code=400, detail="파일이 없습니다.")
+
+    collection_defaults = await _fetch_collection_defaults(collection_id)
+    save_analysis_status(session_id, "queued", collection_defaults=collection_defaults)
+    try:
+        from sams.worker import analyze_session_task
+        task = analyze_session_task.delay(session_id, collection_defaults)
+    except Exception as e:
+        save_analysis_status(session_id, "failed", error=str(e))
+        logger.exception("분석 태스크 큐 등록 실패: %s", session_id)
+        raise HTTPException(status_code=500, detail=f"분석 태스크 큐 등록 실패: {e}")
+
+    save_analysis_status(session_id, "queued", task_id=task.id, collection_defaults=collection_defaults)
+    return AnalyzeAsyncResponse(status="queued", session_id=session_id, task_id=task.id)
+
+
 @router.get("/sessions/{session_id}")
 async def get_session_status(session_id: str):
     """세션의 분석 상태를 조회한다. 새로고침 후 복구에 사용."""
-    import json as _json
     tmp_dir = _get_session_dir(session_id)
     if not tmp_dir:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
 
-    manifest_path = os.path.join(tmp_dir, "_manifest.json")
-    if os.path.exists(manifest_path):
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest_data = _json.load(f)
-            return {"status": "analyzed", "manifest": manifest_data}
-        except Exception:
-            return {"status": "analyzing"}
-    else:
-        return {"status": "analyzing"}
+    manifest_data = load_manifest(session_id)
+    if manifest_data:
+        return {"status": "analyzed", "manifest": manifest_data}
+    status = load_analysis_status(session_id)
+    if status:
+        if is_status_stale(status, settings.UPLOAD_ANALYSIS_STALE_SECONDS):
+            return {**status, "status": "stalled", "stale": True, "can_retry": True}
+        return status
+    return {"status": "analyzing"}
+
+
+@router.post("/sessions/{session_id}/retry-analysis", response_model=AnalyzeAsyncResponse)
+async def retry_session_analysis(session_id: str):
+    """stalled/failed/queued 세션의 분석 태스크를 다시 enqueue한다."""
+    _validate_session_id(session_id)
+    if not _get_session_dir(session_id):
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    status = load_analysis_status(session_id) or {}
+    collection_defaults = status.get("collection_defaults")
+    save_analysis_status(session_id, "queued", collection_defaults=collection_defaults)
+    try:
+        from sams.worker import analyze_session_task
+        task = analyze_session_task.delay(session_id, collection_defaults)
+    except Exception as e:
+        save_analysis_status(session_id, "failed", error=str(e), collection_defaults=collection_defaults)
+        logger.exception("분석 태스크 재시도 큐 등록 실패: %s", session_id)
+        raise HTTPException(status_code=500, detail=f"분석 태스크 재시도 큐 등록 실패: {e}")
+    save_analysis_status(session_id, "queued", task_id=task.id, collection_defaults=collection_defaults)
+    return AnalyzeAsyncResponse(status="queued", session_id=session_id, task_id=task.id)
 
 
 @router.delete("/sessions/{session_id}")
@@ -203,8 +302,7 @@ async def cancel_session(session_id: str):
             logger.info("취소 — staging %d개 정리: %s", removed_staging, session_id)
     tmp_dir = _get_session_dir(session_id)
     if tmp_dir:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        logger.info("세션 취소 정리 완료: %s", session_id)
+        _cleanup_session(session_id)
         return {"deleted": True, "session_id": session_id, "staging_removed": removed_staging}
     return {"deleted": False, "session_id": session_id, "detail": "세션을 찾을 수 없습니다."}
 
@@ -330,10 +428,70 @@ class UploadCompleteRequest(BaseModel):
     session_id: str
     staging_key: str
     filename: str
+    size: int | None = None
+
+
+class MultipartInitRequest(BaseModel):
+    """대용량 multipart 업로드 시작 요청."""
+    session_id: str = ""
+    filename: str
+    size: int | None = None
+    content_type: str | None = None
+
+
+class MultipartPartUrlRequest(BaseModel):
+    """multipart part presigned URL 요청."""
+    session_id: str
+    staging_key: str
+    upload_id: str
+    part_number: int
+
+
+class MultipartPart(BaseModel):
+    part_number: int
+    etag: str
+
+
+class MultipartCompleteRequest(BaseModel):
+    """multipart 업로드 완료 요청."""
+    session_id: str
+    staging_key: str
+    filename: str
+    upload_id: str
+    parts: list[MultipartPart]
+
+
+class MultipartAbortRequest(BaseModel):
+    """multipart 업로드 중단 요청."""
+    session_id: str
+    staging_key: str
+    upload_id: str
+
+
+def _prepare_completed_staging_upload(
+    session_id: str,
+    staging_key: str,
+    filename: str,
+    expected_size: int | None = None,
+) -> dict[str, Any]:
+    """staging 객체를 검증하고 세션에 기록한다. 실제 다운로드는 분석 태스크가 수행한다."""
+    safe_name = _safe_relative_name(filename)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail=f"유효하지 않은 파일명입니다: {filename}")
+    _validate_staging_key(session_id, staging_key, safe_name)
+
+    size = object_size(staging_key)
+    if size is None:
+        raise HTTPException(status_code=404, detail="업로드된 객체를 찾을 수 없습니다. 업로드가 완료되었는지 확인하세요.")
+    if expected_size is not None and size != expected_size:
+        raise HTTPException(status_code=400, detail="업로드된 객체 크기가 예상 크기와 일치하지 않습니다.")
+
+    record_staged_upload(session_id, safe_name, staging_key, size)
+    return {"ok": True, "session_id": session_id, "size": size, "filename": safe_name}
 
 
 @router.get("/presigned-url")
-async def upload_presigned_url(filename: str, session_id: str = ""):
+async def upload_presigned_url(filename: str, session_id: str = "", size: int | None = None):
     """대용량(>=100MB) 직접 업로드용 presigned PUT URL 발급.
 
     흐름(설계서 §4.2): URL 발급 → 브라우저가 MinIO 에 직접 PUT → upload-complete 통지.
@@ -344,16 +502,116 @@ async def upload_presigned_url(filename: str, session_id: str = ""):
         raise HTTPException(status_code=400, detail=f"유효하지 않은 파일명입니다: {filename}")
     if not session_id:
         session_id = uuid.uuid4().hex
-    if not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", session_id):
-        raise HTTPException(status_code=400, detail="유효하지 않은 세션 ID 입니다.")
+    _validate_session_id(session_id)
+    _validate_upload_size(size, safe_name)
 
-    staging_key = f"_staging/{session_id}/{safe_name}"
+    staging_key = _staging_key(session_id, safe_name)
     try:
         url = generate_put_url(staging_key)
     except Exception as e:
         logger.exception("presigned URL 발급 실패")
         raise HTTPException(status_code=500, detail=f"presigned URL 발급 실패: {e}")
     return {"session_id": session_id, "staging_key": staging_key, "url": url, "expires_in": 3600}
+
+
+@router.post("/multipart/initiate")
+async def upload_multipart_initiate(req: MultipartInitRequest):
+    """대용량 파일을 part 단위로 직접 업로드하기 위한 multipart 세션을 시작한다."""
+    safe_name = _safe_relative_name(req.filename)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail=f"유효하지 않은 파일명입니다: {req.filename}")
+    session_id = req.session_id or uuid.uuid4().hex
+    _validate_session_id(session_id)
+    if req.size is None:
+        raise HTTPException(status_code=400, detail="파일 크기가 필요합니다.")
+    _validate_upload_size(req.size, safe_name)
+    _maybe_cleanup_stale_multipart_uploads()
+    staging_key = _staging_key(session_id, safe_name)
+    part_size, part_count = _multipart_part_size(req.size)
+    try:
+        upload_id = initiate_multipart_upload(staging_key, req.content_type)
+    except Exception as e:
+        logger.exception("multipart upload 시작 실패")
+        raise HTTPException(status_code=500, detail=f"multipart upload 시작 실패: {e}")
+    record_multipart_upload(session_id, safe_name, staging_key, upload_id, req.size)
+    return {
+        "session_id": session_id,
+        "staging_key": staging_key,
+        "upload_id": upload_id,
+        "part_size": part_size,
+        "part_count": part_count,
+        "expires_in": 3600,
+    }
+
+
+@router.post("/multipart/part-url")
+async def upload_multipart_part_url(req: MultipartPartUrlRequest):
+    """multipart part 하나를 업로드할 presigned URL을 발급한다."""
+    _validate_staging_key(req.session_id, req.staging_key)
+    if req.part_number < 1 or req.part_number > MULTIPART_MAX_PARTS:
+        raise HTTPException(status_code=400, detail="part_number 범위가 유효하지 않습니다.")
+    if not req.upload_id:
+        raise HTTPException(status_code=400, detail="upload_id가 필요합니다.")
+    upload = get_multipart_upload(req.session_id, req.staging_key, req.upload_id)
+    if not upload or upload.get("status") != "open":
+        raise HTTPException(status_code=404, detail="multipart upload 세션을 찾을 수 없습니다.")
+    try:
+        url = generate_upload_part_url(req.staging_key, req.upload_id, req.part_number)
+    except Exception as e:
+        logger.exception("multipart part URL 발급 실패")
+        raise HTTPException(status_code=500, detail=f"multipart part URL 발급 실패: {e}")
+    touch_multipart_upload(req.session_id, req.staging_key, req.upload_id)
+    return {"url": url, "part_number": req.part_number, "expires_in": 3600}
+
+
+@router.post("/multipart/complete")
+async def upload_multipart_complete(req: MultipartCompleteRequest):
+    """multipart part를 객체로 확정한 뒤 기존 분석 준비 흐름으로 넘긴다."""
+    safe_name = _safe_relative_name(req.filename)
+    if not safe_name:
+        raise HTTPException(status_code=400, detail=f"유효하지 않은 파일명입니다: {req.filename}")
+    _validate_staging_key(req.session_id, req.staging_key, safe_name)
+    if not req.parts:
+        raise HTTPException(status_code=400, detail="완료할 part 목록이 없습니다.")
+    if len(req.parts) > MULTIPART_MAX_PARTS:
+        raise HTTPException(status_code=400, detail="part 개수가 너무 많습니다.")
+
+    seen: set[int] = set()
+    parts: list[dict[str, Any]] = []
+    for p in sorted(req.parts, key=lambda part: part.part_number):
+        if p.part_number < 1 or p.part_number > MULTIPART_MAX_PARTS or p.part_number in seen:
+            raise HTTPException(status_code=400, detail="part 목록이 유효하지 않습니다.")
+        seen.add(p.part_number)
+        etag = p.etag.strip()
+        if not etag:
+            raise HTTPException(status_code=400, detail="part ETag가 비어 있습니다.")
+        parts.append({"PartNumber": p.part_number, "ETag": etag})
+
+    upload = get_multipart_upload(req.session_id, req.staging_key, req.upload_id)
+    if not upload or upload.get("status") != "open":
+        raise HTTPException(status_code=404, detail="multipart upload 세션을 찾을 수 없습니다.")
+
+    try:
+        complete_multipart_upload(req.staging_key, req.upload_id, parts)
+    except Exception as e:
+        logger.exception("multipart upload 완료 실패: %s", req.staging_key)
+        raise HTTPException(status_code=500, detail=f"multipart upload 완료 실패: {e}")
+
+    expected_size = upload.get("expected_size") if isinstance(upload.get("expected_size"), int) else None
+    result = _prepare_completed_staging_upload(req.session_id, req.staging_key, safe_name, expected_size)
+    set_multipart_upload_status(req.session_id, req.staging_key, req.upload_id, "completed")
+    return result
+
+
+@router.post("/multipart/abort")
+async def upload_multipart_abort(req: MultipartAbortRequest):
+    """진행 중인 multipart upload를 중단한다."""
+    _validate_staging_key(req.session_id, req.staging_key)
+    if not req.upload_id:
+        raise HTTPException(status_code=400, detail="upload_id가 필요합니다.")
+    abort_multipart_upload(req.staging_key, req.upload_id)
+    set_multipart_upload_status(req.session_id, req.staging_key, req.upload_id, "aborted")
+    return {"ok": True, "session_id": req.session_id, "staging_key": req.staging_key}
 
 
 @router.post("/upload-complete")
@@ -363,33 +621,8 @@ async def upload_complete(req: UploadCompleteRequest):
     메타데이터 추출·썸네일은 로컬 파일이 필요하므로 staging 에서 1회 다운로드한다
     (등록 시 원본은 staging→최종 서버측 복사 — 재업로드 없음).
     """
-    safe_name = _safe_relative_name(req.filename)
-    if not safe_name:
-        raise HTTPException(status_code=400, detail=f"유효하지 않은 파일명입니다: {req.filename}")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{6,64}", req.session_id):
-        raise HTTPException(status_code=400, detail="유효하지 않은 세션 ID 입니다.")
-    # staging_key 는 반드시 이 세션의 영역이어야 한다 — 다른 세션/경로 접근 차단
-    expected = f"_staging/{req.session_id}/{safe_name}"
-    if req.staging_key != expected:
-        raise HTTPException(status_code=400, detail="staging_key 가 세션과 일치하지 않습니다.")
-
-    size = object_size(req.staging_key)
-    if size is None:
-        raise HTTPException(status_code=404, detail="업로드된 객체를 찾을 수 없습니다. 업로드가 완료되었는지 확인하세요.")
-
-    tmp_dir = _get_session_dir(req.session_id) or tempfile.mkdtemp(
-        prefix=f"sams_{req.session_id}_",
-        dir=settings.UPLOAD_TMP_DIR if os.path.isdir(settings.UPLOAD_TMP_DIR) else None,
-    )
-    local_path = os.path.join(tmp_dir, safe_name)
-    os.makedirs(os.path.dirname(local_path), exist_ok=True)
-    try:
-        download_object(req.staging_key, local_path)
-    except Exception as e:
-        logger.exception("staging 다운로드 실패: %s", req.staging_key)
-        raise HTTPException(status_code=500, detail=f"파일 준비 실패: {e}")
-
-    return {"ok": True, "session_id": req.session_id, "size": size, "filename": safe_name}
+    _validate_upload_size(req.size, req.filename)
+    return _prepare_completed_staging_upload(req.session_id, req.staging_key, req.filename, req.size)
 
 
 class RegisterResult(BaseModel):
@@ -403,8 +636,13 @@ class RegisterResult(BaseModel):
 async def upload_register(req: RegisterRequest):
     """매니페스트로 STAC Item을 생성하고 S3에 파일을 업로드한다."""
 
+    if not req.items:
+        raise HTTPException(status_code=400, detail="등록할 항목이 없습니다.")
+
     # 세션에서 임시 디렉토리 조회 (파일 시스템 기반 — 리로드에도 유지)
     tmp_dir = _get_session_dir(req.session_id) if req.session_id else None
+    session_prefix = f"_staging/{req.session_id}/" if req.session_id else None
+    staged_by_name = staged_upload_map(req.session_id) if req.session_id else {}
 
     # Collection 자동 생성 (없으면)
     if req.collection_id:
@@ -436,36 +674,63 @@ async def upload_register(req: RegisterRequest):
 
             if tmp_dir:
                 local_path = os.path.join(tmp_dir, filename)
-                if os.path.exists(local_path):
+                local_exists = os.path.exists(local_path)
+                staging_key = item_data.get("_staging_key")
+                staged_info = staged_by_name.get(filename) or {}
+                if not staging_key and staged_info:
+                    staging_key = staged_info.get("staging_key")
+
+                def _validated_staging_key(name: str, provided_key: str | None = None) -> str | None:
+                    info = staged_by_name.get(name) or {}
+                    key = provided_key or info.get("staging_key")
+                    if not (session_prefix and isinstance(key, str)
+                            and key.startswith(session_prefix) and ".." not in key):
+                        return None
+                    size = object_size(key)
+                    if size is None:
+                        return None
+                    expected = info.get("size")
+                    if isinstance(expected, int) and size != expected:
+                        raise RuntimeError(f"staging 객체 크기 불일치: {name}")
+                    return key
+
+                primary_staging_key = _validated_staging_key(filename, staging_key)
+
+                if local_exists or primary_staging_key:
                     # 이미지 세트: 전체 파일을 S3에 병렬 업로드
                     if bundled_files:
                         import concurrent.futures
                         all_bf = [filename] + bundled_files
-                        session_prefix = f"_staging/{req.session_id}/" if req.session_id else None
 
                         def _copy_or_upload(bf: str) -> None:
                             """번들 멤버 — presigned staging 에 있으면 서버측 복사, 없으면 업로드."""
                             bf_path = os.path.join(tmp_dir, bf)
-                            if session_prefix and _safe_relative_name(bf):
-                                sk = f"{session_prefix}{bf}"
-                                if object_size(sk) is not None:
-                                    copy_object(sk, build_s3_key(req.collection_id, category, item_id, Path(bf).name))
-                                    staging_to_delete.append(sk)
-                                    return
+                            sk = _validated_staging_key(bf)
+                            if sk:
+                                copy_object(sk, build_s3_key(req.collection_id, category, item_id, Path(bf).name))
+                                staging_to_delete.append(sk)
+                                return
                             if os.path.exists(bf_path):
                                 upload_file(bf_path, req.collection_id, category, item_id, Path(bf).name)
                             else:
                                 raise FileNotFoundError(bf)
 
                         uploaded_count = 0
+                        upload_errors: list[str] = []
                         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                             futures = [executor.submit(_copy_or_upload, bf) for bf in all_bf]
                             for f in concurrent.futures.as_completed(futures):
                                 try:
                                     f.result()
                                     uploaded_count += 1
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    upload_errors.append(str(exc))
+
+                        if upload_errors:
+                            delete_prefix(f"{req.collection_id}/{category}/{item_id}/")
+                            preview = "; ".join(upload_errors[:3])
+                            more = "" if len(upload_errors) <= 3 else f" 외 {len(upload_errors) - 3}건"
+                            raise RuntimeError(f"이미지 세트 파일 업로드 실패 {len(upload_errors)}건: {preview}{more}")
 
                         assets["data"] = {
                             "href": build_asset_href(req.collection_id, category, item_id, display_name),
@@ -479,15 +744,11 @@ async def upload_register(req: RegisterRequest):
                         # 단일 파일 — presigned 로 staging 에 이미 올라간 대용량이면
                         # 서버측 복사(재업로드 없음), 아니면 임시 파일을 업로드.
                         # staging 키는 이 요청의 세션 영역으로 한정 (다른 세션 객체 접근 차단).
-                        staging_key = item_data.get("_staging_key")
-                        session_prefix = f"_staging/{req.session_id}/" if req.session_id else None
-                        if (session_prefix and isinstance(staging_key, str)
-                                and staging_key.startswith(session_prefix)
-                                and ".." not in staging_key and object_size(staging_key) is not None):
-                            s3_key = copy_object(staging_key, build_s3_key(req.collection_id, category, item_id, display_name))
+                        if primary_staging_key:
+                            s3_key = copy_object(primary_staging_key, build_s3_key(req.collection_id, category, item_id, display_name))
                             # 삭제는 STAC 등록 성공 후 — 등록 실패 롤백 시 staging 이 남아 재시도 가능
-                            staging_to_delete.append(staging_key)
-                            logger.info("S3 staging 복사 완료: %s → %s", staging_key, s3_key)
+                            staging_to_delete.append(primary_staging_key)
+                            logger.info("S3 staging 복사 완료: %s → %s", primary_staging_key, s3_key)
                         else:
                             s3_key = upload_file(local_path, req.collection_id, category, item_id, display_name)
                             logger.info("S3 업로드 완료: %s → %s", display_name, s3_key)
@@ -501,11 +762,16 @@ async def upload_register(req: RegisterRequest):
                     # 썸네일 — 대용량은 Celery 비동기 (등록 응답 지연 방지), 소용량은 동기
                     thumb_async = False
                     try:
-                        if os.path.getsize(local_path) >= settings.THUMB_ASYNC_THRESHOLD_MB * 1024 * 1024:
+                        final_s3_key = build_s3_key(req.collection_id, category, item_id, display_name)
+                        should_async_thumb = (
+                            bool(primary_staging_key) or
+                            os.path.getsize(local_path) >= settings.THUMB_ASYNC_THRESHOLD_MB * 1024 * 1024
+                        )
+                        if should_async_thumb:
                             from sams.worker import generate_thumbnail_task
                             generate_thumbnail_task.delay(
                                 req.collection_id, item_id,
-                                build_s3_key(req.collection_id, category, item_id, display_name),
+                                final_s3_key,
                                 category, display_name,
                             )
                             thumb_async = True
@@ -513,7 +779,7 @@ async def upload_register(req: RegisterRequest):
                     except Exception:
                         logger.warning("썸네일 비동기 디스패치 실패 — 동기로 폴백: %s", display_name)
                     try:
-                        thumb_path = None if thumb_async else generate_thumbnail(local_path, category)
+                        thumb_path = None if (thumb_async or not local_exists) else generate_thumbnail(local_path, category)
                         if thumb_path:
                             thumb_filename = f"thumbnail_{Path(display_name).stem}.png"
                             upload_file(thumb_path, req.collection_id, category, item_id, thumb_filename)
