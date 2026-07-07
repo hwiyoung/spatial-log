@@ -6,6 +6,7 @@ Tests for pipeline detect.py — 파일 유형 자동 판별
 
 import pytest
 from pathlib import Path
+import zipfile
 
 from sams.pipeline.detect import detect_category, DetectionResult, VALID_CATEGORIES
 
@@ -68,6 +69,35 @@ class TestUnknown:
     def test_no_extension(self):
         result = detect_category("/tmp/noextfile")
         assert result.category == "unknown"
+
+
+class TestZipArchiveDetection:
+    """ZIP archive contents determine category when possible."""
+
+    def test_zip_with_obj_is_3d_model(self, tmp_path):
+        z = tmp_path / "mesh.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.writestr("model.obj", "v 0 0 0\n")
+            zf.writestr("model.mtl", "newmtl mat\n")
+        result = detect_category(z)
+        assert result.category == "3d_model"
+        assert result.confidence > 0.8
+
+    def test_zip_with_las_is_pointcloud(self, tmp_path):
+        z = tmp_path / "scan.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.writestr("scan.las", b"fake")
+        result = detect_category(z)
+        assert result.category == "pointcloud"
+        assert result.confidence > 0.8
+
+    def test_zip_with_tileset_is_3d_tiles(self, tmp_path):
+        z = tmp_path / "tiles.zip"
+        with zipfile.ZipFile(z, "w") as zf:
+            zf.writestr("tileset.json", '{"asset":{"version":"1.1"}}')
+            zf.writestr("model.obj", "v 0 0 0\n")
+        result = detect_category(z)
+        assert result.category == "3d_tiles"
 
 
 class TestDetectionResult:

@@ -9,6 +9,7 @@
 
 from pathlib import Path
 from typing import NamedTuple
+import zipfile
 
 # 유효한 data_category 값
 VALID_CATEGORIES = frozenset([
@@ -48,7 +49,10 @@ _EXT_MAP: dict[str, str] = {
 }
 
 # 추가 확인이 필요한 확장자
-_NEEDS_INSPECTION = frozenset([".ply", ".tif", ".tiff", ".jpg", ".jpeg", ".png"])
+_NEEDS_INSPECTION = frozenset([".ply", ".zip", ".tif", ".tiff", ".jpg", ".jpeg", ".png"])
+
+_ARCHIVE_POINTCLOUD_EXTS = frozenset([".las", ".laz", ".e57", ".pcd", ".xyz", ".pts"])
+_ARCHIVE_MODEL_EXTS = frozenset([".obj", ".fbx", ".gltf", ".glb", ".stl", ".dae", ".ply"])
 
 # 이미지 확장자 (파노라마 추정 대상)
 _IMAGE_EXTS = frozenset([".jpg", ".jpeg", ".png"])
@@ -89,6 +93,9 @@ def detect_category(filepath: str | Path) -> DetectionResult:
     if ext == ".ply":
         return _detect_ply(path)
 
+    if ext == ".zip":
+        return _detect_zip(path)
+
     if ext in _GEOTIFF_EXTS:
         return _detect_geotiff(path)
 
@@ -108,6 +115,29 @@ def _detect_ply(path: Path) -> DetectionResult:
         return DetectionResult("3d_model" if has_face else "pointcloud", 0.95)
     except OSError:
         return DetectionResult("unknown", 0.0, "PLY 파일을 읽을 수 없습니다.")
+
+
+def _detect_zip(path: Path) -> DetectionResult:
+    """ZIP archive contents: 3D Tiles > 3D model > point cloud."""
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = [n for n in zf.namelist() if not n.endswith("/")]
+    except (OSError, zipfile.BadZipFile):
+        return DetectionResult("unknown", 0.0, "ZIP 파일을 열 수 없습니다.")
+
+    suffixes = {Path(n).suffix.lower() for n in names}
+    lower_names = {n.lower() for n in names}
+
+    if any(n.endswith("tileset.json") for n in lower_names):
+        return DetectionResult("3d_tiles", 0.9, "ZIP 내부 tileset.json을 기준으로 3D Tiles로 분류합니다.")
+
+    if suffixes & _ARCHIVE_MODEL_EXTS:
+        return DetectionResult("3d_model", 0.85, "ZIP 내부 3D 모델 파일을 기준으로 3D 모델로 분류합니다.")
+
+    if suffixes & _ARCHIVE_POINTCLOUD_EXTS:
+        return DetectionResult("pointcloud", 0.85, "ZIP 내부 포인트클라우드 파일을 기준으로 포인트클라우드로 분류합니다.")
+
+    return DetectionResult("unknown", 0.0, "ZIP 내부에서 지원 파일을 찾을 수 없습니다.")
 
 
 def _detect_geotiff(path: Path) -> DetectionResult:

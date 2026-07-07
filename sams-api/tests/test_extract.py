@@ -10,6 +10,7 @@ Tests for pipeline extract.py — 유형별 메타데이터 추출
 import json
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -160,6 +161,25 @@ class TestExtract3DTiles:
         f.write_text(json.dumps(tileset))
         result = extract_3dtiles(str(f))
         assert result["3dtiles:version"] == "1.0"  # default
+
+    def test_zip_tileset(self, tmp_path):
+        tileset = {
+            "asset": {"version": "1.1"},
+            "root": {
+                "geometricError": 25.0,
+                "content": {"uri": "tile.b3dm"},
+                "boundingVolume": {"box": [0] * 12},
+            },
+        }
+        f = tmp_path / "tiles.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr("nested/tileset.json", json.dumps(tileset))
+            zf.writestr("nested/tile.b3dm", b"b3dm")
+        result = extract_3dtiles(str(f))
+        assert result["archive:format"] == "zip"
+        assert result["archive:file_count"] == 2
+        assert result["3dtiles:version"] == "1.1"
+        assert result["3dtiles:tile_format"] == "b3dm"
 
 
 # ==========================================================================
@@ -589,6 +609,29 @@ class TestExtract3DModelGraceful:
         f.write_bytes(b"v 0 0 0\n")
         result = extract_metadata(str(f), "3d_model")
         assert "file:size" in result
+
+    def test_zip_model_archive_metadata(self, tmp_path):
+        f = tmp_path / "model.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr("model.obj", "v 0 0 0\n")
+            zf.writestr("model.mtl", "newmtl mat\nmap_Kd texture.jpg\n")
+            zf.writestr("texture.jpg", b"\xff\xd8")
+        result = extract_metadata(str(f), "3d_model")
+        assert result["archive:format"] == "zip"
+        assert result["3dmodel:format"] == "obj"
+        assert result["3dmodel:has_texture"] is True
+        assert result["3dmodel:material_count"] == 1
+        assert result["3dmodel:texture_count"] == 1
+
+    def test_zip_pointcloud_archive_metadata(self, tmp_path):
+        f = tmp_path / "scan.zip"
+        with zipfile.ZipFile(f, "w") as zf:
+            zf.writestr("scan.e57", b"fake")
+            zf.writestr("readme.txt", "metadata")
+        result = extract_metadata(str(f), "pointcloud")
+        assert result["archive:format"] == "zip"
+        assert result["pc:encoding"] == "E57"
+        assert result["pc:archive_member_count"] == 1
 
 
 # ==========================================================================

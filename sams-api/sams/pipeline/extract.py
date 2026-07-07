@@ -11,9 +11,15 @@ import json
 import logging
 import os
 import subprocess
+import zipfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_ARCHIVE_POINTCLOUD_EXTS = {".las", ".laz", ".e57", ".pcd", ".xyz", ".pts"}
+_ARCHIVE_MODEL_EXTS = {".obj", ".fbx", ".gltf", ".glb", ".stl", ".dae", ".ply"}
+_ARCHIVE_TEXTURE_EXTS = {".jpg", ".jpeg", ".png", ".tga", ".bmp"}
+_ARCHIVE_MATERIAL_EXTS = {".mtl"}
 
 # ---------------------------------------------------------------------------
 # Dispatch
@@ -138,11 +144,42 @@ def extract_pointcloud(filepath: str | Path) -> dict:
     path = Path(filepath)
     ext = path.suffix.lower()
 
+    if ext == ".zip":
+        return _extract_pointcloud_archive(path)
     if ext == ".e57":
         return _extract_pointcloud_e57(path)
     if ext in (".xyz", ".pts"):
         return _extract_pointcloud_text(path, ext)
     return _extract_pointcloud_las(path)
+
+
+def _zip_members(path: Path) -> list[str]:
+    """Return non-directory ZIP member names. Bad archives return an empty list."""
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            return [n for n in zf.namelist() if not n.endswith("/")]
+    except (OSError, zipfile.BadZipFile):
+        logger.warning("ZIP 파일을 열 수 없음: %s", path)
+        return []
+
+
+def _extract_pointcloud_archive(path: Path) -> dict:
+    """ZIP-packaged point cloud. Keep archive-level metadata without full extraction."""
+    members = _zip_members(path)
+    pc_members = [n for n in members if Path(n).suffix.lower() in _ARCHIVE_POINTCLOUD_EXTS]
+    formats = sorted({Path(n).suffix.lstrip(".").upper() for n in pc_members})
+    meta: dict = {
+        "file:size": path.stat().st_size,
+        "archive:format": "zip",
+        "archive:file_count": len(members),
+        "pc:encoding": "+".join(formats) if formats else "ZIP",
+        "pc:archive_member_count": len(pc_members),
+        "proj:epsg": None,
+        "_epsg_source": "unknown",
+    }
+    if pc_members:
+        meta["pc:archive_members"] = pc_members[:50]
+    return meta
 
 
 def _extract_pointcloud_las(path: Path) -> dict:
@@ -523,10 +560,13 @@ def extract_3dmodel(
 
     bundled_files가 있으면 텍스처/재질 정보를 번들에서 결정.
     """
-    import trimesh
-
     path = Path(filepath)
     meta: dict = {"file:size": path.stat().st_size}
+
+    if path.suffix.lower() == ".zip":
+        return _extract_3dmodel_archive(path, meta)
+
+    import trimesh
 
     mesh = trimesh.load(str(path), force="mesh")
 
@@ -586,6 +626,31 @@ def extract_3dmodel(
 _EXTRACTORS["3d_model"] = extract_3dmodel
 
 
+def _extract_3dmodel_archive(path: Path, meta: dict) -> dict:
+    """ZIP-packaged mesh/model. Inspect members without extracting the archive."""
+    members = _zip_members(path)
+    model_members = [n for n in members if Path(n).suffix.lower() in _ARCHIVE_MODEL_EXTS]
+    textures = [n for n in members if Path(n).suffix.lower() in _ARCHIVE_TEXTURE_EXTS]
+    materials = [n for n in members if Path(n).suffix.lower() in _ARCHIVE_MATERIAL_EXTS]
+    model_formats = [Path(n).suffix.lstrip(".").lower() for n in model_members]
+
+    meta.update({
+        "archive:format": "zip",
+        "archive:file_count": len(members),
+        "3dmodel:archive_member_count": len(model_members),
+        "3dmodel:has_texture": len(textures) > 0,
+        "3dmodel:texture_count": len(textures),
+        "3dmodel:material_count": len(materials),
+        "proj:epsg": None,
+        "_epsg_source": "unknown",
+    })
+    if model_formats:
+        meta["3dmodel:format"] = model_formats[0]
+        meta["3dmodel:formats"] = sorted(set(model_formats))
+        meta["3dmodel:archive_members"] = model_members[:50]
+    return meta
+
+
 # ---------------------------------------------------------------------------
 # 3D Tiles
 # ---------------------------------------------------------------------------
@@ -597,8 +662,8 @@ def extract_3dtiles(filepath: str | Path) -> dict:
     path = Path(filepath)
     meta: dict = {"file:size": path.stat().st_size}
 
-    # .3tz는 zip 안에 tileset.json이 있음
-    if path.suffix.lower() == ".3tz":
+    # .3tz and .zip archives can contain tileset.json.
+    if path.suffix.lower() in (".3tz", ".zip"):
         try:
             with zipfile.ZipFile(path, "r") as zf:
                 # tileset.json 찾기
@@ -612,8 +677,10 @@ def extract_3dtiles(filepath: str | Path) -> dict:
                     return meta
                 with zf.open(tileset_name) as f:
                     tileset = json.loads(f.read().decode("utf-8"))
+                meta["archive:format"] = path.suffix.lstrip(".").lower()
+                meta["archive:file_count"] = len([n for n in zf.namelist() if not n.endswith("/")])
         except (zipfile.BadZipFile, OSError):
-            logger.warning("3tz 파일을 열 수 없음: %s", path)
+            logger.warning("3D Tiles archive를 열 수 없음: %s", path)
             return meta
     else:
         with open(path, encoding="utf-8") as f:
