@@ -40,16 +40,34 @@ Current sources:
 `ontology_annotations` from STAC Item properties. Even if a client sends the
 analysis annotation back in a register request, it is not persisted.
 
+## Upload Review UI
+
+The Upload review screen now surfaces these advisory annotations before Draft
+registration:
+
+- shows how many rows have site/target standard ID candidates
+- shows candidate Site/Target IDs per row
+- lets the operator mark a candidate as confirmed or deferred
+- keeps those decisions in the upload task's browser-local state only
+- shows in the registration summary that standard ID candidates are not saved by default
+- warns that automatic registration skips candidate confirmation and still does
+  not save standard IDs
+
+This is an operator review aid. Phase 4 itself does not add
+`sams:site_concept`, `sams:target_concept`, or `sams:ontology_version` to the
+register payload. Phase 7 adds a disabled-by-default gated path.
+
 ## Not Changed
 
 - relation suggestions still use the existing suggestion logic.
 - accepted links are unchanged.
 - no concept fields are written to Items.
-- no UI control is added.
 - no existing uploaded data is touched.
 
 ## Next Gate
 
-The next safe continuation is to show these annotations in a developer/debug
-surface or use them in suggestion scoring as dry-run comparison. Using them to
-auto-fill `target` or write `sams:target_concept` remains gated.
+The next safe continuation is Phase 7 upload concept payload dry-run: show which
+confirmed candidates would become `sams:site_concept`,
+`sams:target_concept`, and `sams:ontology_version` fields later, with writes
+still disabled unless `ONTOLOGY_CONCEPT_WRITE_ENABLED=true`. Using them to
+auto-fill `target` remains gated.

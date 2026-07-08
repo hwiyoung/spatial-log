@@ -27,6 +27,7 @@
 - `docs/ontology/phase4_upload_dry_run_annotations.md` — 업로드 분석 dry-run 온톨로지 annotation.
 - `docs/ontology/phase5_concept_write_dry_run.md` — 기존 Item의 site/target concept sibling 쓰기 전 dry-run 리포트.
 - `docs/ontology/phase6_real_data_vocabulary_expansion.md` — mock seed 이후 실데이터 site/target vocabulary 확장 결정.
+- `docs/ontology/phase7_upload_concept_payload_dry_run.md` — 업로드 확인 후보의 concept 저장 payload dry-run과 비저장 경계.
 - `docs/ontology/current_semantic_inventory.md` — 현재 코드/문서에 흩어진 의미값 인벤토리.
 - `docs/ontology/sams_vocabulary_v0.md` — 사람용 vocabulary 초안.
 - `docs/ontology/stac_mapping_v0.md` — 기존 STAC 필드와 의미 concept 매핑 초안.

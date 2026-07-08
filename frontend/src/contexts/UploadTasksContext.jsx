@@ -14,6 +14,7 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { uploadApi } from '../services/api'
 import { getSuggestions, resolveAcceptance } from '../features/upload/getSuggestionView'
+import { buildOntologyWritePreview } from '../features/upload/ontologyWritePreview'
 
 // 설계서 §4.2 — 이 크기 이상은 presigned URL 로 브라우저가 MinIO 에 직접 업로드
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024
@@ -28,6 +29,8 @@ export const DEFAULT_UPLOAD_POLICY = {
   large_file_threshold_bytes: LARGE_FILE_THRESHOLD,
   multipart_part_size_bytes: 64 * 1024 * 1024,
   multipart_max_parts: 10000,
+  ontology_concept_write_enabled: false,
+  ontology_concept_write_fields: ['sams:site_concept', 'sams:target_concept', 'sams:ontology_version'],
 }
 
 const UploadTasksContext = createContext(null)
@@ -196,6 +199,7 @@ export function UploadTasksProvider({ children }) {
       rowEdits: {},        // {idx: {data_category?, description?, datetime?}} — 검토 단계 사용자 수정
       excludedRows: [],    // 등록에서 제외한 manifest 인덱스
       linkOverrides: {},   // {suggestionKey: bool} — 관계 제안 기본값에 대한 사용자 토글
+      ontologyDecisions: {}, // {idx: "confirmed"|"deferred"} — concept write flag ON일 때 confirmed만 payload 후보
       stagingKeys: {},     // {파일명: staging_key} — presigned 대용량 (등록 시 서버측 복사)
       error: null,
       startedAt: Date.now(),
@@ -458,6 +462,8 @@ export function UploadTasksProvider({ children }) {
     try {
       const collectionId = task.collectionId || `upload-${Date.now()}`
       const excluded = new Set(task.excludedRows || [])
+      const conceptWriteEnabled = uploadPolicy?.ontology_concept_write_enabled === true
+      const allowedConceptWriteFields = new Set(uploadPolicy?.ontology_concept_write_fields || [])
 
       // 수락된 관계 제안 — 양 끝이 모두 등록 대상일 때만 보낸다 (인덱스는 manifest 기준)
       const suggestions = getSuggestions(task.manifest)
@@ -493,6 +499,18 @@ export function UploadTasksProvider({ children }) {
         const loc = task.locationOverrides?.[idx]
         if (loc) {
           base.bbox_4326 = [loc[0] - 0.0001, loc[1] - 0.0001, loc[0] + 0.0001, loc[1] + 0.0001]
+        }
+        if (conceptWriteEnabled) {
+          const preview = buildOntologyWritePreview({
+            idx,
+            filename: item.file_path?.split('/').pop() || item.file_path,
+            filePath: item.file_path,
+            excluded: false,
+            ontology: item.ontology,
+          }, task.ontologyDecisions?.[idx] || '')
+          Object.entries(preview?.fields || {}).forEach(([field, value]) => {
+            if (allowedConceptWriteFields.has(field)) base[field] = value
+          })
         }
         return base
       }).filter(Boolean)
@@ -531,7 +549,7 @@ export function UploadTasksProvider({ children }) {
       console.error('등록 실패:', err)
       updateTask(taskId, { status: 'failed', error: err.response?.data?.detail || err.message })
     }
-  }, [updateTask])
+  }, [updateTask, uploadPolicy])
 
   const registerTask = useCallback(async (taskId) => {
     const task = tasks.find(t => t.id === taskId)
@@ -574,6 +592,16 @@ export function UploadTasksProvider({ children }) {
     }))
   }, [])
 
+  const setOntologyDecision = useCallback((taskId, idx, decision) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      const next = { ...(t.ontologyDecisions || {}) }
+      if (!decision) delete next[idx]
+      else next[idx] = decision
+      return { ...t, ontologyDecisions: next }
+    }))
+  }, [])
+
   // 관계 제안 수락/무시 토글 (기본값은 규칙으로 계산 — override 만 저장)
   const toggleLinkAccept = useCallback((taskId, suggestionKey, nextValue) => {
     setTasks(prev => prev.map(t => {
@@ -602,6 +630,7 @@ export function UploadTasksProvider({ children }) {
     removeTask,
     updateLocationOverride,
     updateRowEdit,
+    setOntologyDecision,
     toggleRowExclude,
     toggleLinkAccept,
   }

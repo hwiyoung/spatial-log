@@ -9,6 +9,11 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useUploadTasks } from '../../contexts/UploadTasksContext'
 import { getManifestRowView } from '../../features/upload/getManifestRowView'
 import { getSuggestions, resolveAcceptance } from '../../features/upload/getSuggestionView'
+import {
+  buildOntologyWritePreviews,
+  formatOntologyWriteField,
+  summarizeOntologyWritePreviews,
+} from '../../features/upload/ontologyWritePreview'
 import { PREVIEW_META, tint } from '../../features/explorer/explorerMeta'
 import SingleCard from './SingleCard'
 import BulkTable from './BulkTable'
@@ -91,8 +96,56 @@ function DoneView({ task, onRemove }) {
   )
 }
 
+function OntologyWriteDryRun({ previews, summary, conceptWriteEnabled }) {
+  if (summary.items === 0) return null
+  const shown = previews.slice(0, 4)
+  const hidden = previews.length - shown.length
+
+  return (
+    <div className="std-write-preview">
+      <div className="swp-head">
+        <b>{conceptWriteEnabled ? '표준화 저장 예정' : '표준화 저장 dry-run'}</b>
+        <span>
+          {summary.items}개 Item · {summary.fieldCount}개 필드 · {conceptWriteEnabled ? '등록 payload 포함' : '등록 payload 미포함'}
+        </span>
+      </div>
+      <p>
+        {conceptWriteEnabled
+          ? '확인한 후보는 원본 라벨 옆의 별도 필드로 이번 등록 요청에 포함됩니다.'
+          : '확인한 후보를 나중에 저장한다면 원본 라벨 옆에 아래 별도 필드가 추가됩니다. 이번 등록 요청에는 포함하지 않습니다.'}
+      </p>
+      <div className="swp-rows">
+        {shown.map(preview => (
+          <div className="swp-row" key={preview.idx}>
+            <span className="swp-file" title={preview.filePath}>{preview.filename || preview.filePath}</span>
+            <div className="swp-fields">
+              {Object.entries(preview.fields).map(([field, value]) => (
+                <span className="swp-chip" key={field}>
+                  <b>{formatOntologyWriteField(field)}</b>
+                  <small>{value}</small>
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {hidden > 0 && <div className="swp-more">외 {hidden}개 Item은 같은 규칙으로 dry-run 대상입니다.</div>}
+    </div>
+  )
+}
+
 export default function TaskSection({ task }) {
-  const { registerTask, cancelTask, removeTask, updateLocationOverride, updateRowEdit, toggleRowExclude, toggleLinkAccept } = useUploadTasks()
+  const {
+    registerTask,
+    cancelTask,
+    removeTask,
+    uploadPolicy,
+    updateLocationOverride,
+    updateRowEdit,
+    toggleRowExclude,
+    toggleLinkAccept,
+    setOntologyDecision,
+  } = useUploadTasks()
 
   const rows = useMemo(() => {
     const manifest = task.manifest?.manifest || []
@@ -112,12 +165,30 @@ export default function TaskSection({ task }) {
     () => suggestions.filter(s => acceptance[s.key] && !excludedSet.has(s.sourceIdx) && !excludedSet.has(s.targetIdx)).length,
     [suggestions, acceptance, excludedSet],
   )
+  const ontologyStats = useMemo(() => {
+    const withCandidate = rows.filter(r => r.ontologyState?.status === 'matched' && !r.excluded)
+    return {
+      candidates: withCandidate.length,
+      confirmed: withCandidate.filter(r => task.ontologyDecisions?.[r.idx] === 'confirmed').length,
+      deferred: withCandidate.filter(r => task.ontologyDecisions?.[r.idx] === 'deferred').length,
+    }
+  }, [rows, task.ontologyDecisions])
+  const ontologyWritePreviews = useMemo(
+    () => buildOntologyWritePreviews(rows, task.ontologyDecisions || {}),
+    [rows, task.ontologyDecisions],
+  )
+  const ontologyWriteSummary = useMemo(
+    () => summarizeOntologyWritePreviews(ontologyWritePreviews),
+    [ontologyWritePreviews],
+  )
+  const conceptWriteEnabled = uploadPolicy?.ontology_concept_write_enabled === true
 
   const includedCount = rows.filter(r => !r.excluded).length
   const inReview = task.status === 'analyzed' || task.status === 'registering'
   const onEdit = (idx, patch) => updateRowEdit(task.id, idx, patch)
   const onExclude = (idx) => toggleRowExclude(task.id, idx)
   const onLocation = (idx, loc) => updateLocationOverride(task.id, idx, loc)
+  const onOntologyDecision = (idx, decision) => setOntologyDecision(task.id, idx, decision)
 
   return (
     <div className="task">
@@ -170,6 +241,14 @@ export default function TaskSection({ task }) {
             <div style={{ fontSize: 12, color: 'var(--t3)', margin: '4px 0 2px' }}>
               자동 채움 <b style={{ color: 'var(--auto, #7FB1E8)' }}>{task.manifest.summary.auto_filled_percentage}%</b>
               {' · '}수동 입력 필요 필드 <b style={{ color: 'var(--draft)' }}>{task.manifest.summary.manual_required_fields}</b>개
+              {ontologyStats.candidates > 0 && (
+                <>
+                  {' · '}표준 ID 후보 <b style={{ color: 'var(--blue)' }}>{ontologyStats.candidates}</b>건
+                  {' · '}확인 <b style={{ color: 'var(--pub)' }}>{ontologyStats.confirmed}</b>건
+                  {ontologyWriteSummary.items > 0 && <> · 저장 dry-run <b style={{ color: 'var(--blue)' }}>{ontologyWriteSummary.items}</b>건</>}
+                  {ontologyStats.deferred > 0 && <> · 보류 <b style={{ color: 'var(--draft)' }}>{ontologyStats.deferred}</b>건</>}
+                </>
+              )}
             </div>
           )}
           {/* 등록 요청 중에는 검토 영역을 비활성 — 클릭 후 수정이 조용히 유실되는 것 방지 */}
@@ -178,7 +257,17 @@ export default function TaskSection({ task }) {
             aria-disabled={task.status === 'registering'}
           >
             {task.type === 'bulk'
-              ? <BulkTable rows={rows} onEdit={onEdit} onExclude={onExclude} onLocation={onLocation} />
+              ? (
+                <BulkTable
+                  rows={rows}
+                  onEdit={onEdit}
+                  onExclude={onExclude}
+                  onLocation={onLocation}
+                  ontologyDecisions={task.ontologyDecisions || {}}
+                  onOntologyDecision={onOntologyDecision}
+                  conceptWriteEnabled={conceptWriteEnabled}
+                />
+              )
               : rows.map(row => (
                 <SingleCard
                   key={row.idx} row={row} onEdit={onEdit} onExclude={onExclude} onLocation={onLocation}
@@ -186,15 +275,26 @@ export default function TaskSection({ task }) {
                   acceptance={acceptance}
                   excludedSet={excludedSet}
                   onToggleLink={(key, val) => toggleLinkAccept(task.id, key, val)}
+                  ontologyDecision={task.ontologyDecisions?.[row.idx] || ''}
+                  onOntologyDecision={onOntologyDecision}
+                  conceptWriteEnabled={conceptWriteEnabled}
                 />
               ))}
           </div>
+
+          <OntologyWriteDryRun
+            previews={ontologyWritePreviews}
+            summary={ontologyWriteSummary}
+            conceptWriteEnabled={conceptWriteEnabled}
+          />
 
           <div className="actbar">
             <div className="summary">
               <b>{includedCount}건</b>이 <b style={{ color: 'var(--draft)' }}>Draft</b>로 등록됩니다
               {rows.length !== includedCount && ` · ${rows.length - includedCount}건 제외`}
               {acceptedCount > 0 && <> · 관계 <b style={{ color: 'var(--blue)' }}>{acceptedCount}건</b> 함께 연결</>}
+              {ontologyStats.candidates > 0 && <> · 표준 ID 후보는 <b style={{ color: 'var(--blue)' }}>{conceptWriteEnabled ? '확인 건만 저장' : '현재 저장 안 함'}</b></>}
+              {ontologyWriteSummary.items > 0 && <> · 확인 후보도 <b style={{ color: 'var(--blue)' }}>{conceptWriteEnabled ? 'payload 포함' : 'payload 미포함'}</b></>}
             </div>
             <div className="right">
               <button

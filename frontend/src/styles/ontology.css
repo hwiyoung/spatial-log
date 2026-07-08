@@ -1,10 +1,18 @@
 .ont {
+  width: 100%;
+  max-width: 100vw;
   height: 100%;
   min-height: 0;
   display: flex;
   background: var(--bg);
   color: var(--t1);
   font-size: 13px;
+  overflow-x: hidden;
+}
+
+.ont,
+.ont * {
+  box-sizing: border-box;
 }
 
 .ont button,
@@ -75,8 +83,17 @@
   gap: 6px;
 }
 
+.of-label {
+  margin: 0 2px 2px;
+  color: var(--t3);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .ont-filter button {
-  height: 36px;
+  min-height: 36px;
+  height: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -87,6 +104,7 @@
   padding: 0 10px;
   cursor: pointer;
   font-size: 12.5px;
+  line-height: 1.25;
 }
 
 .ont-filter button:hover {
@@ -105,6 +123,11 @@
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--t3);
+}
+
+.ont-filter button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ont-filter button.on b {
@@ -135,7 +158,11 @@
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
+}
+
+.ont-head > div {
+  min-width: 0;
 }
 
 .ont-head h1 {
@@ -149,10 +176,17 @@
   margin: 0;
   color: var(--t2);
   font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.ont-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .ont-refresh {
-  margin-left: auto;
   height: 34px;
   padding: 0 14px;
   border-radius: 8px;
@@ -182,9 +216,66 @@
   margin-bottom: 14px;
 }
 
+.ont-primer {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.2fr) minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.opm-main {
+  min-width: 0;
+}
+
+.opm-main b,
+.opm-main span {
+  display: block;
+}
+
+.opm-main b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.opm-main span {
+  margin-top: 4px;
+  color: var(--t2);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.opm-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.opm-legend span {
+  min-width: 0;
+  border-left: 2px solid var(--line);
+  padding-left: 9px;
+  color: var(--t2);
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.opm-legend b {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--t1);
+  font-weight: 600;
+}
+
 .ont-kpis {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(6, minmax(108px, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -210,12 +301,50 @@
   margin-top: 6px;
   color: var(--t2);
   font-size: 11.5px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .okpi.write b { color: var(--blue); }
 .okpi.ok b { color: var(--pub); }
 .okpi.warn b { color: var(--draft); }
 .okpi.muted b { color: var(--t3); }
+
+.ont-workflow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.owf-card {
+  min-height: 58px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+
+.owf-card span {
+  display: block;
+  color: var(--t2);
+  font-size: 11.5px;
+  line-height: 1.25;
+}
+
+.owf-card b {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.owf-card.write b { color: var(--blue); }
+.owf-card.ok b { color: var(--pub); }
+.owf-card.warn b { color: var(--draft); }
+.owf-card.bad b { color: var(--fail); }
+.owf-card.muted b { color: var(--t3); }
 
 .ont-coverage {
   background: var(--panel);
@@ -241,6 +370,8 @@
 
 .oc-row span {
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .oc-row b {
@@ -252,13 +383,15 @@
 .oc-row small {
   color: var(--t3);
   font-size: 11px;
+  min-width: 0;
+  line-height: 1.2;
 }
 
 .ont-gaps {
   display: grid;
   grid-template-columns: repeat(4, minmax(190px, 1fr));
   gap: 10px;
-  margin-bottom: 16px;
+  margin-top: 16px;
 }
 
 .ont-gap {
@@ -350,6 +483,11 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 300px;
+  max-height: min(560px, 52vh);
+  margin-bottom: 12px;
 }
 
 .oq-head {
@@ -372,6 +510,8 @@
   color: var(--t3);
   font-size: 12px;
   font-family: var(--font-mono);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ont-empty {
@@ -380,9 +520,14 @@
   text-align: center;
 }
 
+.ont-rows {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .ont-row {
   display: grid;
-  grid-template-columns: minmax(210px, 1.1fr) minmax(230px, 1fr) minmax(230px, 1fr) minmax(160px, .65fr);
+  grid-template-columns: minmax(180px, 1fr) minmax(200px, 1fr) minmax(200px, 1fr) minmax(112px, .46fr) minmax(180px, .8fr);
   gap: 12px;
   align-items: stretch;
   padding: 12px 14px;
@@ -416,6 +561,47 @@
 .or-id span {
   color: var(--t3);
   font-size: 11px;
+}
+
+.or-lane {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+  font-size: 10.5px;
+}
+
+.or-lane.write {
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 30%, transparent);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+}
+
+.or-lane.ok {
+  color: var(--pub);
+  border-color: color-mix(in srgb, var(--pub) 30%, transparent);
+  background: color-mix(in srgb, var(--pub) 8%, transparent);
+}
+
+.or-lane.warn {
+  color: var(--draft);
+  border-color: color-mix(in srgb, var(--draft) 30%, transparent);
+  background: color-mix(in srgb, var(--draft) 8%, transparent);
+}
+
+.or-lane.bad {
+  color: var(--fail);
+  border-color: color-mix(in srgb, var(--fail) 30%, transparent);
+  background: color-mix(in srgb, var(--fail) 8%, transparent);
+}
+
+.or-lane.muted {
+  color: var(--t3);
 }
 
 .ont-proposal {
@@ -571,6 +757,84 @@
   font-family: var(--font-mono);
 }
 
+.or-review {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+}
+
+.rv-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.rv-top small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--t3);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rv-pill {
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.rv-pill.ok {
+  color: var(--pub);
+  border-color: color-mix(in srgb, var(--pub) 34%, transparent);
+  background: color-mix(in srgb, var(--pub) 8%, transparent);
+}
+
+.rv-pill.warn {
+  color: var(--draft);
+  border-color: color-mix(in srgb, var(--draft) 34%, transparent);
+  background: color-mix(in srgb, var(--draft) 8%, transparent);
+}
+
+.rv-pill.bad {
+  color: var(--fail);
+  border-color: color-mix(in srgb, var(--fail) 34%, transparent);
+  background: color-mix(in srgb, var(--fail) 8%, transparent);
+}
+
+.rv-pill.muted {
+  color: var(--t3);
+}
+
+.or-review select,
+.or-review input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.or-review input::placeholder {
+  color: var(--t3);
+}
+
+.or-review select:focus,
+.or-review input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
 @media (max-width: 1180px) {
   .ont {
     flex-direction: column;
@@ -584,6 +848,18 @@
   .ont-filter {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .of-label {
+    grid-column: 1 / -1;
+  }
+  .ont-workflow {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+  .ont-primer {
+    grid-template-columns: 1fr;
+  }
+  .opm-legend {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .ont-gaps {
     grid-template-columns: repeat(2, minmax(220px, 1fr));
@@ -600,17 +876,47 @@
   .ont-head {
     flex-direction: column;
   }
-  .ont-refresh {
+  .ont-actions {
+    width: 100%;
     margin-left: 0;
+    flex-direction: column;
+  }
+  .ont-refresh {
     width: 100%;
   }
   .ont-kpis,
+  .ont-workflow,
   .ont-gaps,
+  .opm-legend,
   .ont-filter {
     grid-template-columns: 1fr;
   }
+  .ont-primer {
+    padding: 11px 12px;
+  }
+  .ont-queue {
+    min-height: 360px;
+    max-height: 64vh;
+  }
+  .oq-head {
+    height: auto;
+    min-height: 44px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  .oq-head span {
+    margin-left: 0;
+    text-align: left;
+  }
   .oc-row {
-    grid-template-columns: minmax(100px, 1fr) repeat(3, 34px 68px);
-    gap: 5px;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 10px 12px;
+  }
+  .oc-row b {
+    text-align: left;
   }
 }

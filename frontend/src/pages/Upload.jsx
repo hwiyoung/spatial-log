@@ -105,6 +105,11 @@ export default function Upload() {
             <input type="checkbox" checked={autoRegister} onChange={e => setAutoRegister(e.target.checked)} />
             분석 완료 시 자동 등록 — 검토 없이 즉시 Draft 등록
           </label>
+          {autoRegister && (
+            <div className="autoreg-note" role="note">
+              표준화 후보 확인도 건너뜁니다. 자동 등록은 표준 ID를 저장 대상으로 확정하지 않습니다.
+            </div>
+          )}
         </div>
 
         <Dropzone
@@ -121,6 +126,7 @@ export default function Upload() {
                 <span>
                   {' '}파일 {pendingLargeUpload.fileCount}개 · 경고 기준 {formatUploadBytes(policy.warn_upload_bytes)} 이상.
                   업로드와 자동 분류가 오래 걸릴 수 있으니 네트워크와 저장 공간을 확인하세요.
+                  {pendingLargeUpload.autoRegister && ' 자동 등록이 켜져 있어 표준화 후보 확인과 표준 ID 확정 없이 Draft 등록됩니다.'}
                 </span>
               </div>
             </div>

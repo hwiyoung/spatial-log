@@ -15,7 +15,72 @@ import AcquiredDateTimeInput from './AcquiredDateTimeInput'
 
 const CAT_ORDER = ['pointcloud', '3d_model', '3d_tiles', 'orthoimage', 'image', 'panorama', 'video', 'document']
 
-export default function SingleCard({ row, onEdit, onExclude, onLocation, suggestions = [], acceptance = {}, excludedSet, onToggleLink }) {
+function StandardIdReview({ row, decision, onDecision, conceptWriteEnabled = false }) {
+  const ontology = row.ontology
+  const hasCandidate = row.ontologyState?.status === 'matched'
+
+  return (
+    <div className="std-review">
+      <div className="fc-sub">
+        표준 ID 후보 <span style={{ textTransform: 'none', letterSpacing: 0 }}>
+          · {conceptWriteEnabled ? '후보 확인 시 저장 예정' : '등록 시 아직 저장하지 않음'}
+        </span>
+      </div>
+      {!hasCandidate ? (
+        <div className="std-empty">현재 site/target 라벨로 매칭된 표준 ID 후보가 없습니다.</div>
+      ) : (
+        <>
+          <div className="std-chips">
+            {ontology?.site_concept && (
+              <span className="std-chip">
+                <b>Site</b>
+                {ontology.site_label_ko || ontology.site_concept}
+                <small>{ontology.site_concept}</small>
+              </span>
+            )}
+            {ontology?.target_concept && (
+              <span className="std-chip">
+                <b>Target</b>
+                {ontology.target_label_ko || ontology.target_concept}
+                <small>{ontology.target_concept}</small>
+              </span>
+            )}
+          </div>
+          <div className="std-actions">
+            <button
+              type="button"
+              className={decision === 'confirmed' ? 'on' : ''}
+              onClick={() => onDecision(row.idx, decision === 'confirmed' ? '' : 'confirmed')}
+            >
+              후보 확인
+            </button>
+            <button
+              type="button"
+              className={decision === 'deferred' ? 'on warn' : ''}
+              onClick={() => onDecision(row.idx, decision === 'deferred' ? '' : 'deferred')}
+            >
+              보류
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function SingleCard({
+  row,
+  onEdit,
+  onExclude,
+  onLocation,
+  suggestions = [],
+  acceptance = {},
+  excludedSet,
+  onToggleLink,
+  ontologyDecision = '',
+  onOntologyDecision = () => {},
+  conceptWriteEnabled = false,
+}) {
   const [showPicker, setShowPicker] = useState(false)
   const pv = PREVIEW_META[row.preview.s] || PREVIEW_META.missing
 
@@ -100,6 +165,12 @@ export default function SingleCard({ row, onEdit, onExclude, onLocation, suggest
           {row.missing.length > 0 && (
             <div className="reason">누락 필드는 등록을 막지 않습니다 — Draft로 수용 후 보완 화면에서 채울 수 있습니다.</div>
           )}
+          <StandardIdReview
+            row={row}
+            decision={ontologyDecision}
+            onDecision={onOntologyDecision}
+            conceptWriteEnabled={conceptWriteEnabled}
+          />
           {suggestions.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <div className="fc-sub">관계 자동 제안 <span style={{ textTransform: 'none', letterSpacing: 0 }}>· 체크된 것만 등록 시 연결</span></div>

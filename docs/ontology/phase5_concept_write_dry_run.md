@@ -66,6 +66,25 @@ registration, or relation mutation code.
 
 It is a review surface only. Existing Items remain unchanged.
 
+## Operator Review UI
+
+`/ontology` is labeled "표준화 검수" in the product UI. It turns this dry-run
+response into a local operator workflow:
+
+- standard ID rationale: stable IDs let SAMS group the same site/target even when
+  human labels differ by spelling, language, or abbreviation.
+- auto-match filters: all, ID matched, label without ID, missing label,
+  duplicate/conflicting candidate
+- operator-decision filters: unreviewed, match confirmed, standard ID to add,
+  label input needed, review later
+- workflow lanes: ID matched, label without ID, missing label,
+  duplicate/conflicting candidate, no action needed
+- per-Item review decision and note
+- CSV export of the currently visible queue
+
+Review decisions and notes are stored only in the browser `localStorage`. They
+are not submitted to SAMS API and do not write STAC Items.
+
 ## Next Decision
 
 After reviewing the report on live data, decide whether concept sibling writes

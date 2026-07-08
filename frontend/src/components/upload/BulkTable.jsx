@@ -14,7 +14,56 @@ import AcquiredDateTimeInput from './AcquiredDateTimeInput'
 
 const CAT_ORDER = ['pointcloud', '3d_model', '3d_tiles', 'orthoimage', 'image', 'panorama', 'video', 'document']
 
-export default function BulkTable({ rows, onEdit, onExclude, onLocation }) {
+function StandardIdCell({ row, decision, onDecision, conceptWriteEnabled = false }) {
+  const ontology = row.ontology
+  const hasCandidate = row.ontologyState?.status === 'matched'
+
+  if (!hasCandidate) {
+    return <span className="std-empty">후보 없음</span>
+  }
+
+  return (
+    <div className="std-cell">
+      <div className="std-chips">
+        {ontology?.site_concept && (
+          <span className="std-chip"><b>Site</b>{ontology.site_label_ko || ontology.site_concept}<small>{ontology.site_concept}</small></span>
+        )}
+        {ontology?.target_concept && (
+          <span className="std-chip"><b>Target</b>{ontology.target_label_ko || ontology.target_concept}<small>{ontology.target_concept}</small></span>
+        )}
+      </div>
+      <div className="std-actions">
+        <button
+          type="button"
+          className={decision === 'confirmed' ? 'on' : ''}
+          onClick={() => onDecision(row.idx, decision === 'confirmed' ? '' : 'confirmed')}
+        >
+          확인
+        </button>
+        <button
+          type="button"
+          className={decision === 'deferred' ? 'on warn' : ''}
+          onClick={() => onDecision(row.idx, decision === 'deferred' ? '' : 'deferred')}
+        >
+          보류
+        </button>
+      </div>
+      <div className="std-save-note">
+        {conceptWriteEnabled ? '확인 시 저장 예정' : '현재 저장 안 함'}
+      </div>
+    </div>
+  )
+}
+
+export default function BulkTable({
+  rows,
+  onEdit,
+  onExclude,
+  onLocation,
+  ontologyDecisions = {},
+  onOntologyDecision = () => {},
+  conceptWriteEnabled = false,
+}) {
   const [pickerIdx, setPickerIdx] = useState(null)
   const pickerRow = pickerIdx != null ? rows.find(r => r.idx === pickerIdx) : null
 
@@ -23,7 +72,7 @@ export default function BulkTable({ rows, onEdit, onExclude, onLocation }) {
       <table>
         <thead>
           <tr>
-            <th>파일</th><th>예측 category</th><th>preview</th><th>위치</th><th>누락 · Draft 사유</th><th>취득일시</th><th></th>
+            <th>파일</th><th>예측 category</th><th>표준 ID</th><th>preview</th><th>위치</th><th>누락 · Draft 사유</th><th>취득일시</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -46,6 +95,14 @@ export default function BulkTable({ rows, onEdit, onExclude, onLocation }) {
                   </select>
                   {r.conf === 'low' && <span style={{ color: 'var(--orange)', fontSize: 11 }} title="자동 판별 신뢰 낮음">⚠</span>}
                 </div>
+              </td>
+              <td>
+                <StandardIdCell
+                  row={r}
+                  decision={ontologyDecisions[r.idx] || ''}
+                  onDecision={onOntologyDecision}
+                  conceptWriteEnabled={conceptWriteEnabled}
+                />
               </td>
               <td><div className="td-cat"><PvDot s={r.preview.s} />{r.preview.s}</div></td>
               <td>

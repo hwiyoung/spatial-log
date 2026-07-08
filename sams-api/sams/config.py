@@ -2,6 +2,14 @@
 
 import os
 
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def _bytes_env(name: str, default: int) -> int:
     raw = os.getenv(name)
     if not raw:
@@ -42,5 +50,6 @@ class Settings:
     UPLOAD_STALE_MULTIPART_SECONDS: int = int(os.getenv("UPLOAD_STALE_MULTIPART_SECONDS", str(24 * 60 * 60)))
     UPLOAD_ANALYSIS_STALE_SECONDS: int = int(os.getenv("UPLOAD_ANALYSIS_STALE_SECONDS", str(15 * 60)))
     UPLOAD_CLEANUP_INTERVAL_SECONDS: int = int(os.getenv("UPLOAD_CLEANUP_INTERVAL_SECONDS", str(60 * 60)))
+    ONTOLOGY_CONCEPT_WRITE_ENABLED: bool = _bool_env("ONTOLOGY_CONCEPT_WRITE_ENABLED", False)
 
 settings = Settings()

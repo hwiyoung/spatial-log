@@ -8,6 +8,7 @@ const FLAG_STYLE = {
   metadata: { color: 'var(--draft)', bd: 'color-mix(in srgb, var(--draft) 38%, transparent)', bg: 'color-mix(in srgb, var(--draft) 9%, transparent)' },
   spatial: { color: 'var(--t2)', bd: 'var(--line)', bg: '#121821' },
   link: { color: 'var(--blue)', bd: 'color-mix(in srgb, var(--blue) 35%, transparent)', bg: 'color-mix(in srgb, var(--blue) 8%, transparent)' },
+  ontology: { color: 'var(--blue)', bd: 'color-mix(in srgb, var(--blue) 35%, transparent)', bg: 'color-mix(in srgb, var(--blue) 8%, transparent)' },
 }
 
 export function Flag({ f }) {

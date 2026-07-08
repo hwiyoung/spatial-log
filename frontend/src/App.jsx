@@ -10,7 +10,7 @@
  *   /viewer/:collectionId/:itemId  → ViewerShell (단일 자산 전체 페이지 뷰어 셸)
  *   /project                       → Project (Collection 목록 + 4탭 대시보드)
  *   /upload                        → Upload (벌크 + 단건 탭)
- *   /ontology                      → Ontology Review (read-only 의미 매칭 검토)
+ *   /ontology                      → 표준화 검수 (read-only 의미 매칭 검토)
  */
 
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -37,11 +37,12 @@ function NavBar() {
   return (
     <nav style={{
       height: 50, flex: 'none', background: 'var(--panel)', borderBottom: '1px solid var(--line)',
-      display: 'flex', alignItems: 'center', padding: '0 16px', gap: 6
+      display: 'flex', alignItems: 'center', padding: '0 clamp(8px, 3vw, 16px)', gap: 4,
+      overflowX: 'auto', overflowY: 'hidden'
     }}>
       <span
         onClick={handleLogoClick}
-        style={{ fontSize: 15, fontWeight: 600, color: 'var(--t1)', cursor: 'pointer', marginRight: 22, userSelect: 'none', letterSpacing: '.3px' }}
+        style={{ flex: 'none', fontSize: 15, fontWeight: 600, color: 'var(--t1)', cursor: 'pointer', marginRight: 'clamp(6px, 3vw, 22px)', userSelect: 'none', letterSpacing: '.3px' }}
       >
         SAMS<span style={{ color: 'var(--t3)', fontWeight: 400, fontSize: 11, marginLeft: 2 }}>v0.1</span>
       </span>
@@ -49,14 +50,15 @@ function NavBar() {
         { to: '/', label: 'Explorer' },
         { to: '/project', label: 'Project' },
         { to: '/upload', label: 'Upload' },
-        { to: '/ontology', label: 'Ontology' },
+        { to: '/ontology', label: '표준화 검수' },
       ].map(link => (
             <NavLink
               key={link.to}
               to={link.to}
               end={link.to === '/'}
               style={({ isActive }) => ({
-                padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 500,
+                flex: 'none',
+                padding: '7px clamp(8px, 2vw, 16px)', borderRadius: 7, fontSize: 13, fontWeight: 500,
                 textDecoration: 'none',
                 color: isActive ? 'var(--blue)' : 'var(--t2)',
                 background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent',

@@ -38,6 +38,12 @@ function extractedValue(item, key) {
   return entry && typeof entry === 'object' && 'value' in entry ? entry.value : entry
 }
 
+function ontologyMatchState(ontology) {
+  if (!ontology) return { status: 'none', label: '후보 없음' }
+  if (ontology.site_concept || ontology.target_concept) return { status: 'matched', label: 'ID 후보 있음' }
+  return { status: 'none', label: '후보 없음' }
+}
+
 export function getManifestRowView(item, idx, { edits = {}, location = null, excluded = false } = {}) {
   const cat = edits.data_category || item.detected_category || 'unknown'
   const filename = (item.file_path || '').split('/').pop() || item.file_path
@@ -71,6 +77,7 @@ export function getManifestRowView(item, idx, { edits = {}, location = null, exc
   if (missing.length > 0) flags.push({ k: 'metadata', t: `필수 ${missing.length}개 누락` })
   if (spatialKind === 'none') flags.push({ k: 'spatial', t: '위치 없음' })
   if (links.length > 0) flags.push({ k: 'link', t: `관계 제안 ${links.length}` })
+  if (item.ontology?.site_concept || item.ontology?.target_concept) flags.push({ k: 'ontology', t: '표준 ID 후보' })
 
   return {
     idx,
@@ -88,6 +95,8 @@ export function getManifestRowView(item, idx, { edits = {}, location = null, exc
     inheritedRows,
     missing,
     links,
+    ontology: item.ontology || null,
+    ontologyState: ontologyMatchState(item.ontology),
     flags,
     excluded,
     name: edits.description ?? '',

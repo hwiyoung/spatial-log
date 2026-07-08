@@ -62,6 +62,22 @@ MULTIPART_PART_SIZE = 64 * 1024 * 1024
 MULTIPART_MAX_PARTS = 10_000
 _last_multipart_cleanup = 0.0
 
+REGISTER_EXCLUDED_PROPERTY_KEYS = {
+    "bbox",
+    "geometry",
+    "id",
+    "links",
+    "assets",
+    "ontology",
+    "ontology_annotations",
+}
+ONTOLOGY_CONCEPT_WRITE_FIELDS = (
+    "sams:site_concept",
+    "sams:target_concept",
+    "sams:ontology_version",
+)
+ONTOLOGY_CONCEPT_WRITE_FIELD_SET = set(ONTOLOGY_CONCEPT_WRITE_FIELDS)
+
 
 class UploadPolicyResponse(BaseModel):
     """클라이언트가 업로드 전 표시/차단에 사용하는 정책값."""
@@ -70,6 +86,8 @@ class UploadPolicyResponse(BaseModel):
     large_file_threshold_bytes: int
     multipart_part_size_bytes: int
     multipart_max_parts: int
+    ontology_concept_write_enabled: bool
+    ontology_concept_write_fields: list[str]
 
 
 @router.get("/policy", response_model=UploadPolicyResponse)
@@ -81,6 +99,8 @@ async def upload_policy():
         large_file_threshold_bytes=100 * 1024 * 1024,
         multipart_part_size_bytes=MULTIPART_PART_SIZE,
         multipart_max_parts=MULTIPART_MAX_PARTS,
+        ontology_concept_write_enabled=settings.ONTOLOGY_CONCEPT_WRITE_ENABLED,
+        ontology_concept_write_fields=list(ONTOLOGY_CONCEPT_WRITE_FIELDS),
     )
 
 
@@ -94,6 +114,43 @@ def _validate_upload_size(size: int | None, label: str = "업로드") -> None:
             status_code=413,
             detail=f"{label} 크기가 최대 업로드 크기({settings.MAX_UPLOAD_BYTES} bytes)를 초과합니다.",
         )
+
+
+def _is_ontology_concept_property(key: str) -> bool:
+    return key == "sams:ontology_version" or (key.startswith("sams:") and key.endswith("_concept"))
+
+
+def _register_property_value(key: str, value: Any) -> tuple[bool, Any]:
+    if key.startswith("_") or key in REGISTER_EXCLUDED_PROPERTY_KEYS:
+        return False, None
+
+    if not _is_ontology_concept_property(key):
+        return True, value
+
+    if not settings.ONTOLOGY_CONCEPT_WRITE_ENABLED:
+        return False, None
+    if key not in ONTOLOGY_CONCEPT_WRITE_FIELD_SET:
+        return False, None
+    if value is None:
+        return False, None
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail=f"{key} 값은 문자열이어야 합니다.")
+
+    cleaned = value.strip()
+    if not cleaned:
+        return False, None
+    if len(cleaned) > 128:
+        raise HTTPException(status_code=400, detail=f"{key} 값이 너무 깁니다.")
+    return True, cleaned
+
+
+def _register_properties(item_data: dict[str, Any]) -> dict[str, Any]:
+    properties: dict[str, Any] = {}
+    for key, value in item_data.items():
+        include, cleaned = _register_property_value(key, value)
+        if include:
+            properties[key] = cleaned
+    return properties
 
 
 def _validate_session_payload_size(session_id: str) -> None:
@@ -855,12 +912,7 @@ async def upload_register(req: RegisterRequest):
 
             # STAC Item JSON 구성
             now = datetime.now(timezone.utc).isoformat()
-            properties = {
-                k: v
-                for k, v in item_data.items()
-                if not k.startswith("_")
-                and k not in ("bbox", "geometry", "id", "links", "assets", "ontology", "ontology_annotations")
-            }
+            properties = _register_properties(item_data)
             properties["created"] = now
             properties["updated"] = now
             properties["sams:status"] = req.status
