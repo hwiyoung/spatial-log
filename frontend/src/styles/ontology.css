@@ -1,0 +1,616 @@
+.ont {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  background: var(--bg);
+  color: var(--t1);
+  font-size: 13px;
+}
+
+.ont button,
+.ont input,
+.ont select {
+  font-family: inherit;
+}
+
+.ont-side {
+  width: 300px;
+  flex: none;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.ont-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 2px 8px;
+}
+
+.ont-brand span {
+  color: var(--t3);
+  font-size: 11px;
+}
+
+.ont-brand b {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.ont-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ont-control label {
+  font-size: 11px;
+  color: var(--t3);
+  font-weight: 600;
+}
+
+.ont-control select {
+  width: 100%;
+  color: var(--t1);
+  background: #121821;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 9px;
+  font-size: 12.5px;
+}
+
+.ont-control select:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.ont-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ont-filter button {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t2);
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.ont-filter button:hover {
+  background: var(--card);
+  color: var(--t1);
+}
+
+.ont-filter button.on {
+  background: #1b2735;
+  border-color: color-mix(in srgb, var(--blue) 42%, transparent);
+  color: var(--t1);
+}
+
+.ont-filter button b {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.ont-filter button.on b {
+  color: var(--blue);
+}
+
+.ont-note {
+  margin-top: auto;
+  border: 1px solid color-mix(in srgb, var(--draft) 28%, transparent);
+  background: color-mix(in srgb, var(--draft) 8%, transparent);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #e7d9b4;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ont-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 20px 24px 44px;
+}
+
+.ont-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.ont-head h1 {
+  font-size: 22px;
+  line-height: 1.2;
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.ont-head p {
+  margin: 0;
+  color: var(--t2);
+  font-size: 12.5px;
+}
+
+.ont-refresh {
+  margin-left: auto;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--t2);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+
+.ont-refresh:hover {
+  border-color: #3a4655;
+  color: var(--t1);
+}
+
+.ont-refresh:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.ont-error {
+  border: 1px solid color-mix(in srgb, var(--fail) 35%, transparent);
+  background: color-mix(in srgb, var(--fail) 10%, transparent);
+  color: #ffd3d3;
+  border-radius: 8px;
+  padding: 11px 13px;
+  margin-bottom: 14px;
+}
+
+.ont-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.okpi {
+  min-height: 76px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px 14px;
+}
+
+.okpi b {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 600;
+}
+
+.okpi span {
+  display: block;
+  margin-top: 6px;
+  color: var(--t2);
+  font-size: 11.5px;
+}
+
+.okpi.write b { color: var(--blue); }
+.okpi.ok b { color: var(--pub); }
+.okpi.warn b { color: var(--draft); }
+.okpi.muted b { color: var(--t3); }
+
+.ont-coverage {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.oc-row {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) repeat(3, 44px 82px);
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line2);
+}
+
+.oc-row:last-child {
+  border-bottom: 0;
+}
+
+.oc-row span {
+  font-weight: 600;
+}
+
+.oc-row b {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.oc-row small {
+  color: var(--t3);
+  font-size: 11px;
+}
+
+.ont-gaps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.ont-gap {
+  min-height: 148px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.og-head {
+  height: 35px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line2);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.og-empty {
+  padding: 13px 12px;
+  color: var(--t3);
+  font-size: 12px;
+}
+
+.og-row {
+  min-height: 48px;
+  display: flex;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line2);
+}
+
+.og-row:last-child {
+  border-bottom: 0;
+}
+
+.og-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.og-main b,
+.og-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.og-main b {
+  font-size: 12.5px;
+}
+
+.og-main span {
+  margin-top: 3px;
+  color: var(--t3);
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+}
+
+.og-meta {
+  width: 82px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  color: var(--t3);
+  font-size: 10.5px;
+}
+
+.og-meta span {
+  max-width: 82px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.og-meta strong {
+  color: var(--t1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ont-queue {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.oq-head {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.oq-head h2 {
+  font-size: 14px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.oq-head span {
+  margin-left: auto;
+  color: var(--t3);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.ont-empty {
+  padding: 28px 14px;
+  color: var(--t3);
+  text-align: center;
+}
+
+.ont-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.1fr) minmax(230px, 1fr) minmax(230px, 1fr) minmax(160px, .65fr);
+  gap: 12px;
+  align-items: stretch;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line2);
+}
+
+.ont-row:last-child {
+  border-bottom: 0;
+}
+
+.or-id {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+}
+
+.or-id b,
+.or-id span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.or-id b {
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+}
+
+.or-id span {
+  color: var(--t3);
+  font-size: 11px;
+}
+
+.ont-proposal {
+  min-width: 0;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.op-top,
+.op-main,
+.op-sub {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.op-title {
+  color: var(--t3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.op-status {
+  margin-left: auto;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+}
+
+.op-status.write {
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 34%, transparent);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+}
+
+.op-status.ok {
+  color: var(--pub);
+  border-color: color-mix(in srgb, var(--pub) 34%, transparent);
+  background: color-mix(in srgb, var(--pub) 8%, transparent);
+}
+
+.op-status.warn {
+  color: var(--draft);
+  border-color: color-mix(in srgb, var(--draft) 34%, transparent);
+  background: color-mix(in srgb, var(--draft) 8%, transparent);
+}
+
+.op-status.bad {
+  color: var(--fail);
+  border-color: color-mix(in srgb, var(--fail) 34%, transparent);
+  background: color-mix(in srgb, var(--fail) 8%, transparent);
+}
+
+.op-status.muted {
+  color: var(--t3);
+  border-color: var(--line);
+}
+
+.op-main {
+  margin-top: 7px;
+  min-width: 0;
+}
+
+.op-source,
+.op-concept {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-source {
+  color: var(--t1);
+  font-weight: 500;
+}
+
+.op-arrow {
+  flex: none;
+  color: var(--t3);
+}
+
+.op-concept {
+  color: var(--t1);
+}
+
+.op-concept small {
+  display: block;
+  margin-top: 2px;
+  color: var(--t3);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.op-sub {
+  margin-top: 7px;
+  color: var(--t3);
+  font-size: 10.5px;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+}
+
+.op-sub span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.or-write {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 6px;
+}
+
+.ow-none {
+  color: var(--t3);
+  font-size: 12px;
+}
+
+.ow-chip {
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--blue) 34%, transparent);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.ow-chip b,
+.ow-chip small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ow-chip b {
+  color: var(--blue);
+  font-size: 10.5px;
+}
+
+.ow-chip small {
+  margin-top: 2px;
+  color: var(--t2);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 1180px) {
+  .ont {
+    flex-direction: column;
+  }
+  .ont-side {
+    width: 100%;
+    max-height: 230px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .ont-filter {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .ont-gaps {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+  .ont-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .ont-main {
+    padding: 16px 14px 36px;
+  }
+  .ont-head {
+    flex-direction: column;
+  }
+  .ont-refresh {
+    margin-left: 0;
+    width: 100%;
+  }
+  .ont-kpis,
+  .ont-gaps,
+  .ont-filter {
+    grid-template-columns: 1fr;
+  }
+  .oc-row {
+    grid-template-columns: minmax(100px, 1fr) repeat(3, 34px 68px);
+    gap: 5px;
+  }
+}

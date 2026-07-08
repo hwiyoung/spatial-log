@@ -1,6 +1,6 @@
 /**
  * SAMS API 클라이언트
- * 
+ *
  * /api/* → SAMS 커스텀 API (업로드, 자동 채움, Collection 관리)
  * /stac/* → STAC 표준 API (검색, Item/Collection CRUD)
  */
@@ -57,6 +57,14 @@ export const searchApi = {
   autocomplete: (q) => samsApi.get('/search/autocomplete', { params: { q } }),
   facets: () => samsApi.get('/search/facets'),
   fieldValues: (fieldName, collectionId) => samsApi.get(`/field-values/${fieldName}`, { params: { collection: collectionId } }),
+}
+
+// ── Ontology (read-only semantic helpers) ──
+export const ontologyApi = {
+  conceptWriteDryRun: (body) => samsApi.post('/ontology/concept-write-dry-run', body),
+  searchPreview: (body) => samsApi.post('/ontology/search-preview', body),
+  resolve: (params) => samsApi.get('/ontology/resolve', { params }),
+  expandCategory: (conceptId) => samsApi.get(`/ontology/categories/${conceptId}/expand`),
 }
 
 // ── Items ──

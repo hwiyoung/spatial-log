@@ -10,6 +10,7 @@
  *   /viewer/:collectionId/:itemId  → ViewerShell (단일 자산 전체 페이지 뷰어 셸)
  *   /project                       → Project (Collection 목록 + 4탭 대시보드)
  *   /upload                        → Upload (벌크 + 단건 탭)
+ *   /ontology                      → Ontology Review (read-only 의미 매칭 검토)
  */
 
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -17,6 +18,7 @@ import Explorer from './pages/Explorer'
 import Detail from './pages/Detail'
 import Project from './pages/Project'
 import Upload from './pages/Upload'
+import OntologyReview from './pages/OntologyReview'
 import ViewerShell from './pages/ViewerShell'
 import MetadataCompletion from './pages/MetadataCompletion'
 import { UploadTasksProvider } from './contexts/UploadTasksContext'
@@ -43,11 +45,12 @@ function NavBar() {
       >
         SAMS<span style={{ color: 'var(--t3)', fontWeight: 400, fontSize: 11, marginLeft: 2 }}>v0.1</span>
       </span>
-          {[
-            { to: '/', label: 'Explorer' },
-            { to: '/project', label: 'Project' },
-            { to: '/upload', label: 'Upload' },
-          ].map(link => (
+      {[
+        { to: '/', label: 'Explorer' },
+        { to: '/project', label: 'Project' },
+        { to: '/upload', label: 'Upload' },
+        { to: '/ontology', label: 'Ontology' },
+      ].map(link => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -84,6 +87,7 @@ export default function App() {
                 <Route path="/viewer/:collectionId/:itemId" element={<ViewerShell />} />
                 <Route path="/project" element={<Project />} />
                 <Route path="/upload" element={<Upload />} />
+                <Route path="/ontology" element={<OntologyReview />} />
               </Routes>
             </AppErrorBoundary>
           </div>
