@@ -1,0 +1,101 @@
+version: 0.1.0
+status: draft_seed
+source:
+  type: live_stac_snapshot
+  collection_id: bulguksa-2024
+  captured_at: 2026-07-07
+  note: >
+    Read-only snapshot from the local STAC API. This seed is for ontology PoC
+    alias review and does not migrate or mutate runtime data.
+
+site_concepts:
+  bulguksa:
+    label_ko: "경주 불국사"
+    label_en: "Bulguksa Temple"
+    aliases:
+      - "불국사"
+      - "경주불국사"
+      - "경주 불국사"
+      - "Bulguksa"
+      - "Bulguksa Temple"
+      - "gyeongju-bulguksa"
+    collection_ids:
+      - bulguksa-2024
+
+target_concepts:
+  bulguksa_dabotap:
+    site: bulguksa
+    label_ko: "다보탑"
+    label_en: "Dabotap Pagoda"
+    aliases:
+      - "다보탑"
+      - "불국사 다보탑"
+      - "Dabotap"
+      - "Dabotap Pagoda"
+      - "dabo_tap"
+      - "dabotap"
+    observed_values:
+      - "다보탑"
+    observed_item_ids:
+      - bg-dabotap-pc-20240312
+      - bg-dabotap-3d-20240315
+
+  bulguksa_seokgatap:
+    site: bulguksa
+    label_ko: "석가탑"
+    label_en: "Seokgatap Pagoda"
+    aliases:
+      - "석가탑"
+      - "불국사 석가탑"
+      - "Seokgatap"
+      - "Seokgatap Pagoda"
+      - "seokgatap"
+    observed_values:
+      - "석가탑"
+    observed_item_ids:
+      - bg-seokgatap-pc-20240318
+
+  bulguksa_daeungjeon:
+    site: bulguksa
+    label_ko: "대웅전"
+    label_en: "Daeungjeon Hall"
+    aliases:
+      - "대웅전"
+      - "불국사 대웅전"
+      - "Daeungjeon"
+      - "Daeungjeon Hall"
+      - "main_hall"
+      - "daeungjeon"
+    observed_values:
+      - "대웅전"
+    observed_item_ids:
+      - bg-daeungjeon-ortho-20240320
+
+  bulguksa_overview:
+    site: bulguksa
+    label_ko: "불국사 전경"
+    label_en: "Bulguksa Site Overview"
+    aliases:
+      - "전경"
+      - "불국사 전경"
+      - "site overview"
+      - "overview"
+    observed_values:
+      - "전경"
+    observed_item_ids:
+      - bg-site-video-20240312
+
+  bulguksa_all:
+    site: bulguksa
+    label_ko: "불국사 전체"
+    label_en: "Bulguksa Whole Site"
+    aliases:
+      - "전체"
+      - "불국사 전체"
+      - "whole site"
+      - "all"
+      - "site"
+    observed_values:
+      - "전체"
+    observed_item_ids:
+      - bg-report-20240415

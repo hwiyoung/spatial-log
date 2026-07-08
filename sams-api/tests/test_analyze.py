@@ -110,6 +110,27 @@ class TestAnalyzeInherit:
         assert "project:site" in item.inherited
         assert item.inherited["project:site"].value == "경주"
 
+    def test_ontology_annotation_is_dry_run(self, tmp_path):
+        """Collection/site와 파일명 alias를 읽기 전용 ontology hint로 붙인다."""
+        laz = tmp_path / "dabotap_scan.laz"
+        laz.write_bytes(b"\x00" * 100)
+
+        collection = {
+            "id": "bulguksa-2024",
+            "title": "2024 경주 불국사 정밀실측",
+            "project:site": "경주 불국사",
+            "project:default_epsg": 5186,
+        }
+
+        result = analyze([str(laz)], collection)
+        ontology = result.manifest[0].ontology
+
+        assert ontology.side_effects == "none"
+        assert ontology.category_concept == "pointcloud"
+        assert "three_dimensional_asset" in ontology.broader_category_concepts
+        assert ontology.site_concept == "bulguksa"
+        assert ontology.target_concept == "bulguksa_dabotap"
+
     def test_no_collection_no_inherited(self, tmp_path):
         """Collection 없으면 inherited 비어있음."""
         laz = tmp_path / "scan.laz"

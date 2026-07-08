@@ -27,6 +27,19 @@ class SuggestedLinkItem(BaseModel):
     reason: str             # 제안 이유
 
 
+class OntologyAnnotation(BaseModel):
+    """온톨로지 v0 dry-run 해석 결과. 등록 저장 대상이 아니다."""
+    ontology_version: str
+    category_concept: str | None = None
+    broader_category_concepts: list[str] = Field(default_factory=list)
+    site_concept: str | None = None
+    site_label_ko: str | None = None
+    target_concept: str | None = None
+    target_label_ko: str | None = None
+    target_match_source: str | None = None
+    side_effects: str = "none"
+
+
 class ManifestItem(BaseModel):
     """매니페스트 항목 — 파일 하나(또는 번들)의 분석 결과."""
     file_path: str
@@ -38,6 +51,7 @@ class ManifestItem(BaseModel):
     suggested_links: list[SuggestedLinkItem] = Field(default_factory=list)
     required_empty: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    ontology: OntologyAnnotation | None = None
 
 
 class ManifestSummary(BaseModel):

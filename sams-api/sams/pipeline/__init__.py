@@ -36,6 +36,7 @@ from sams.pipeline.detect import detect_category
 from sams.pipeline.extract import extract_metadata
 from sams.pipeline.inherit import apply_collection_defaults
 from sams.pipeline.suggest import suggest_links, BatchItem
+from sams.ontology.upload_annotations import annotate_manifest_ontology
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,8 @@ def analyze(
     # 요약 생성
     summary = _build_summary(items)
 
-    return Manifest(manifest=items, summary=summary)
+    manifest = Manifest(manifest=items, summary=summary)
+    return annotate_manifest_ontology(manifest, collection_defaults)
 
 
 def _process_group(

@@ -272,6 +272,27 @@ class TestUploadRegister:
         assert mock_register.called
 
     @patch("sams.routers.upload._register_stac_item", new_callable=AsyncMock)
+    def test_register_does_not_persist_ontology_annotation(self, mock_register):
+        """ontology dry-run annotation은 STAC properties로 저장하지 않는다."""
+        mock_register.return_value = None
+
+        req = {
+            "collection_id": "test-project",
+            "items": [{
+                "data_category": "pointcloud",
+                "description": "테스트 포인트클라우드",
+                "ontology": {"target_concept": "bulguksa_dabotap"},
+            }],
+            "status": "draft",
+        }
+
+        resp = client.post("/api/upload/register", json=req)
+
+        assert resp.status_code == 200
+        stac_item = mock_register.call_args.args[1]
+        assert "ontology" not in stac_item["properties"]
+
+    @patch("sams.routers.upload._register_stac_item", new_callable=AsyncMock)
     def test_register_stac_failure_reported(self, mock_register):
         """STAC 등록 실패 → errors에 기록, 다른 Item은 계속 진행."""
         mock_register.side_effect = [

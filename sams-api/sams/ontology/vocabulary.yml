@@ -1,0 +1,324 @@
+version: 0.1.0
+status: draft
+description: >
+  SAMS ontology v0 vocabulary. This file is additive metadata for current STAC
+  values and is not loaded by runtime code yet.
+
+schemes:
+  asset_category:
+    description: Existing STAC data_category values wrapped as stable concepts.
+    concepts:
+      pointcloud:
+        stac_field: properties.data_category
+        stac_value: pointcloud
+        label_ko: "포인트 클라우드"
+        label_en: "Point Cloud"
+        broader: [three_dimensional_asset, spatial_asset]
+        aliases: [pc, point cloud, lidar, laser scan, las, laz, e57, pcd]
+      3d_model:
+        stac_field: properties.data_category
+        stac_value: 3d_model
+        label_ko: "3D 모델"
+        label_en: "3D Model"
+        broader: [three_dimensional_asset, spatial_asset, derived_asset]
+        aliases: [model, mesh, glb, gltf, obj, fbx, stl, ply]
+      3d_tiles:
+        stac_field: properties.data_category
+        stac_value: 3d_tiles
+        label_ko: "3D Tiles"
+        label_en: "3D Tiles"
+        broader: [three_dimensional_asset, spatial_asset, derived_asset]
+        aliases: [tiles, tileset, cesium tiles, ogc 3d tiles]
+      orthoimage:
+        stac_field: properties.data_category
+        stac_value: orthoimage
+        label_ko: "정사영상"
+        label_en: "Orthophoto"
+        broader: [raster_asset, spatial_asset, derived_asset]
+        aliases: [ortho, orthomosaic, geotiff, cog]
+      image:
+        stac_field: properties.data_category
+        stac_value: image
+        label_ko: "원본 이미지"
+        label_en: "Image"
+        broader: [raster_asset, spatial_asset]
+        aliases: [photo, photograph, jpg, jpeg, png]
+      panorama:
+        stac_field: properties.data_category
+        stac_value: panorama
+        label_ko: "파노라마"
+        label_en: "Panorama"
+        broader: [raster_asset, spatial_asset]
+        aliases: [pano, 360, equirectangular]
+      video:
+        stac_field: properties.data_category
+        stac_value: video
+        label_ko: "동영상"
+        label_en: "Video"
+        broader: [raster_asset, spatial_asset]
+        aliases: [movie, footage, mp4, mov]
+      document:
+        stac_field: properties.data_category
+        stac_value: document
+        label_ko: "문헌정보"
+        label_en: "Document"
+        broader: [documentation_asset]
+        aliases: [doc, pdf, report, drawing, hwp]
+      unknown:
+        stac_field: properties.data_category
+        stac_value: unknown
+        label_ko: "미분류"
+        label_en: "Unknown"
+        broader: []
+        aliases: []
+
+  category_group:
+    description: Broader concepts for search/filter expansion.
+    concepts:
+      spatial_asset:
+        label_ko: "공간 산출물"
+        label_en: "Spatial Asset"
+        narrower: [pointcloud, 3d_model, 3d_tiles, orthoimage, image, panorama, video]
+      three_dimensional_asset:
+        label_ko: "3D 공간 데이터"
+        label_en: "3D Spatial Asset"
+        narrower: [pointcloud, 3d_model, 3d_tiles]
+      raster_asset:
+        label_ko: "영상/래스터 데이터"
+        label_en: "Raster Or Visual Asset"
+        narrower: [orthoimage, image, panorama, video]
+      documentation_asset:
+        label_ko: "문서 산출물"
+        label_en: "Documentation Asset"
+        narrower: [document]
+      derived_asset:
+        label_ko: "파생 산출물"
+        label_en: "Derived Asset"
+        narrower: [3d_model, 3d_tiles, orthoimage]
+
+  relation_type:
+    description: User-authored or suggested STAC relationship link values.
+    concepts:
+      derived_from:
+        stac_field: links[].rel
+        stac_value: derived_from
+        label_ko: "원본에서 파생"
+        label_en: "Derived From"
+        inverse: has_derived
+        symmetric: false
+        authoring:
+          primary_ui_option: true
+          generated_reverse_only: false
+      has_derived:
+        stac_field: links[].rel
+        stac_value: has_derived
+        label_ko: "파생 산출물 보유"
+        label_en: "Has Derived"
+        inverse: derived_from
+        symmetric: false
+        authoring:
+          primary_ui_option: false
+          generated_reverse_only: true
+      related:
+        stac_field: links[].rel
+        stac_value: related
+        label_ko: "관련/동시취득"
+        label_en: "Related"
+        inverse: related
+        symmetric: true
+        authoring:
+          primary_ui_option: true
+          generated_reverse_only: false
+      describedby:
+        stac_field: links[].rel
+        stac_value: describedby
+        label_ko: "설명 문서"
+        label_en: "Described By"
+        inverse: describes
+        symmetric: false
+        authoring:
+          primary_ui_option: true
+          generated_reverse_only: false
+      describes:
+        stac_field: links[].rel
+        stac_value: describes
+        label_ko: "설명 대상"
+        label_en: "Describes"
+        inverse: describedby
+        symmetric: false
+        authoring:
+          primary_ui_option: true
+          generated_reverse_only: false
+      prev:
+        stac_field: links[].rel
+        stac_value: prev
+        label_ko: "이전 시점"
+        label_en: "Previous"
+        inverse: next
+        symmetric: false
+        authoring:
+          primary_ui_option: true
+          generated_reverse_only: false
+      next:
+        stac_field: links[].rel
+        stac_value: next
+        label_ko: "다음 시점"
+        label_en: "Next"
+        inverse: prev
+        symmetric: false
+        authoring:
+          primary_ui_option: true
+          generated_reverse_only: false
+
+  processing_level:
+    description: Current processing level enum values.
+    concepts:
+      raw:
+        stac_field: properties.processing:level
+        stac_value: raw
+        label_ko: "원본"
+        label_en: "Raw"
+      processed:
+        stac_field: properties.processing:level
+        stac_value: processed
+        label_ko: "처리됨"
+        label_en: "Processed"
+      derived:
+        stac_field: properties.processing:level
+        stac_value: derived
+        label_ko: "파생됨"
+        label_en: "Derived"
+      final:
+        stac_field: properties.processing:level
+        stac_value: final
+        label_ko: "최종본"
+        label_en: "Final"
+
+  document_type:
+    description: Candidate subtype concepts for properties.data_category=document.
+    candidate_stac_field: properties.document:type
+    concepts:
+      survey_report:
+        label_ko: "조사/실측 보고서"
+        label_en: "Survey Report"
+        aliases: [report, survey, 실측보고서, 조사보고서]
+      excavation_report:
+        label_ko: "발굴 조사 보고서"
+        label_en: "Excavation Report"
+        aliases: [excavation, excavation report, 발굴보고서, 발굴조사]
+      analysis:
+        label_ko: "분석 문서"
+        label_en: "Analysis"
+        aliases: [analysis, 분석, 분석보고서]
+      permit:
+        label_ko: "인허가 문서"
+        label_en: "Permit"
+        aliases: [permit, approval, 인허가, 허가서]
+      plan:
+        label_ko: "계획서"
+        label_en: "Plan"
+        aliases: [plan, 계획, 계획서]
+      drawing:
+        label_ko: "도면"
+        label_en: "Drawing"
+        aliases: [cad, dwg, dxf, plan, drawing, 도면]
+      bibliography:
+        label_ko: "참고문헌"
+        label_en: "Bibliography"
+        aliases: [bibliography, reference, references, 참고문헌, 문헌목록]
+      specification:
+        label_ko: "시방서/사양서"
+        label_en: "Specification"
+        aliases: [spec, specification, 시방서, 사양서]
+      meeting_minutes:
+        label_ko: "회의록"
+        label_en: "Meeting Minutes"
+        aliases: [minutes, meeting notes, 회의록]
+      photograph_log:
+        label_ko: "사진 대장"
+        label_en: "Photograph Log"
+        aliases: [photo log, photograph log, 촬영대장, 사진대장]
+      quality_report:
+        label_ko: "품질/정확도 보고서"
+        label_en: "Quality Report"
+        source: sams_extension_candidate
+        aliases: [qa, qc, accuracy, 품질보고서, 정확도]
+      delivery_manifest:
+        label_ko: "납품 목록"
+        label_en: "Delivery Manifest"
+        source: sams_extension_candidate
+        aliases: [manifest, inventory, deliverables, 납품목록, 산출물목록]
+      unknown_document:
+        label_ko: "문서 유형 미상"
+        label_en: "Unknown Document"
+        aliases: []
+
+  site:
+    description: >
+      Real-data site concepts used for stable site IDs. These are additive
+      siblings for human labels in properties.project:site and Collection
+      summaries.project:site.
+    stac_field_candidate: properties.sams:site_concept
+    concepts:
+      bulguksa:
+        label_ko: "경주 불국사"
+        label_en: "Bulguksa Temple"
+        aliases: ["불국사", "경주불국사", "경주 불국사", "Bulguksa", "Bulguksa Temple", "gyeongju-bulguksa"]
+      sogang_bridge:
+        label_ko: "서강대교"
+        label_en: "Sogang Bridge"
+        aliases: ["서강대교", "Sogang Bridge", "sogang_bridge", "sogang-bridge"]
+      seongsu_dong:
+        label_ko: "성수동"
+        label_en: "Seongsu-dong"
+        aliases: ["성수동", "Seongsu-dong", "Seongsu dong", "seongsu_dong"]
+        deferred_aliases: ["성수"]
+      kp_dormitory:
+        label_ko: "본기숙사"
+        label_en: "KP Dormitory"
+        broader: [seongsu_dong]
+        aliases: ["본기숙사", "KP_dormitory", "KP Dormitory", "K성수 본기숙사"]
+
+  target:
+    description: >
+      Real-data target concepts used for stable physical-target IDs. These are
+      additive siblings for human labels in properties.target.
+    stac_field_candidate: properties.sams:target_concept
+    concepts:
+      bulguksa_dabotap:
+        site: bulguksa
+        label_ko: "다보탑"
+        label_en: "Dabotap Pagoda"
+        aliases: ["다보탑", "불국사 다보탑", "Dabotap", "Dabotap Pagoda", "dabo_tap", "dabotap"]
+      bulguksa_seokgatap:
+        site: bulguksa
+        label_ko: "석가탑"
+        label_en: "Seokgatap Pagoda"
+        aliases: ["석가탑", "불국사 석가탑", "Seokgatap", "Seokgatap Pagoda", "seokgatap"]
+      bulguksa_daeungjeon:
+        site: bulguksa
+        label_ko: "대웅전"
+        label_en: "Daeungjeon Hall"
+        aliases: ["대웅전", "불국사 대웅전", "Daeungjeon", "Daeungjeon Hall", "main_hall", "daeungjeon"]
+      bulguksa_overview:
+        site: bulguksa
+        label_ko: "불국사 전경"
+        label_en: "Bulguksa Site Overview"
+        aliases: ["전경", "불국사 전경", "site overview", "overview"]
+      bulguksa_all:
+        site: bulguksa
+        label_ko: "불국사 전체"
+        label_en: "Bulguksa Whole Site"
+        aliases: ["전체", "불국사 전체", "whole site", "all", "site"]
+      seongsu_emart:
+        site: seongsu_dong
+        label_ko: "이마트"
+        label_en: "E-Mart Seongsu"
+        aliases: ["이마트", "성수 이마트", "이마트 성수", "Emart", "E-Mart", "E-Mart Seongsu"]
+
+field_candidates:
+  category_concept: properties.sams:category_concept
+  site_concept: properties.sams:site_concept
+  target_concept: properties.sams:target_concept
+  document_type: properties.document:type
+  ontology_version: properties.sams:ontology_version

@@ -17,6 +17,22 @@
 - `docs/autofill_pipeline_spec.md` — 자동 채움 파이프라인 명세.
 - `docs/frontend_contracts.md` — Explorer, preview/viewer, mock mode, manual UI check 계약.
 
+## Semantic Contracts
+
+- `docs/ontology/field_semantic_audit.md` — 기존 STAC/프로젝트/문헌/타입별 필드 필요성 감사와 concept sibling 추가 기준.
+- `docs/ontology/ontology_v0_scope.md` — 온톨로지 v0 범위, 제외 범위, 성공 기준.
+- `docs/ontology/phase1_semantic_audit.md` — 현재 의미값 감사, drift 후보, Phase 2 전 결정사항.
+- `docs/ontology/phase2_vocabulary_decisions.md` — 추천안 반영 결과와 런타임 PoC 경계.
+- `docs/ontology/phase3_read_only_search_poc.md` — read-only 검색 확장 PoC와 opt-in API.
+- `docs/ontology/phase4_upload_dry_run_annotations.md` — 업로드 분석 dry-run 온톨로지 annotation.
+- `docs/ontology/phase5_concept_write_dry_run.md` — 기존 Item의 site/target concept sibling 쓰기 전 dry-run 리포트.
+- `docs/ontology/phase6_real_data_vocabulary_expansion.md` — mock seed 이후 실데이터 site/target vocabulary 확장 결정.
+- `docs/ontology/current_semantic_inventory.md` — 현재 코드/문서에 흩어진 의미값 인벤토리.
+- `docs/ontology/sams_vocabulary_v0.md` — 사람용 vocabulary 초안.
+- `docs/ontology/stac_mapping_v0.md` — 기존 STAC 필드와 의미 concept 매핑 초안.
+- `docs/ontology/seeds/bulguksa_2024_seed.yml` — 첫 실데이터 site/target alias seed.
+- `docs/ontology/user_input_template.md` — site/target/document/relation 정책 입력 양식.
+
 ## Active ADRs
 
 - `docs/adr/ADR-3d-gis-map-grounded-renderer.md` — v1 Core 3D Spatial Relationship View의 map-grounded 방향.

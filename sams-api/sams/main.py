@@ -62,6 +62,9 @@ app.include_router(items_router, prefix="/api/items", tags=["items"])
 from sams.routers.files import router as files_router
 app.include_router(files_router, prefix="/api/files", tags=["files"])
 
+from sams.routers.ontology import router as ontology_router
+app.include_router(ontology_router, prefix="/api/ontology", tags=["ontology"])
+
 
 @app.on_event("startup")
 def init_history_table():

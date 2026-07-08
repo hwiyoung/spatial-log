@@ -855,7 +855,12 @@ async def upload_register(req: RegisterRequest):
 
             # STAC Item JSON 구성
             now = datetime.now(timezone.utc).isoformat()
-            properties = {k: v for k, v in item_data.items() if not k.startswith("_") and k not in ("bbox", "geometry", "id", "links", "assets")}
+            properties = {
+                k: v
+                for k, v in item_data.items()
+                if not k.startswith("_")
+                and k not in ("bbox", "geometry", "id", "links", "assets", "ontology", "ontology_annotations")
+            }
             properties["created"] = now
             properties["updated"] = now
             properties["sams:status"] = req.status

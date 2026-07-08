@@ -1,0 +1,125 @@
+version: 0.1.0
+status: draft
+description: >
+  SAMS ontology v0 relation and suggestion rules. This mirrors existing upload
+  suggestion behavior and is not loaded by runtime code yet.
+
+relations:
+  derived_from:
+    inverse: has_derived
+    symmetric: false
+    authoring:
+      primary_ui_option: true
+      generated_reverse_only: false
+    upload_suggestion:
+      eligible: true
+      user_confirmation_required: true
+    allowed_category_pairs:
+      - source_category: 3d_model
+        target_category: pointcloud
+        confidence: 0.70
+        reason_template_ko: "{source_category}이(가) {target_category}에서 파생된 것으로 추정"
+      - source_category: 3d_model
+        target_category: image
+        confidence: 0.70
+        reason_template_ko: "{source_category}이(가) {target_category}에서 파생된 것으로 추정"
+      - source_category: 3d_tiles
+        target_category: 3d_model
+        confidence: 0.70
+        reason_template_ko: "{source_category}이(가) {target_category}에서 파생된 것으로 추정"
+
+  has_derived:
+    inverse: derived_from
+    symmetric: false
+    authoring:
+      primary_ui_option: false
+      generated_reverse_only: true
+    upload_suggestion:
+      eligible: false
+      user_confirmation_required: true
+    allowed_category_pairs: []
+
+  related:
+    inverse: related
+    symmetric: true
+    authoring:
+      primary_ui_option: true
+      generated_reverse_only: false
+    upload_suggestion:
+      eligible: true
+      user_confirmation_required: true
+    rule:
+      same_target_different_category: true
+      exclude_pairs_defined_by: derived_from
+      base_confidence: 0.80
+
+  describedby:
+    inverse: describes
+    symmetric: false
+    authoring:
+      primary_ui_option: true
+      generated_reverse_only: false
+    upload_suggestion:
+      eligible: true
+      user_confirmation_required: true
+    rule:
+      source_category_not: document
+      target_category: document
+      base_confidence: 0.50
+
+  describes:
+    inverse: describedby
+    symmetric: false
+    authoring:
+      primary_ui_option: true
+      generated_reverse_only: false
+    upload_suggestion:
+      eligible: false
+      user_confirmation_required: true
+    allowed_category_pairs: []
+
+  prev:
+    inverse: next
+    symmetric: false
+    authoring:
+      primary_ui_option: true
+      generated_reverse_only: false
+    upload_suggestion:
+      eligible: false
+      user_confirmation_required: true
+    rule:
+      same_target_same_category_time_series: true
+
+  next:
+    inverse: prev
+    symmetric: false
+    authoring:
+      primary_ui_option: true
+      generated_reverse_only: false
+    upload_suggestion:
+      eligible: false
+      user_confirmation_required: true
+    rule:
+      same_target_same_category_time_series: true
+
+target_match_confidence_adjustments:
+  user:
+    adjustment: 0.15
+    label_ko: "사용자 입력 target"
+  filename:
+    adjustment: 0.0
+    label_ko: "파일명 키워드"
+  folder:
+    adjustment: -0.10
+    label_ko: "폴더명 추정"
+
+confidence:
+  max: 0.95
+  default_unknown_pair: 0.0
+
+runtime_notes:
+  - Existing STAC links remain the stored relation representation.
+  - Rules should be used first for suggestion and validation hints, not hard blocking.
+  - Rules that create many-to-many suggestions should remain user-confirmed.
+  - has_derived is kept as a stored/read relation for backward compatibility,
+    but should not be offered as a primary relation authoring option.
