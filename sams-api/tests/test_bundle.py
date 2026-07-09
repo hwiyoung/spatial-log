@@ -99,6 +99,20 @@ class TestImageSet:
         assert groups[0].group_type == "image_set"
         assert len(groups[0].all_files) == 8
 
+    def test_more_than_5_png_images(self, tmp_path):
+        """PNG 원본 이미지도 6장 이상이면 이미지 세트로 묶임."""
+        files = []
+        for i in range(1, 16):
+            p = tmp_path / f"240911_펼쳐성수_준공사진_스컷_{i:02d}.png"
+            p.write_bytes(b"\x89PNG")
+            files.append(str(p))
+
+        groups = bundle_files(files)
+
+        assert len(groups) == 1
+        assert groups[0].group_type == "image_set"
+        assert len(groups[0].all_files) == 15
+
     def test_5_or_fewer_images_stay_single(self, tmp_path):
         """5장 이하면 개별 파일로 유지."""
         files = []

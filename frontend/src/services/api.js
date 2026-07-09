@@ -84,4 +84,6 @@ export const itemApi = {
     samsApi.post(`/items/${collectionId}/${itemId}/move`, { target_collection_id: targetCollectionId }),
   updateLocation: (collectionId, itemId, longitude, latitude) =>
     samsApi.put(`/items/${collectionId}/${itemId}/location`, { longitude, latitude }),
+  mergeImageSet: (collectionId, itemIds, options = {}) =>
+    samsApi.post(`/items/${collectionId}/merge-image-set`, { item_ids: itemIds, ...options }),
 }

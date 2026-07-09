@@ -37,6 +37,9 @@ class Settings:
     S3_ACCESS_KEY: str = os.getenv("S3_ACCESS_KEY", "minioadmin")
     S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "minioadmin")
     S3_BUCKET: str = os.getenv("S3_BUCKET", "sams-archive")
+    S3_CONNECT_TIMEOUT_SECONDS: int = int(os.getenv("S3_CONNECT_TIMEOUT_SECONDS", "10"))
+    S3_READ_TIMEOUT_SECONDS: int = int(os.getenv("S3_READ_TIMEOUT_SECONDS", "900"))
+    S3_MAX_ATTEMPTS: int = int(os.getenv("S3_MAX_ATTEMPTS", "5"))
     # 브라우저 직접 업로드용 presign endpoint — 컨테이너 내부 주소(S3_ENDPOINT)는
     # 브라우저가 접근할 수 없으므로 호스트 노출 주소를 따로 받는다. 미설정 시 S3_ENDPOINT.
     S3_PUBLIC_ENDPOINT: str = os.getenv("S3_PUBLIC_ENDPOINT", "")

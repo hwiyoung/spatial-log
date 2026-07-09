@@ -48,16 +48,59 @@ export function DraftTab({ views, onComplete, onOpen }) {
   )
 }
 
-export function ItemsTab({ views, onOpen }) {
+export function ItemsTab({
+  views,
+  onOpen,
+  selectedIds = new Set(),
+  onToggleSelect,
+  onClearSelection,
+  onMergeSelected,
+  mergeBusy = false,
+}) {
   if (!views.length) return <div className="panel proj-empty">등록된 Item 이 없습니다</div>
+  const selectedCount = selectedIds.size
+  const mergeableCount = views.filter(v => v.cat === 'image' && v.status !== 'archived').length
   return (
     <div>
-      <div className="panel-h" style={{ padding: '0 2px' }}>
-        <h3 style={{ fontSize: 14 }}>전체 Item</h3>
-        <span className="hint">{views.length}건 · 클릭 → Detail</span>
+      <div className="panel-h item-toolbar" style={{ padding: '0 2px' }}>
+        <div>
+          <h3 style={{ fontSize: 14 }}>전체 Item</h3>
+          <span className="hint">
+            {views.length}건 · 이미지 병합 가능 {mergeableCount}건 · 행 클릭 → Detail
+          </span>
+        </div>
+        <div className="item-actions">
+          {selectedCount > 0 && <span className="sel-count">{selectedCount}건 선택</span>}
+          {selectedCount > 0 && (
+            <button type="button" className="ghost-btn" onClick={onClearSelection} disabled={mergeBusy}>
+              선택 해제
+            </button>
+          )}
+          <button
+            type="button"
+            className="complete-btn"
+            onClick={onMergeSelected}
+            disabled={mergeBusy || selectedCount < 2}
+            title="선택한 원본 이미지 Item을 하나의 이미지 셋으로 묶고 원본 Item은 Archived로 보존"
+          >
+            {mergeBusy ? '병합 중…' : '이미지 셋 병합'}
+          </button>
+        </div>
       </div>
       {views.map(v => (
         <div className="irow click" key={v.id} onClick={() => onOpen(v)}>
+          <label
+            className={'isel' + (selectedIds.has(v.id) ? ' on' : '')}
+            title={v.cat === 'image' && v.status !== 'archived' ? '병합 대상으로 선택' : '원본 이미지 Draft/Published Item만 병합 가능'}
+            onClick={e => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selectedIds.has(v.id)}
+              disabled={v.cat !== 'image' || v.status === 'archived' || mergeBusy}
+              onChange={() => onToggleSelect?.(v)}
+            />
+          </label>
           <span className="ig"><CategoryGlyph cat={v.cat} s={16} /></span>
           <div className="im">
             <div className="inm">{v.name}</div>

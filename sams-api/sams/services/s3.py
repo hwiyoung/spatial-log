@@ -7,15 +7,29 @@ S3 (MinIO) 파일 스토리지 서비스.
 """
 
 import logging
-import os
 from pathlib import Path
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from sams.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _s3_client_config(signature_version: str | None = None) -> Config:
+    kwargs = {
+        "connect_timeout": settings.S3_CONNECT_TIMEOUT_SECONDS,
+        "read_timeout": settings.S3_READ_TIMEOUT_SECONDS,
+        "retries": {
+            "max_attempts": settings.S3_MAX_ATTEMPTS,
+            "mode": "standard",
+        },
+    }
+    if signature_version:
+        kwargs["signature_version"] = signature_version
+    return Config(**kwargs)
 
 
 def get_s3_client():
@@ -25,20 +39,19 @@ def get_s3_client():
         endpoint_url=settings.S3_ENDPOINT,
         aws_access_key_id=settings.S3_ACCESS_KEY,
         aws_secret_access_key=settings.S3_SECRET_KEY,
+        config=_s3_client_config(),
     )
 
 
 def get_public_s3_client():
     """브라우저용 presign 전용 클라이언트 — 서명에 호스트가 포함되므로 공개 endpoint 로 만든다."""
-    import boto3
-    from botocore.config import Config
     endpoint = settings.S3_PUBLIC_ENDPOINT or settings.S3_ENDPOINT
     return boto3.client(
         "s3",
         endpoint_url=endpoint,
         aws_access_key_id=settings.S3_ACCESS_KEY,
         aws_secret_access_key=settings.S3_SECRET_KEY,
-        config=Config(signature_version="s3v4"),
+        config=_s3_client_config(signature_version="s3v4"),
         region_name="us-east-1",
     )
 

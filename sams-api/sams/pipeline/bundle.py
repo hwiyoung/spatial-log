@@ -86,9 +86,9 @@ def bundle_files(file_paths: list[str]) -> list[FileGroup]:
                 consumed.update(bundle.all_files)
                 groups.append(bundle)
 
-    # 4) 이미지 세트: 폴더 단위로 묶음. 드론 사진은 보통 .jpg/.jpeg만 포함됨.
+    # 4) 이미지 세트: 폴더 단위로 묶음. JPG/JPEG/PNG 원본 이미지 묶음을 지원.
     # TIF는 정사영상일 가능성이 높으므로 image_set에서 제외 (별도 Item으로 처리)
-    image_set_exts = {".jpg", ".jpeg"}
+    image_set_exts = {".jpg", ".jpeg", ".png"}
     remaining_images = [
         p for p in paths
         if p.suffix.lower() in image_set_exts and str(p) not in consumed

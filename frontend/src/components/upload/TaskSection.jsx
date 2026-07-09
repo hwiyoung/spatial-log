@@ -233,6 +233,14 @@ export default function TaskSection({ task }) {
         </div>
       )}
 
+      {task.status === 'registering' && (
+        <div className="analyzing">
+          <div className="at">{task.uploadStage || 'Draft 등록 중…'}</div>
+          <div className="scanbar"><i /></div>
+          <div className="as">대용량 파일은 staging 객체를 최종 저장소로 복사한 뒤 STAC Item으로 등록됩니다</div>
+        </div>
+      )}
+
       {task.status === 'failed' && <div className="failbox">{task.error || '알 수 없는 오류가 발생했습니다.'}</div>}
 
       {inReview && task.manifest && (

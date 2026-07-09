@@ -44,6 +44,8 @@ export default function Project() {
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [busyId, setBusyId] = useState(null)
+  const [mergeBusy, setMergeBusy] = useState(false)
+  const [mergeSelectedIds, setMergeSelectedIds] = useState(() => new Set())
   const [mapSel, setMapSel] = useState(null)
   const loadSeq = useRef(0)   // 빠른 프로젝트 전환 시 늦게 도착한 응답이 화면을 덮지 않게
 
@@ -128,6 +130,7 @@ export default function Project() {
     setTab('현황')
     setEditingTitle(false)
     setMapSel(null)
+    setMergeSelectedIds(new Set())
     loadSelected()
   }, [loadSelected])
 
@@ -198,6 +201,51 @@ export default function Project() {
       alert('이동 실패: ' + (err.response?.data?.detail || err.message))
     } finally {
       setBusyId(null)
+    }
+  }
+
+  const handleToggleMergeSelect = (v) => {
+    if (v.cat !== 'image' || v.status === 'archived') return
+    setMergeSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(v.id)) next.delete(v.id)
+      else next.add(v.id)
+      return next
+    })
+  }
+
+  const handleMergeImageSet = async () => {
+    if (isMock) {
+      alert('데모 세션 — 병합은 실데이터 모드에서 가능합니다.')
+      return
+    }
+    const selectedViews = views.filter(v => mergeSelectedIds.has(v.id))
+    const invalid = selectedViews.filter(v => v.cat !== 'image' || v.status === 'archived')
+    if (invalid.length > 0) {
+      alert('원본 이미지 Draft/Published Item만 병합할 수 있습니다.')
+      return
+    }
+    if (selectedViews.length < 2) {
+      alert('병합할 원본 이미지 Item을 2개 이상 선택하세요.')
+      return
+    }
+    const ok = confirm(
+      `${selectedViews.length}개 원본 이미지 Item을 하나의 이미지 셋으로 병합합니다.\n` +
+      '새 Draft Item이 생성되고, 선택한 원본 Item은 Archived로 보존됩니다.',
+    )
+    if (!ok) return
+
+    setMergeBusy(true)
+    try {
+      const ids = selectedViews.map(v => v.id)
+      const res = await itemApi.mergeImageSet(selectedId, ids)
+      setMergeSelectedIds(new Set())
+      await Promise.all([loadSelected(), loadCollections()])
+      alert(`${res.data?.merged_count || ids.length}개 이미지가 이미지 셋으로 병합되었습니다.`)
+    } catch (err) {
+      alert('이미지 셋 병합 실패: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setMergeBusy(false)
     }
   }
 
@@ -313,7 +361,17 @@ export default function Project() {
                     </div>
                   )}
                   {tab === 'Draft' && <DraftTab views={views} onComplete={goComplete} onOpen={goDetail} />}
-                  {tab === '전체 Item' && <ItemsTab views={views} onOpen={goDetail} />}
+                  {tab === '전체 Item' && (
+                    <ItemsTab
+                      views={views}
+                      onOpen={goDetail}
+                      selectedIds={mergeSelectedIds}
+                      onToggleSelect={handleToggleMergeSelect}
+                      onClearSelection={() => setMergeSelectedIds(new Set())}
+                      onMergeSelected={handleMergeImageSet}
+                      mergeBusy={mergeBusy}
+                    />
+                  )}
                   {tab === 'Timeline·Lineage' && <LineageTab items={items} views={views} collectionId={selectedId} />}
                 </>
               )}

@@ -7,10 +7,12 @@ Draft→Published 전환, 관계(links) 관리, 타임라인 조회.
 참조: docs/system_architecture.md 섹션 3.2 (Item 관리)
 """
 
+import copy
 import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
+import uuid
 
 import psycopg2
 from fastapi import APIRouter, HTTPException
@@ -824,6 +826,352 @@ async def move_item(collection_id: str, item_id: str, req: MoveRequest):
         "from_collection": collection_id,
         "to_collection": req.target_collection_id,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# POST /api/items/{collection_id}/merge-image-set — 등록 후 원본 이미지 셋 병합
+# ─────────────────────────────────────────────────────────────────────────
+
+class MergeImageSetRequest(BaseModel):
+    item_ids: list[str] = Field(min_length=2, max_length=1000)
+    title: str | None = None
+    description: str | None = None
+    archive_sources: bool = True
+    dry_run: bool = False
+
+
+class MergeImageSetResult(BaseModel):
+    merged_item_id: str | None = None
+    merged_count: int
+    archived_count: int = 0
+    source_item_ids: list[str]
+    dry_run: bool = False
+
+
+@router.post("/{collection_id}/merge-image-set", response_model=MergeImageSetResult)
+async def merge_image_set(collection_id: str, req: MergeImageSetRequest):
+    """선택한 등록済 원본 이미지 Item들을 하나의 image set Item으로 묶는다.
+
+    원본 파일과 기존 Item은 삭제하지 않는다. 새 대표 Item은 원본 asset href들을 참조하고,
+    원본 Item은 기본적으로 archived + sams:merged_into 로 남겨 추적 가능하게 한다.
+    """
+    item_ids = _unique_preserving_order(req.item_ids)
+    if len(item_ids) < 2:
+        raise HTTPException(status_code=400, detail="서로 다른 이미지 Item을 2개 이상 선택해야 합니다.")
+
+    source_items: list[dict] = []
+    source_assets: list[tuple[dict, str, dict]] = []
+    for item_id in item_ids:
+        item = await stac.get_item(collection_id, item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail=f"Item을 찾을 수 없습니다: {item_id}")
+        props = item.get("properties", {})
+        if props.get("data_category") != "image":
+            raise HTTPException(status_code=400, detail=f"원본 이미지 Item만 병합할 수 있습니다: {item_id}")
+        if props.get("sams:status") == "archived" or props.get("status") == "archived":
+            raise HTTPException(status_code=400, detail=f"Archived Item은 병합 대상에서 제외하세요: {item_id}")
+        asset_key, asset = _select_image_data_asset(item)
+        if not asset:
+            raise HTTPException(status_code=400, detail=f"이미지 data asset을 찾을 수 없습니다: {item_id}")
+        source_items.append(item)
+        source_assets.append((item, asset_key, asset))
+
+    if req.dry_run:
+        return MergeImageSetResult(
+            merged_count=len(source_items),
+            source_item_ids=item_ids,
+            dry_run=True,
+        )
+
+    merged_id = _generate_image_set_item_id(collection_id)
+    now = datetime.now(timezone.utc).isoformat()
+    merged_item = _build_merged_image_set_item(
+        collection_id=collection_id,
+        merged_id=merged_id,
+        source_items=source_items,
+        source_assets=source_assets,
+        title=req.title,
+        description=req.description,
+        now=now,
+    )
+
+    try:
+        await _pgstac_update_item(collection_id, merged_id, merged_item)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    archived_count = 0
+    if req.archive_sources:
+        for item in source_items:
+            item_id = item.get("id")
+            updated = copy.deepcopy(item)
+            props = updated.setdefault("properties", {})
+            props["sams:status"] = "archived"
+            props["sams:merged_into"] = merged_id
+            props["sams:merged_into_collection"] = collection_id
+            props["sams:merged_at"] = now
+            props["updated"] = now
+            _append_link_once(
+                updated,
+                {
+                    "rel": "has_derived",
+                    "href": f"./{merged_id}",
+                    "type": "application/geo+json",
+                    "title": merged_item["properties"].get("title", merged_id),
+                },
+            )
+            try:
+                await _pgstac_update_item(collection_id, item_id, updated)
+                archived_count += 1
+            except RuntimeError as e:
+                logger.exception("병합 원본 archived 처리 실패: %s/%s", collection_id, item_id)
+                raise HTTPException(status_code=500, detail=f"원본 Item 상태 갱신 실패: {item_id}: {e}")
+
+    history.record_event(
+        collection_id,
+        merged_id,
+        "relation",
+        f"원본 이미지 셋 병합: {len(source_items)}개 Item",
+        {"source_item_ids": item_ids},
+    )
+    for item_id in item_ids:
+        history.record_event(
+            collection_id,
+            item_id,
+            "status" if req.archive_sources else "relation",
+            f"이미지 셋으로 병합 → {merged_id}",
+            {"merged_into": merged_id, "archived": req.archive_sources},
+        )
+
+    return MergeImageSetResult(
+        merged_item_id=merged_id,
+        merged_count=len(source_items),
+        archived_count=archived_count,
+        source_item_ids=item_ids,
+    )
+
+
+def _unique_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+    return result
+
+
+def _generate_image_set_item_id(collection_id: str) -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{collection_id}-image-set-{ts}-{uuid.uuid4().hex[:6]}"
+
+
+def _select_image_data_asset(item: dict) -> tuple[str, dict | None]:
+    assets = item.get("assets") or {}
+    if isinstance(assets.get("data"), dict):
+        return "data", assets["data"]
+    for key, asset in assets.items():
+        if not isinstance(asset, dict):
+            continue
+        roles = asset.get("roles") or []
+        media_type = str(asset.get("type") or "")
+        if "data" in roles and media_type.startswith("image/"):
+            return key, asset
+    for key, asset in assets.items():
+        if isinstance(asset, dict) and str(asset.get("type") or "").startswith("image/"):
+            return key, asset
+    return "", None
+
+
+def _build_merged_image_set_item(
+    collection_id: str,
+    merged_id: str,
+    source_items: list[dict],
+    source_assets: list[tuple[dict, str, dict]],
+    title: str | None,
+    description: str | None,
+    now: str,
+) -> dict:
+    primary = source_items[0]
+    first_asset = source_assets[0][2]
+    source_count = sum(_image_count(it) for it in source_items)
+    display_title = _clean_text(title) or f"{_item_label(primary)} 외 {len(source_items) - 1}개 원본 이미지"
+    display_description = _clean_text(description) or f"등록 후 병합된 원본 이미지 셋 ({source_count}개 파일)"
+
+    props: dict[str, Any] = {
+        "title": display_title,
+        "description": display_description,
+        "data_category": "image",
+        "datetime": _merged_datetime(source_items) or now,
+        "created": now,
+        "updated": now,
+        "sams:status": "draft",
+        "sams:merge_strategy": "post_register_image_set",
+        "sams:merged_from": [it.get("id") for it in source_items],
+        "image:image_count": source_count,
+    }
+    for key in (
+        "project:name",
+        "project:site",
+        "target",
+        "site",
+        "proj:epsg",
+        "image:camera_model",
+        "image:focal_length",
+        "image:resolution",
+        "image:capture_type",
+        "image:has_geotag",
+        "image:orientation",
+    ):
+        value = _first_prop(source_items, key)
+        if value not in (None, ""):
+            props[key] = value
+
+    assets: dict[str, dict] = {
+        "data": {
+            "href": first_asset.get("href"),
+            "type": first_asset.get("type") or "image/jpeg",
+            "roles": ["data"],
+            "title": display_title,
+            "file_count": source_count,
+        }
+    }
+    for idx, (item, _asset_key, asset) in enumerate(source_assets, start=1):
+        assets[f"image_{idx:03d}"] = {
+            "href": asset.get("href"),
+            "type": asset.get("type") or "image/jpeg",
+            "roles": asset.get("roles") or ["data"],
+            "title": asset.get("title") or _item_label(item),
+            "sams:source_item_id": item.get("id"),
+        }
+    if isinstance(primary.get("assets", {}).get("thumbnail"), dict):
+        assets["thumbnail"] = primary["assets"]["thumbnail"]
+
+    bbox = _merged_bbox(source_items)
+    geometry = _geometry_from_bbox(bbox) if bbox else copy.deepcopy(primary.get("geometry"))
+    if not geometry:
+        geometry = {"type": "Point", "coordinates": [0, 0]}
+    if not bbox:
+        bbox = primary.get("bbox") or [0, 0, 0, 0]
+
+    links = [
+        {
+            "rel": "derived_from",
+            "href": f"./{item.get('id')}",
+            "type": "application/geo+json",
+            "title": _item_label(item),
+        }
+        for item in source_items
+    ]
+
+    return {
+        "type": "Feature",
+        "stac_version": "1.0.0",
+        "id": merged_id,
+        "geometry": geometry,
+        "bbox": bbox,
+        "properties": props,
+        "links": links,
+        "assets": assets,
+        "collection": collection_id,
+    }
+
+
+def _clean_text(value: str | None) -> str | None:
+    cleaned = str(value or "").strip()
+    return cleaned or None
+
+
+def _first_prop(items: list[dict], key: str) -> Any:
+    for item in items:
+        value = (item.get("properties") or {}).get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _image_count(item: dict) -> int:
+    value = (item.get("properties") or {}).get("image:image_count")
+    if isinstance(value, int) and value > 0:
+        return value
+    try:
+        count = int(value)
+        return count if count > 0 else 1
+    except Exception:
+        return 1
+
+
+def _merged_datetime(items: list[dict]) -> str | None:
+    dates = []
+    for item in items:
+        props = item.get("properties") or {}
+        value = props.get("datetime") or props.get("start_datetime")
+        if isinstance(value, str) and value.strip():
+            dates.append(value)
+    return sorted(dates)[0] if dates else None
+
+
+def _item_label(item: dict) -> str:
+    props = item.get("properties") or {}
+    for value in (
+        props.get("title"),
+        props.get("display_name"),
+        props.get("originalFilename"),
+        props.get("file:name"),
+        (item.get("assets") or {}).get("data", {}).get("title"),
+        props.get("description"),
+        item.get("id"),
+    ):
+        cleaned = str(value or "").strip()
+        if cleaned:
+            return cleaned
+    return "Untitled Item"
+
+
+def _merged_bbox(items: list[dict]) -> list[float] | None:
+    boxes = []
+    for item in items:
+        bbox = item.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) < 4:
+            continue
+        try:
+            west, south, east, north = map(float, bbox[:4])
+        except Exception:
+            continue
+        boxes.append((west, south, east, north))
+    if not boxes:
+        return None
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
+def _geometry_from_bbox(bbox: list[float] | None) -> dict | None:
+    if not bbox or len(bbox) < 4:
+        return None
+    return {
+        "type": "Polygon",
+        "coordinates": [[
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[1]],
+            [bbox[2], bbox[3]],
+            [bbox[0], bbox[3]],
+            [bbox[0], bbox[1]],
+        ]],
+    }
+
+
+def _append_link_once(item: dict, link: dict) -> None:
+    links = item.setdefault("links", [])
+    for existing in links:
+        if existing.get("rel") == link.get("rel") and existing.get("href") == link.get("href"):
+            return
+    links.append(link)
 
 
 # ─────────────────────────────────────────────────────────────────────────

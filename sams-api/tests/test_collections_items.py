@@ -278,3 +278,118 @@ class TestItemLinks:
         )
 
         assert resp.status_code == 404
+
+
+# ==========================================================================
+# POST /api/items/{collection}/merge-image-set — 등록 후 원본 이미지 셋 병합
+# ==========================================================================
+
+def _make_image_item(item_id: str, filename: str, status: str = "draft", **extra_props):
+    item = _make_item(
+        item_id,
+        "image",
+        status,
+        **{
+            "image:camera_model": "Sony A7R IV",
+            "image:resolution": [9504, 6336],
+            "image:has_geotag": False,
+            "image:capture_type": "ground",
+            **extra_props,
+        },
+    )
+    item["geometry"] = {"type": "Point", "coordinates": [127.0, 37.0]}
+    item["bbox"] = [127.0, 37.0, 127.0, 37.0]
+    item["assets"] = {
+        "data": {
+            "href": f"/api/files/test-project/image/{item_id}/{filename}",
+            "type": "image/jpeg",
+            "roles": ["data"],
+            "title": filename,
+        }
+    }
+    return item
+
+
+class TestMergeImageSet:
+
+    @patch("sams.routers.items.history.record_event")
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
+    @patch("sams.routers.items.stac.get_item", new_callable=AsyncMock)
+    def test_merge_image_set_creates_bundle_and_archives_sources(self, mock_get, mock_update, mock_history):
+        items = {
+            "img-1": _make_image_item("img-1", "IMG_0001.jpg"),
+            "img-2": _make_image_item("img-2", "IMG_0002.jpg"),
+        }
+        mock_get.side_effect = lambda col, iid: items.get(iid)
+        mock_update.return_value = None
+
+        resp = client.post(
+            "/api/items/test-project/merge-image-set",
+            json={"item_ids": ["img-1", "img-2"]},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["merged_count"] == 2
+        assert body["archived_count"] == 2
+        assert body["merged_item_id"].startswith("test-project-image-set-")
+        assert mock_update.call_count == 3
+
+        created = mock_update.call_args_list[0].args[2]
+        assert created["id"] == body["merged_item_id"]
+        assert created["properties"]["data_category"] == "image"
+        assert created["properties"]["sams:status"] == "draft"
+        assert created["properties"]["image:image_count"] == 2
+        assert created["assets"]["data"]["file_count"] == 2
+        assert "image_001" in created["assets"]
+        assert "image_002" in created["assets"]
+        assert {link["rel"] for link in created["links"]} == {"derived_from"}
+
+        updated_sources = [call.args[2] for call in mock_update.call_args_list[1:]]
+        assert {it["id"] for it in updated_sources} == {"img-1", "img-2"}
+        for updated in updated_sources:
+            props = updated["properties"]
+            assert props["sams:status"] == "archived"
+            assert props["sams:merged_into"] == body["merged_item_id"]
+            assert any(link["rel"] == "has_derived" for link in updated["links"])
+
+        assert mock_history.call_count == 3
+
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
+    @patch("sams.routers.items.stac.get_item", new_callable=AsyncMock)
+    def test_merge_image_set_rejects_non_image_item(self, mock_get, mock_update):
+        items = {
+            "img-1": _make_image_item("img-1", "IMG_0001.jpg"),
+            "pc-1": _make_item("pc-1", "pointcloud", "draft"),
+        }
+        mock_get.side_effect = lambda col, iid: items.get(iid)
+
+        resp = client.post(
+            "/api/items/test-project/merge-image-set",
+            json={"item_ids": ["img-1", "pc-1"]},
+        )
+
+        assert resp.status_code == 400
+        assert "원본 이미지" in resp.json()["detail"]
+        assert mock_update.call_count == 0
+
+    @patch("sams.routers.items._pgstac_update_item", new_callable=AsyncMock)
+    @patch("sams.routers.items.stac.get_item", new_callable=AsyncMock)
+    def test_merge_image_set_dry_run_does_not_update(self, mock_get, mock_update):
+        items = {
+            "img-1": _make_image_item("img-1", "IMG_0001.jpg"),
+            "img-2": _make_image_item("img-2", "IMG_0002.jpg"),
+        }
+        mock_get.side_effect = lambda col, iid: items.get(iid)
+
+        resp = client.post(
+            "/api/items/test-project/merge-image-set",
+            json={"item_ids": ["img-1", "img-2"], "dry_run": True},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["dry_run"] is True
+        assert body["merged_item_id"] is None
+        assert body["merged_count"] == 2
+        assert mock_update.call_count == 0

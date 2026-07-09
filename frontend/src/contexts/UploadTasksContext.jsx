@@ -79,6 +79,23 @@ function formatUploadError(err) {
   return '알 수 없는 네트워크 오류'
 }
 
+function formatRegisterError(err) {
+  if (err?.response?.status === 504) {
+    return '등록 요청 시간이 초과되었습니다. 대용량 파일을 최종 저장소로 복사하는 중일 수 있으니 Project에서 등록 여부를 확인한 뒤 재시도하세요.'
+  }
+  if (err?.code === 'ECONNABORTED') {
+    return '등록 응답 대기 시간이 초과되었습니다. 대용량 파일 복사가 계속 중일 수 있으니 잠시 후 등록 여부를 확인하세요.'
+  }
+  return formatUploadError(err)
+}
+
+function formatRegisterErrors(errors) {
+  const list = Array.isArray(errors) ? errors.filter(Boolean) : []
+  if (!list.length) return '등록된 항목이 없습니다.'
+  const shown = list.slice(0, 3).join('; ')
+  return `등록 실패: ${shown}${list.length > 3 ? ` 외 ${list.length - 3}건` : ''}`
+}
+
 export function formatUploadBytes(bytes) {
   if (bytes == null) return '—'
   const tib = 1024 * 1024 * 1024 * 1024
@@ -458,7 +475,11 @@ export function UploadTasksProvider({ children }) {
 
   // 등록 로직 (registerTask, autoRegister 공용)
   const _doRegister = useCallback(async (taskId, task) => {
-    updateTask(taskId, { status: 'registering' })
+    updateTask(taskId, {
+      status: 'registering',
+      uploadProgress: null,
+      uploadStage: '최종 저장소 복사·STAC 등록 중',
+    })
     try {
       const collectionId = task.collectionId || `upload-${Date.now()}`
       const excluded = new Set(task.excludedRows || [])
@@ -534,11 +555,13 @@ export function UploadTasksProvider({ children }) {
       if (registered === 0) {
         updateTask(taskId, {
           status: 'failed',
-          error: errors.length > 0 ? `등록 실패: ${errors.join('; ')}` : '등록된 항목이 없습니다.',
+          uploadStage: null,
+          error: formatRegisterErrors(errors),
         })
       } else {
         updateTask(taskId, {
           status: 'registered',
+          uploadStage: null,
           registeredCount: registered,
           registeredItemIds: data.item_ids || [],
           registeredCollectionId: collectionId,
@@ -547,7 +570,7 @@ export function UploadTasksProvider({ children }) {
       }
     } catch (err) {
       console.error('등록 실패:', err)
-      updateTask(taskId, { status: 'failed', error: err.response?.data?.detail || err.message })
+      updateTask(taskId, { status: 'failed', uploadStage: null, error: formatRegisterError(err) })
     }
   }, [updateTask, uploadPolicy])
 
